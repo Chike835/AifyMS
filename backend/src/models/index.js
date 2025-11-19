@@ -16,6 +16,7 @@ export const associateModels = () => {
   // Role - Permission (Many-to-Many through role_permissions)
   Role.belongsToMany(Permission, {
     through: 'role_permissions',
+    timestamps: false,
     foreignKey: 'role_id',
     otherKey: 'permission_id',
     as: 'permissions'
@@ -23,6 +24,7 @@ export const associateModels = () => {
 
   Permission.belongsToMany(Role, {
     through: 'role_permissions',
+    timestamps: false,
     foreignKey: 'permission_id',
     otherKey: 'role_id',
     as: 'roles'

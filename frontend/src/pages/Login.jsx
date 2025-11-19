@@ -16,15 +16,33 @@ const Login = () => {
     setError('');
     setLoading(true);
 
-    const result = await login(email, password);
-    
-    if (result.success) {
-      navigate('/');
-    } else {
-      setError(result.error);
+    try {
+      const result = await login(email, password);
+      
+      if (result && result.success) {
+        // Small delay to ensure state is fully updated before navigation
+        // This prevents race conditions with React state updates
+        setTimeout(() => {
+          navigate('/', { replace: true });
+        }, 100);
+      } else {
+        // Ensure error is always a string
+        const errorMsg = result?.error;
+        setError(
+          typeof errorMsg === 'string' 
+            ? errorMsg 
+            : errorMsg?.message || 'Login failed. Please check your credentials.'
+        );
+        setLoading(false);
+      }
+    } catch (error) {
+      // Catch any unexpected errors
+      console.error('Login error:', error);
+      // Ensure error is always a string
+      const errorMsg = error?.message || error?.toString() || 'An unexpected error occurred. Please try again.';
+      setError(errorMsg);
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
   return (
@@ -46,7 +64,7 @@ const Login = () => {
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-              {error}
+              {typeof error === 'string' ? error : error?.message || JSON.stringify(error)}
             </div>
           )}
           <div className="rounded-md shadow-sm -space-y-px">

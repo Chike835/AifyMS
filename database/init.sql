@@ -356,7 +356,7 @@ INSERT INTO users (id, email, password_hash, full_name, role_id, branch_id, is_a
 SELECT 
     uuid_generate_v4(),
     'admin@aify.com',
-    '$2b$10$rOzJqJqJqJqJqJqJqJqJqOqJqJqJqJqJqJqJqJqJqJqJqJqJqJqJq', -- Placeholder: Replace with actual bcrypt hash
+    '$2b$10$06Ua46dXi6qKmppVbtIEH.sCj8YsKXT7yCrMJmlBptjtJ7ru6eTLi', -- bcrypt hash for 'Admin@123'
     'Super Administrator',
     r.id,
     NULL, -- Super Admin has no branch restriction

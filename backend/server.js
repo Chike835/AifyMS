@@ -31,10 +31,7 @@ app.use('/api', apiRoutes);
 app.use((err, req, res, next) => {
   console.error('Error:', err);
   res.status(err.status || 500).json({
-    error: {
-      message: err.message || 'Internal Server Error',
-      ...(config.nodeEnv === 'development' && { stack: err.stack })
-    }
+    error: err.message || 'Internal Server Error'
   });
 });
 
@@ -56,12 +53,9 @@ const startServer = async () => {
     // Import and associate all models
     await associateModels();
 
-    // Sync database (alter: true will update schema without dropping data)
-    // In production, use migrations instead
-    if (config.nodeEnv === 'development') {
-      await sequelize.sync({ alter: true });
-      console.log('✅ Database models synchronized.');
-    }
+    // Sync is disabled because schema is managed by init.sql
+    // await sequelize.sync({ alter: false }); 
+    console.log('✅ Database schema managed by init.sql (Sync Disabled)');
 
     // Start server
     app.listen(config.port, () => {

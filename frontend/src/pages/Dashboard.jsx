@@ -4,7 +4,25 @@ import api from '../utils/api';
 import { CreditCard, Package, TrendingUp, Users } from 'lucide-react';
 
 const Dashboard = () => {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+
+  // Show loading state while user data is being loaded
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      </div>
+    );
+  }
+
+  // Show message if user is not available
+  if (!user) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-gray-600">User data not available. Please log in again.</p>
+      </div>
+    );
+  }
 
   // Fetch pending payments count
   const { data: pendingPayments } = useQuery({
@@ -50,7 +68,7 @@ const Dashboard = () => {
           Welcome, {user?.full_name}
         </h1>
         <p className="text-gray-600 mt-2">
-          {user?.role_name} {user?.branch && `• ${user.branch.name}`}
+          {user?.role_name} {user?.branch?.name && `• ${user.branch.name}`}
         </p>
       </div>
 

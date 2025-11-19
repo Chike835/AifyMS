@@ -1,5 +1,4 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 
 const AuthContext = createContext(null);
@@ -8,7 +7,6 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [permissions, setPermissions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const navigate = useNavigate();
 
   // Load user from localStorage on mount
   useEffect(() => {
@@ -44,9 +42,26 @@ export const AuthProvider = ({ children }) => {
 
       return { success: true };
     } catch (error) {
+      // Handle network errors and API errors
+      let errorMessage = 'Login failed. Please check your credentials.';
+      
+      if (!error.response) {
+        // Network error (backend unreachable)
+        errorMessage = 'Unable to connect to server. Please check your connection and try again.';
+      } else if (error.response?.data?.error) {
+        // API returned an error message - ensure it's a string
+        const apiError = error.response.data.error;
+        errorMessage = typeof apiError === 'string' 
+          ? apiError 
+          : apiError?.message || JSON.stringify(apiError);
+      } else if (error.response?.status === 500) {
+        // Server error
+        errorMessage = 'Server error. Please try again later.';
+      }
+      
       return {
         success: false,
-        error: error.response?.data?.error || 'Login failed. Please check your credentials.',
+        error: errorMessage, // Always a string
       };
     }
   };
@@ -56,7 +71,8 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('user');
     setUser(null);
     setPermissions([]);
-    navigate('/login');
+    // Use window.location instead of navigate since we're in a context provider
+    window.location.href = '/login';
   };
 
   const hasPermission = (slug) => {
