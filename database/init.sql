@@ -170,6 +170,84 @@ CREATE TABLE payments (
     CHECK (amount > 0)
 );
 
+-- Stock Transfers table (tracking inventory movement between branches)
+CREATE TABLE stock_transfers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    inventory_instance_id UUID NOT NULL REFERENCES inventory_instances(id),
+    from_branch_id UUID NOT NULL REFERENCES branches(id),
+    to_branch_id UUID NOT NULL REFERENCES branches(id),
+    user_id UUID NOT NULL REFERENCES users(id),
+    transfer_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT,
+    CHECK (from_branch_id != to_branch_id)
+);
+
+-- Stock Adjustments table (tracking quantity corrections with reasons)
+CREATE TABLE stock_adjustments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    inventory_instance_id UUID NOT NULL REFERENCES inventory_instances(id),
+    old_quantity DECIMAL(15, 3) NOT NULL,
+    new_quantity DECIMAL(15, 3) NOT NULL,
+    reason TEXT NOT NULL,
+    user_id UUID NOT NULL REFERENCES users(id),
+    adjustment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CHECK (new_quantity >= 0)
+);
+
+-- Production Wastage table (tracking manufacturing losses)
+CREATE TABLE production_wastage (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    inventory_instance_id UUID NOT NULL REFERENCES inventory_instances(id),
+    quantity_wasted DECIMAL(15, 3) NOT NULL,
+    reason TEXT NOT NULL,
+    user_id UUID NOT NULL REFERENCES users(id),
+    wastage_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CHECK (quantity_wasted > 0)
+);
+
+-- Product Attributes: Brands
+CREATE TABLE product_attributes_brands (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(100) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Product Attributes: Colors
+CREATE TABLE product_attributes_colors (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(100) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Product Attributes: Gauges
+CREATE TABLE product_attributes_gauges (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(100) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================================
+-- ALTER EXISTING TABLES
+-- ============================================
+
+-- Add foreign keys to products table for attributes
+ALTER TABLE products 
+    ADD COLUMN IF NOT EXISTS brand_id UUID REFERENCES product_attributes_brands(id),
+    ADD COLUMN IF NOT EXISTS color_id UUID REFERENCES product_attributes_colors(id),
+    ADD COLUMN IF NOT EXISTS gauge_id UUID REFERENCES product_attributes_gauges(id);
+
+-- Add dispatcher fields to sales_orders table
+ALTER TABLE sales_orders
+    ADD COLUMN IF NOT EXISTS dispatcher_name VARCHAR(200),
+    ADD COLUMN IF NOT EXISTS vehicle_plate VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS delivery_signature TEXT,
+    ADD COLUMN IF NOT EXISTS subtotal DECIMAL(15, 2),
+    ADD COLUMN IF NOT EXISTS total_tax DECIMAL(15, 2);
+
+-- Add wastage margin to recipes table
+ALTER TABLE recipes
+    ADD COLUMN IF NOT EXISTS wastage_margin DECIMAL(5, 2) DEFAULT 0 CHECK (wastage_margin >= 0 AND wastage_margin <= 100);
+
 -- ============================================
 -- INDEXES
 -- ============================================
@@ -191,6 +269,15 @@ CREATE INDEX idx_item_assignments_inventory_instance_id ON item_assignments(inve
 CREATE INDEX idx_payments_customer_id ON payments(customer_id);
 CREATE INDEX idx_payments_status ON payments(status);
 CREATE INDEX idx_payments_created_by ON payments(created_by);
+CREATE INDEX idx_products_brand_id ON products(brand_id);
+CREATE INDEX idx_products_color_id ON products(color_id);
+CREATE INDEX idx_products_gauge_id ON products(gauge_id);
+CREATE INDEX idx_stock_transfers_instance_id ON stock_transfers(inventory_instance_id);
+CREATE INDEX idx_stock_transfers_from_branch ON stock_transfers(from_branch_id);
+CREATE INDEX idx_stock_transfers_to_branch ON stock_transfers(to_branch_id);
+CREATE INDEX idx_stock_adjustments_instance_id ON stock_adjustments(inventory_instance_id);
+CREATE INDEX idx_production_wastage_instance_id ON production_wastage(inventory_instance_id);
+CREATE INDEX idx_sales_orders_production_status ON sales_orders(production_status);
 
 -- ============================================
 -- SEED DATA: ROLES
