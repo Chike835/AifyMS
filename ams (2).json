@@ -1,0 +1,389 @@
+{
+  "projectSpecification": {
+    "projectName": "Aify Global POS & Accounting System",
+    "version": "1.4 (Build-Ready Spec)",
+    "description": "A complete technical specification for a bespoke POS, Inventory, Manufacturing, and Accounting system designed for the Nigerian building materials industry.",
+    "prd": {
+      "version": "1.3",
+      "introduction": {
+        "problemStatement": "Standard off-the-shelf POS and accounting software is not equipped to handle the specific inventory complexities of the Nigerian building materials industry. Key challenges include: managing products sold in multiple units (e.g., Kg vs. Meters), dynamically linking a 'sold product' to a 'raw material' at the point of sale, tracking raw material instances (coils/pallets), managing a multi-stage fulfillment process, and handling customer ledger payments separately from sales.",
+        "solution": "A bespoke, web-based system combining Point of Sale (POS), Inventory Management, Manufacturing, and Accounting. The system will be built with a multi-branch architecture and designed with the flexibility to be marketed as a SaaS solution.",
+        "userPersonas": [
+          "Admin / Owner: Full system access, configures settings, manages branches, views all financial reports.",
+          "Sales Representative: Creates invoices/quotations, tracks own commissions, views customer data.",
+          "Cashier: Receives and logs payments, manages a cash register, issues payment receipts, views customer ledgers.",
+          "Inventory Manager: Manages products, labels (coils/pallets), stock adjustments, transfers, and wastage reports.",
+          "Production Worker: Accesses the Manufacturing module to view production queues and update an order's status.",
+          "Accountant: Manages financial ledgers, payroll, expenses, and generates core accounting reports.",
+          "Dispatcher: Updates order status to 'Delivered' and logs delivery details."
+        ],
+        "coreArchitecturalPrinciple": "Permission-Driven UI: The system will not be built for static, hardcoded 'roles.' Instead, the entire UI/UX will be permission-driven. Admins will create roles by assigning them a checklist of granular permissions (e.g., `create_invoice`, `view_stock_report`, `view_all_branches`). The UI will dynamically render itself based on the logged-in user's permissions."
+      },
+      "coreFeatures": [
+        {
+          "module": "User Management",
+          "features": [
+            "Users: CRUD for system users. Users must be assigned to a Branch and a Role.",
+            "Roles & Permissions: A core module for Admins to create/edit roles via a master checklist of all granular permissions."
+          ]
+        },
+        {
+          "module": "Inventory",
+          "features": [
+            "Add Product (4 Types): 1. Standard (simple quantity), 2. Compound Unit (e.g., 1 Box = 2500 Pcs), 3. Raw Material (Tracked) (stock tracked as unique Coil/Pallet IDs), 4. Manufactured (Virtual) (non-stock item to trigger production).",
+            "Stock Tracking: `inventory_instances` table holds all unique Coil/Pallet IDs, their branch location, initial quantity, and remaining quantity.",
+            "Stock Transfer: Move instances between Branches.",
+            "Stock Adjustment: Manually alter the remaining quantity of an instance with a required 'Reason'."
+          ]
+        },
+        {
+          "module": "Manufacturing",
+          "features": [
+            "Recipes (Conversion Rules): Defines the conversion math (e.g., 1 Meter of 0.24 Gauge = 0.8 Kg).",
+            "Production List: A queue for 'In Production' and 'Production Completed' orders."
+          ]
+        },
+        {
+          "module": "Purchases",
+          "features": [
+            "Add Purchase: Form to add new stock. UI *must* prompt user to register *each* new Coil ID/Pallet ID when adding 'Raw Material (Tracked)' products."
+          ]
+        },
+        {
+          "module": "Sales",
+          "features": [
+            "Add Sale / POS: Core sales interface (See Workflow 3.1).",
+            "Shipments: A queue for dispatchers."
+          ]
+        },
+        {
+          "module": "Accounts & Reports",
+          "features": [
+            "Receive Payment: A dedicated interface (for `receive_payment` permission) to log customer payments (See Workflow 3.4).",
+            "Stock Report: Must support 'Summary View' (Total Kg) and 'Detailed View' (list of all Coil/Pallet IDs and their remaining quantities).",
+            "Register Report: For cashiers to balance their drawer."
+          ]
+        }
+      ],
+      "keyWorkflows": [
+        {
+          "name": "Selling Aluminum (by Meter)",
+          "steps": [
+            "Sales Rep adds 'Manufactured (Virtual)' product ('0.25 w/g', 100 Meters).",
+            "UI shows 'Needs Material' (⚠️) icon. `Finalize Sale` button is disabled.",
+            "Rep clicks ⚠️, a modal opens.",
+            "Rep selects 'Raw Material' ('0.24 Red Coil'). System calculates '80 Kg Needed'.",
+            "System displays list of available 'Coil IDs' from the user's branch.",
+            "Rep assigns 'Coil-B (50 Kg)' and 'Coil-C (30 Kg)'.",
+            "Modal closes. ⚠️ becomes ✅. `Finalize Sale` button is enabled.",
+            "Rep finalizes sale. Invoice is created with status 'Unpaid'."
+          ]
+        },
+        {
+          "name": "Invoice & Production Status",
+          "steps": [
+            "1. Unpaid: Sale is created by Sales Rep.",
+            "2. Pending: Cashier logs payment (Workflow 3.4). System auto-updates status. Raw material is now reserved.",
+            "3. In Production: User with `update_production_status` updates status. System prompts for 'Worker Name'.",
+            "4. Produced: Worker updates status. Order moves to 'Shipments' queue.",
+            "5. Delivered: User with `update_shipment_status` updates status. System prompts for 'Dispatcher Name' & 'Vehicle Plate'."
+          ]
+        },
+        {
+          "name": "Receiving Payment (Cashier Workflow)",
+          "steps": [
+            "User with `receive_payment` opens 'Receive Payment' module.",
+            "Cashier selects customer. UI displays outstanding balance.",
+            "Cashier fills form: `Amount Received`, `Payment Method`, `Payment Account` (e.g., 'Main Cash Drawer').",
+            "Cashier confirms. System logs payment, updates customer ledger, prints 'Payment Receipt'.",
+            "System auto-checks customer's 'Unpaid' invoices and updates oldest ones to 'Pending' if balance is sufficient."
+          ]
+        }
+      ],
+      "featureEnhancements": [
+        "Advanced Wastage Module: Set acceptable wastage margins (e.g., 1.5%) per Recipe.",
+        "Mobile App (PWA): Mobile-friendly web app for Production (update status) and Dispatch (update status, capture signature/photo).",
+        "Customer Portal: Customers can log in to track order status and view statements.",
+        "Dashboard Alerts: Proactive alerts for low stock, credit limits, and production delays."
+      ],
+      "uiUxFramework": {
+        "principle": "Permission-Driven Rendering",
+        "globalElements": {
+          "sidebar": "Dynamically rendered. 'Inventory' link only appears if user has any `inventory_*` permission.",
+          "topNavBar": {
+            "branchSelector": "Critical. For standard users (no `view_all_branches`), this is static text of their assigned branch. For Admins (with `view_all_branches`), this is a dropdown to select 'All Branches' or a specific branch. All data (stock, sales, reports) is filtered by this.",
+            "notifications": "Alerts are permission-based (e.g., `view_low_stock_alerts`)."
+          }
+        },
+        "crudLogic": [
+          "`+ Add Product` button is hidden unless user has `create_product`.",
+          "`Edit Role` button is hidden unless user has `edit_role_permissions`.",
+          "`Price` field on POS is read-only unless user has `edit_sale_price`.",
+          "`Discount` field is hidden unless user has `apply_discounts`.",
+          "`Mark as Produced` button is hidden unless user has `update_production_status`."
+        ]
+      }
+    },
+    "technicalSpecification": {
+      "stack": {
+        "frontend": "React",
+        "backend": "Node.js (Express)",
+        "database": "PostgreSQL",
+        "deployment": "Docker containers on a cloud platform (e.g., AWS, Google Cloud, Azure)."
+      },
+      "mobileStrategy": "Progressive Web App (PWA) - mobile-friendly, requires internet. No offline capability.",
+      "businessRules": {
+        "idGeneration": "Formatted, prefixed numbers (e.g., 'INV-OWR-2025-00001', 'CUS-00125', 'COIL-A-001').",
+        "taxation": "Advanced: Per-product tax rates can be set. System supports both tax-inclusive and tax-exclusive pricing models.",
+        "salesCommissions": "Simple percentage of the total sale value.",
+        "stockReturns": "User is given a choice on return: 'Return to Stock as New Item' (creates a new inventory_instance) or 'Write off as Scrap' (moves to a virtual scrap location)."
+      },
+      "databaseSchema": {
+        "tables": [
+          {
+            "name": "users",
+            "columns": [
+              { "name": "id", "type": "uuid", "primaryKey": true },
+              { "name": "email", "type": "varchar(255)", "unique": true },
+              { "name": "password_hash", "type": "varchar(255)" },
+              { "name": "full_name", "type": "varchar(255)" },
+              { "name": "role_id", "type": "uuid", "foreignKey": "roles(id)" },
+              { "name": "branch_id", "type": "uuid", "foreignKey": "branches(id)" },
+              { "name": "is_active", "type": "boolean", "default": true }
+            ]
+          },
+          {
+            "name": "roles",
+            "columns": [
+              { "name": "id", "type": "uuid", "primaryKey": true },
+              { "name": "name", "type": "varchar(100)", "unique": true }
+            ]
+          },
+          {
+            "name": "permissions",
+            "columns": [
+              { "name": "id", "type": "uuid", "primaryKey": true },
+              { "name": "name", "type": "varchar(255)", "unique": true, "description": "e.g., 'create_invoice', 'view_all_branches'" }
+            ]
+          },
+          {
+            "name": "role_permissions",
+            "columns": [
+              { "name": "role_id", "type": "uuid", "foreignKey": "roles(id)", "primaryKey": true },
+              { "name": "permission_id", "type": "uuid", "foreignKey": "permissions(id)", "primaryKey": true }
+            ]
+          },
+          {
+            "name": "branches",
+            "columns": [
+              { "name": "id", "type": "uuid", "primaryKey": true },
+              { "name": "name", "type": "varchar(255)" },
+              { "name": "address", "type": "text" },
+              { "name": "prefix", "type": "varchar(3)", "unique": true, "description": "e.g., 'OWR' for Owerri" }
+            ]
+          },
+          {
+            "name": "customers",
+            "columns": [
+              { "name": "id", "type": "uuid", "primaryKey": true },
+              { "name": "customer_pid", "type": "varchar(20)", "unique": true, "description": "e.g., 'CUS-00001'" },
+              { "name": "name", "type": "varchar(255)" },
+              { "name": "phone", "type": "varchar(50)" },
+              { "name": "ledger_balance", "type": "decimal(12, 2)", "default": 0.00 }
+            ]
+          },
+          {
+            "name": "suppliers",
+            "columns": [
+              { "name": "id", "type": "uuid", "primaryKey": true },
+              { "name": "name", "type": "varchar(255)" }
+            ]
+          },
+          {
+            "name": "product_attributes_brands",
+            "columns": [
+              { "name": "id", "type": "uuid", "primaryKey": true },
+              { "name": "name", "type": "varchar(100)", "unique": true }
+            ]
+          },
+          {
+            "name": "product_attributes_colors",
+            "columns": [
+              { "name": "id", "type": "uuid", "primaryKey": true },
+              { "name": "name", "type": "varchar(100)", "unique": true }
+            ]
+          },
+          {
+            "name": "product_attributes_gauges",
+            "columns": [
+              { "name": "id", "type": "uuid", "primaryKey": true },
+              { "name": "name", "type": "varchar(100)", "unique": true }
+            ]
+          },
+          {
+            "name": "products",
+            "columns": [
+              { "name": "id", "type": "uuid", "primaryKey": true },
+              { "name": "sku", "type": "varchar(100)", "unique": true },
+              { "name": "name", "type": "varchar(255)" },
+              { "name": "type", "type": "varchar(50)", "description": "'standard', 'compound_unit', 'raw_material_tracked', 'manufactured_virtual'" },
+              { "name": "base_unit", "type": "varchar(20)", "description": "e.g., 'Pcs', 'Kg', 'Meters'" },
+              { "name": "sale_price", "type": "decimal(12, 2)" },
+              { "name": "tax_rate", "type": "decimal(5, 2)", "default": 7.50 },
+              { "name": "is_tax_inclusive", "type": "boolean", "default": false },
+              { "name": "brand_id", "type": "uuid", "foreignKey": "product_attributes_brands(id)", "nullable": true },
+              { "name": "color_id", "type": "uuid", "foreignKey": "product_attributes_colors(id)", "nullable": true },
+              { "name": "gauge_id", "type": "uuid", "foreignKey": "product_attributes_gauges(id)", "nullable": true },
+              { "name": "conversion_data", "type": "jsonb", "nullable": true, "description": "For 'compound_unit', e.g., {'Box': 2500, 'Bag': 100}" }
+            ]
+          },
+          {
+            "name": "inventory_instances",
+            "columns": [
+              { "name": "id", "type": "uuid", "primaryKey": true },
+              { "name": "instance_pid", "type": "varchar(50)", "unique": true, "description": "e.g., 'COIL-A-001'" },
+              { "name": "product_id", "type": "uuid", "foreignKey": "products(id)", "description": "Links to 'raw_material_tracked' product" },
+              { "name": "branch_id", "type": "uuid", "foreignKey": "branches(id)" },
+              { "name": "initial_quantity", "type": "decimal(10, 2)" },
+              { "name": "remaining_quantity", "type": "decimal(10, 2)" },
+              { "name": "status", "type": "varchar(20)", "default": "'in_stock'", "description": "'in_stock', 'depleted', 'scrapped'" }
+            ]
+          },
+          {
+            "name": "sales_orders",
+            "columns": [
+              { "name": "id", "type": "uuid", "primaryKey": true },
+              { "name": "invoice_pid", "type": "varchar(50)", "unique": true, "description": "e.g., 'INV-OWR-2025-00001'" },
+              { "name": "customer_id", "type": "uuid", "foreignKey": "customers(id)" },
+              { "name": "branch_id", "type": "uuid", "foreignKey": "branches(id)" },
+              { "name": "created_by_user_id", "type": "uuid", "foreignKey": "users(id)" },
+              { "name":_id"status", "type": "varchar(50)", "default": "'unpaid'", "description": "'unpaid', 'pending', 'in_production', 'produced', 'delivered', 'canceled'" },
+              { "name": "subtotal", "type": "decimal(12, 2)" },
+              { "name": "total_tax", "type": "decimal(12, 2)" },
+              { "name": "total_amount", "type": "decimal(12, 2)" },
+              "production_worker_name": "varchar(255)", "nullable": true },
+              { "name": "dispatcher_name", "type": "varchar(255)", "nullable": true },
+              { "name": "vehicle_plate", "type": "varchar(50)", "nullable": true }
+            ]
+          },
+          {
+            "name": "sales_order_line_items",
+            "columns": [
+              { "name": "id", "type": "uuid", "primaryKey": true },
+              { "name": "order_id", "type": "uuid", "foreignKey": "sales_orders(id)" },
+              { "name": "product_id", "type": "uuid", "foreignKey": "products(id)", "description": "The product *sold* (e.g., 'manufactured_virtual' item)" },
+              { "name": "quantity", "type": "decimal(10, 2)" },
+              { "name": "unit", "type": "varchar(20)" },
+              { "name": "unit_price", "type": "decimal(12, 2)" },
+              { "name": "line_total", "type": "decimal(12, 2)" }
+            ]
+          },
+          {
+            "name": "line_item_assignments",
+            "columns": [
+              { "name": "id", "type": "uuid", "primaryKey": true },
+              { "name": "line_item_id", "type": "uuid", "foreignKey": "sales_order_line_items(id)" },
+              { "name": "instance_id", "type": "uuid", "foreignKey": "inventory_instances(id)", "description": "The specific coil/pallet used" },
+              { "name": "quantity_consumed", "type": "decimal(10, 2)", "description": "e.g., 50 Kg" }
+            ]
+          },
+          {
+            "name": "payments",
+            "columns": [
+              { "name": "id", "type": "uuid", "primaryKey": true },
+              { "name": "customer_id", "type": "uuid", "foreignKey": "customers(id)" },
+              { "name": "received_by_user_id", "type": "uuid", "foreignKey": "users(id)" },
+              { "name": "payment_account_id", "type": "uuid", "foreignKey": "payment_accounts(id)" },
+              { "name": "amount", "type": "decimal(12, 2)" },
+              { "name": "method", "type": "varchar(50)", "description": "'Cash', 'Bank Transfer', 'POS'" }
+            ]
+          },
+          {
+            "name": "payment_accounts",
+            "columns": [
+              { "name": "id", "type": "uuid", "primaryKey": true },
+              { "name": "name", "type": "varchar(255)", "description": "e.g., 'Main Cash Drawer', 'GTB Bank Account'" },
+              { "name": "branch_id", "type": "uuid", "foreignKey": "branches(id)" },
+              { "name": "balance", "type": "decimal(12, 2)", "default": 0.00 }
+            ]
+          },
+          {
+            "name": "recipes",
+            "columns": [
+              { "name": "id", "type": "uuid", "primaryKey": true },
+              { "name":Name": "varchar(255)", "description": "e.g., '0.24 Gauge H/G Conversion'" },
+              { "name": "input_gauge_id", "type": "uuid", "foreignKey": "product_attributes_gauges(id)" },
+              { "name": "input_corrugation", "type": "varchar(100)", "nullable": true },
+              { "name": "output_unit", "type": "varchar(20)", "default": "'Meters'" },
+              { "name": "conversion_factor", "type": "decimal(10, 4)", "description": "e.g., 0.8. (1 Meter = 0.8 Kg)" }
+            ]
+          }
+        ]
+      },
+      "apiEndpoints": [
+        { "group": "Auth", "method": "POST", "path": "/api/auth/login", "description": "User login, returns JWT token and user info (inc. permissions)." },
+        { "group": "Auth", "method": "GET", "path": "/api/auth/me", "description": "Get current logged-in user details." },
+        { "group": "Products", "method": "GET", "path": "/api/products", "description": "Get list of products. Filterable by branch, type, attributes." },
+        { "group": "Products", "method": "POST", "path": "/api/products", "description": "Create a new product (Admin)." },
+        { "group": "Products", "method": "GET", "path": "/api/products/attributes", "description": "Get all product attributes (brands, colors, gauges)." },
+        { "group": "Inventory", "method": "GET", "path": "/api/inventory/instances", "description": "Get inventory instances (coils/pallets) for a specific product_id and branch_id." },
+        { "group": "Inventory", "method": "POST", "path": "/api/inventory/adjust", "description": "Create a stock adjustment (Inventory Manager)." },
+        { "group": "Inventory", "method": "POST", "path": "/api/inventory/transfer", "description": "Transfer an instance to another branch." },
+        { "group": "Purchases", "method": "POST", "path": "/api/purchases", "description": "Create a new purchase order, including registering new inventory instances." },
+        { "group":Aify POS - Technical Spec (XML)": "Sales", "method": "POST", "path": "/api/sales/orders", "description": "Create a new sales order (invoice) with line items and assignments." },
+        { "group": "Sales", "method": "GET", "path": "/api/sales/orders", "description": "Get list of sales orders. Filterable by status, branch, customer." },
+        { "group": "Sales", "method": "GET", "path": "/api/sales/orders/:id", "description": "Get details of a single sales order." },
+        { "group": "Sales", "method": "PUT", "path": "/api/sales/orders/:id/status", "description": "Update order status (In Production, Produced, Delivered). Body includes 'worker_name' or 'dispatcher_name'." },
+        { "group": "Payments", "method": "POST", "path": "/api/payments", "description": "Receive a new payment (Cashier). Updates customer ledger." },
+        { "group": "Reports", "method": "GET", "path": "/api/reports/stock", "description": "Get the stock report (summary and detailed views)." },
+        { "group": "Reports", "method": "GET", "path": "/api/reports/profit-loss", "description": "Get the P&L report. Filterable by date and branch." }
+      ],
+      "fileStructure": {
+        "root": "/",
+        "children": [
+          {
+            "name": "backend (Node.js/Express)",
+            "children": [
+              { "name": "src", "children": [
+                { "name": "api", "children": [
+                  { "name": "routes", "children": ["auth.routes.js", "product.routes.js", "sales.routes.js"] },
+                  { "name": "controllers", "children": ["auth.controller.js", "product.controller.js", "sales.controller.js"] },
+                  { "name": "services", "children": ["payment.service.js", "inventory.service.js"] },
+                  { "name": "middleware", "children": ["auth.middleware.js", "permissions.middleware.js"] }
+                ]},
+                { "name": "config", "children": ["db.js", "env.js"] },
+                { "name": "models", "children": ["product.model.js", "user.model.js"] },
+                { "name": "app.js" },
+                { "name": "server.js" }
+              ]},
+              { "name": "package.json" },
+              { "name": "Dockerfile" }
+            ]
+          },
+          {
+            "name": "frontend (React)",
+            "children": [
+              { "name": "src", "children": [
+                { "name": "components", "children": [
+                  { "name": "layout", "children": ["Sidebar.jsx", "TopNav.jsx"] },
+                  { "name": "pos", "children": ["POSInterface.jsx", "MaterialAssignmentModal.jsx"] },
+                  { "name": "reports", "children": ["StockReport.jsx"] }
+                ]},
+                { "name": "pages", "children": ["Dashboard.jsx", "SalesList.jsx", "ReceivePayment.jsx"] },
+                { "name": "hooks", "children": ["useAuth.js", "usePermissions.js"] },
+                { "name": "contexts", "children": ["AuthContext.js", "BranchContext.js"] },
+                { "name": "services", "children": ["api.js", "sales.service.js"] },
+                { "name": "App.jsx" },
+                { "name": "index.js" }
+              ]},
+              { "name": "package.json" },
+              { "name": "Dockerfile" }
+            ]
+          },
+          { "name": "docker-compose.yml", "description": "Defines services for frontend, backend, and postgres_db." },
+          { "name": "README.md" }
+        ]
+      }
+    }
+  }
+}
