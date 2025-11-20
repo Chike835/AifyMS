@@ -4,7 +4,13 @@ import Branch from './Branch.js';
 import User from './User.js';
 import Customer from './Customer.js';
 import Product from './Product.js';
+import ProductBrand from './ProductBrand.js';
+import ProductColor from './ProductColor.js';
+import ProductGauge from './ProductGauge.js';
 import InventoryInstance from './InventoryInstance.js';
+import StockTransfer from './StockTransfer.js';
+import StockAdjustment from './StockAdjustment.js';
+import Wastage from './Wastage.js';
 import Recipe from './Recipe.js';
 import SalesOrder from './SalesOrder.js';
 import SalesItem from './SalesItem.js';
@@ -191,6 +197,116 @@ export const associateModels = () => {
     foreignKey: 'inventory_instance_id',
     as: 'inventory_instance'
   });
+
+  // Product - ProductBrand (Many-to-One)
+  Product.belongsTo(ProductBrand, {
+    foreignKey: 'brand_id',
+    as: 'brandAttribute'
+  });
+  ProductBrand.hasMany(Product, {
+    foreignKey: 'brand_id',
+    as: 'products'
+  });
+
+  // Product - ProductColor (Many-to-One)
+  Product.belongsTo(ProductColor, {
+    foreignKey: 'color_id',
+    as: 'colorAttribute'
+  });
+  ProductColor.hasMany(Product, {
+    foreignKey: 'color_id',
+    as: 'products'
+  });
+
+  // Product - ProductGauge (Many-to-One)
+  Product.belongsTo(ProductGauge, {
+    foreignKey: 'gauge_id',
+    as: 'gaugeAttribute'
+  });
+  ProductGauge.hasMany(Product, {
+    foreignKey: 'gauge_id',
+    as: 'products'
+  });
+
+  // InventoryInstance - StockTransfer (One-to-Many)
+  InventoryInstance.hasMany(StockTransfer, {
+    foreignKey: 'inventory_instance_id',
+    as: 'transfers'
+  });
+  StockTransfer.belongsTo(InventoryInstance, {
+    foreignKey: 'inventory_instance_id',
+    as: 'inventory_instance'
+  });
+
+  // Branch - StockTransfer (One-to-Many: From)
+  Branch.hasMany(StockTransfer, {
+    foreignKey: 'from_branch_id',
+    as: 'transfers_from'
+  });
+  StockTransfer.belongsTo(Branch, {
+    foreignKey: 'from_branch_id',
+    as: 'from_branch'
+  });
+
+  // Branch - StockTransfer (One-to-Many: To)
+  Branch.hasMany(StockTransfer, {
+    foreignKey: 'to_branch_id',
+    as: 'transfers_to'
+  });
+  StockTransfer.belongsTo(Branch, {
+    foreignKey: 'to_branch_id',
+    as: 'to_branch'
+  });
+
+  // User - StockTransfer (One-to-Many)
+  User.hasMany(StockTransfer, {
+    foreignKey: 'user_id',
+    as: 'stock_transfers'
+  });
+  StockTransfer.belongsTo(User, {
+    foreignKey: 'user_id',
+    as: 'user'
+  });
+
+  // InventoryInstance - StockAdjustment (One-to-Many)
+  InventoryInstance.hasMany(StockAdjustment, {
+    foreignKey: 'inventory_instance_id',
+    as: 'adjustments'
+  });
+  StockAdjustment.belongsTo(InventoryInstance, {
+    foreignKey: 'inventory_instance_id',
+    as: 'inventory_instance'
+  });
+
+  // User - StockAdjustment (One-to-Many)
+  User.hasMany(StockAdjustment, {
+    foreignKey: 'user_id',
+    as: 'stock_adjustments'
+  });
+  StockAdjustment.belongsTo(User, {
+    foreignKey: 'user_id',
+    as: 'user'
+  });
+
+  // InventoryInstance - Wastage (One-to-Many)
+  InventoryInstance.hasMany(Wastage, {
+    foreignKey: 'inventory_instance_id',
+    as: 'wastage_records'
+  });
+  Wastage.belongsTo(InventoryInstance, {
+    foreignKey: 'inventory_instance_id',
+    as: 'inventory_instance'
+  });
+
+  // User - Wastage (One-to-Many)
+  User.hasMany(Wastage, {
+    foreignKey: 'user_id',
+    as: 'wastage_records'
+  });
+  Wastage.belongsTo(User, {
+    foreignKey: 'user_id',
+    as: 'user'
+  });
 };
 
 // Export all models
@@ -201,7 +317,13 @@ export {
   User,
   Customer,
   Product,
+  ProductBrand,
+  ProductColor,
+  ProductGauge,
   InventoryInstance,
+  StockTransfer,
+  StockAdjustment,
+  Wastage,
   Recipe,
   SalesOrder,
   SalesItem,

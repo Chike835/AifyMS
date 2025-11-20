@@ -1,5 +1,6 @@
-import { InventoryInstance, Product, Branch } from '../models/index.js';
+import { InventoryInstance, Product, Branch, StockTransfer, StockAdjustment, User } from '../models/index.js';
 import { Op } from 'sequelize';
+import sequelize from '../config/db.js';
 
 /**
  * POST /api/inventory/instances
@@ -200,6 +201,267 @@ export const getAvailableInstances = async (req, res, next) => {
     });
 
     res.json({ instances });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/inventory/transfer
+ * Transfer inventory instance between branches
+ */
+export const transferInstance = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { instance_id, to_branch_id, notes } = req.body;
+    const user_id = req.user.id;
+
+    if (!instance_id || !to_branch_id) {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        error: 'Missing required fields: instance_id, to_branch_id' 
+      });
+    }
+
+    // Get the instance
+    const instance = await InventoryInstance.findByPk(instance_id, { transaction });
+    if (!instance) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Inventory instance not found' });
+    }
+
+    // Verify destination branch exists
+    const toBranch = await Branch.findByPk(to_branch_id, { transaction });
+    if (!toBranch) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Destination branch not found' });
+    }
+
+    // Check if transfer is to same branch
+    if (instance.branch_id === to_branch_id) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Cannot transfer to the same branch' });
+    }
+
+    // Check permissions - user must have access to source branch
+    if (req.user.role_name !== 'Super Admin' && req.user.branch_id !== instance.branch_id) {
+      await transaction.rollback();
+      return res.status(403).json({ error: 'You do not have permission to transfer from this branch' });
+    }
+
+    const from_branch_id = instance.branch_id;
+
+    // Update instance branch
+    instance.branch_id = to_branch_id;
+    await instance.save({ transaction });
+
+    // Create transfer record
+    const transfer = await StockTransfer.create({
+      inventory_instance_id: instance_id,
+      from_branch_id,
+      to_branch_id,
+      user_id,
+      notes: notes || null
+    }, { transaction });
+
+    await transaction.commit();
+
+    // Load with associations
+    const transferWithDetails = await StockTransfer.findByPk(transfer.id, {
+      include: [
+        { model: InventoryInstance, as: 'inventory_instance', include: [{ model: Product, as: 'product' }] },
+        { model: Branch, as: 'from_branch' },
+        { model: Branch, as: 'to_branch' },
+        { model: User, as: 'user' }
+      ]
+    });
+
+    res.status(201).json({
+      message: 'Inventory instance transferred successfully',
+      transfer: transferWithDetails
+    });
+  } catch (error) {
+    await transaction.rollback();
+    next(error);
+  }
+};
+
+/**
+ * GET /api/inventory/transfers
+ * Get transfer history
+ */
+export const getTransfers = async (req, res, next) => {
+  try {
+    const { branch_id, instance_id } = req.query;
+    const where = {};
+
+    if (instance_id) {
+      where.inventory_instance_id = instance_id;
+    }
+
+    if (branch_id) {
+      where[Op.or] = [
+        { from_branch_id: branch_id },
+        { to_branch_id: branch_id }
+      ];
+    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      // Branch managers only see transfers involving their branch
+      where[Op.or] = [
+        { from_branch_id: req.user.branch_id },
+        { to_branch_id: req.user.branch_id }
+      ];
+    }
+
+    const transfers = await StockTransfer.findAll({
+      where,
+      include: [
+        { 
+          model: InventoryInstance, 
+          as: 'inventory_instance',
+          include: [{ model: Product, as: 'product' }]
+        },
+        { model: Branch, as: 'from_branch' },
+        { model: Branch, as: 'to_branch' },
+        { model: User, as: 'user' }
+      ],
+      order: [['transfer_date', 'DESC']]
+    });
+
+    res.json({ transfers });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/inventory/adjust
+ * Adjust inventory instance quantity
+ */
+export const adjustStock = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { instance_id, new_quantity, reason } = req.body;
+    const user_id = req.user.id;
+
+    if (!instance_id || new_quantity === undefined || !reason) {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        error: 'Missing required fields: instance_id, new_quantity, reason' 
+      });
+    }
+
+    if (new_quantity < 0) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'new_quantity cannot be negative' });
+    }
+
+    if (!reason.trim()) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Reason is required' });
+    }
+
+    // Get the instance
+    const instance = await InventoryInstance.findByPk(instance_id, { transaction });
+    if (!instance) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Inventory instance not found' });
+    }
+
+    // Check permissions
+    if (req.user.role_name !== 'Super Admin' && req.user.branch_id !== instance.branch_id) {
+      await transaction.rollback();
+      return res.status(403).json({ error: 'You do not have permission to adjust stock in this branch' });
+    }
+
+    const old_quantity = instance.remaining_quantity;
+
+    // Update instance quantity
+    instance.remaining_quantity = new_quantity;
+    
+    // Update status if depleted
+    if (new_quantity === 0) {
+      instance.status = 'depleted';
+    } else if (instance.status === 'depleted' && new_quantity > 0) {
+      instance.status = 'in_stock';
+    }
+
+    await instance.save({ transaction });
+
+    // Create adjustment record
+    const adjustment = await StockAdjustment.create({
+      inventory_instance_id: instance_id,
+      old_quantity,
+      new_quantity,
+      reason: reason.trim(),
+      user_id
+    }, { transaction });
+
+    await transaction.commit();
+
+    // Load with associations
+    const adjustmentWithDetails = await StockAdjustment.findByPk(adjustment.id, {
+      include: [
+        { 
+          model: InventoryInstance, 
+          as: 'inventory_instance',
+          include: [{ model: Product, as: 'product' }]
+        },
+        { model: User, as: 'user' }
+      ]
+    });
+
+    res.status(201).json({
+      message: 'Stock adjusted successfully',
+      adjustment: adjustmentWithDetails
+    });
+  } catch (error) {
+    await transaction.rollback();
+    next(error);
+  }
+};
+
+/**
+ * GET /api/inventory/adjustments
+ * Get adjustment history
+ */
+export const getAdjustments = async (req, res, next) => {
+  try {
+    const { branch_id, instance_id } = req.query;
+    const where = {};
+
+    if (instance_id) {
+      where.inventory_instance_id = instance_id;
+    }
+
+    const adjustments = await StockAdjustment.findAll({
+      where,
+      include: [
+        { 
+          model: InventoryInstance, 
+          as: 'inventory_instance',
+          include: [
+            { model: Product, as: 'product' },
+            { model: Branch, as: 'branch' }
+          ]
+        },
+        { model: User, as: 'user' }
+      ],
+      order: [['adjustment_date', 'DESC']]
+    });
+
+    // Filter by branch if needed
+    let filteredAdjustments = adjustments;
+    if (branch_id) {
+      filteredAdjustments = adjustments.filter(adj => 
+        adj.inventory_instance?.branch_id === branch_id
+      );
+    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      filteredAdjustments = adjustments.filter(adj => 
+        adj.inventory_instance?.branch_id === req.user.branch_id
+      );
+    }
+
+    res.json({ adjustments: filteredAdjustments });
   } catch (error) {
     next(error);
   }

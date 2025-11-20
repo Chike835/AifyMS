@@ -6,6 +6,9 @@ import {
   Package,
   CreditCard,
   Users,
+  Settings,
+  Factory,
+  Truck,
   LogOut,
 } from 'lucide-react';
 
@@ -43,6 +46,24 @@ const Sidebar = () => {
       path: '/users',
       icon: Users,
       permission: 'user_view',
+    },
+    {
+      name: 'Settings',
+      path: '/settings',
+      icon: Settings,
+      permission: 'product_add',
+    },
+    {
+      name: 'Production Queue',
+      path: '/production-queue',
+      icon: Factory,
+      permission: 'production_view_queue',
+    },
+    {
+      name: 'Shipments',
+      path: '/shipments',
+      icon: Truck,
+      permission: 'production_view_queue',
     },
   ];
 

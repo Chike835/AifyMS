@@ -52,6 +52,26 @@ const SalesOrder = sequelize.define('SalesOrder', {
     type: DataTypes.BOOLEAN,
     defaultValue: false
   },
+  dispatcher_name: {
+    type: DataTypes.STRING(200),
+    allowNull: true
+  },
+  vehicle_plate: {
+    type: DataTypes.STRING(50),
+    allowNull: true
+  },
+  delivery_signature: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  subtotal: {
+    type: DataTypes.DECIMAL(15, 2),
+    allowNull: true
+  },
+  total_tax: {
+    type: DataTypes.DECIMAL(15, 2),
+    allowNull: true
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

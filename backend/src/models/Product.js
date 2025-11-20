@@ -40,6 +40,30 @@ const Product = sequelize.define('Product', {
     type: DataTypes.STRING(100),
     allowNull: true
   },
+  brand_id: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    references: {
+      model: 'product_attributes_brands',
+      key: 'id'
+    }
+  },
+  color_id: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    references: {
+      model: 'product_attributes_colors',
+      key: 'id'
+    }
+  },
+  gauge_id: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    references: {
+      model: 'product_attributes_gauges',
+      key: 'id'
+    }
+  },
   category: {
     type: DataTypes.STRING(100),
     allowNull: true

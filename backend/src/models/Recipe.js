@@ -31,6 +31,11 @@ const Recipe = sequelize.define('Recipe', {
     type: DataTypes.DECIMAL(15, 4),
     allowNull: false
   },
+  wastage_margin: {
+    type: DataTypes.DECIMAL(5, 2),
+    defaultValue: 0,
+    allowNull: false
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

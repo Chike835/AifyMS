@@ -9,6 +9,9 @@ import Dashboard from './pages/Dashboard';
 import POS from './pages/POS';
 import Inventory from './pages/Inventory';
 import Payments from './pages/Payments';
+import Settings from './pages/Settings';
+import ProductionQueue from './pages/ProductionQueue';
+import Shipments from './pages/Shipments';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -64,6 +67,36 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <Payments />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Settings />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/production-queue"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <ProductionQueue />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/shipments"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Shipments />
                   </Layout>
                 </ProtectedRoute>
               }

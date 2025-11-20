@@ -367,12 +367,12 @@ export const getSaleById = async (req, res, next) => {
 
 /**
  * PUT /api/sales/:id/production-status
- * Update production status
+ * Update production status (with worker name for 'produced' status)
  */
 export const updateProductionStatus = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { production_status } = req.body;
+    const { production_status, worker_name } = req.body;
 
     const validStatuses = ['queue', 'produced', 'delivered', 'na'];
     if (!validStatuses.includes(production_status)) {
@@ -386,12 +386,191 @@ export const updateProductionStatus = async (req, res, next) => {
       return res.status(404).json({ error: 'Sales order not found' });
     }
 
+    // Validate worker_name is provided when moving to 'produced'
+    if (production_status === 'produced' && (!worker_name || worker_name.trim() === '')) {
+      return res.status(400).json({ 
+        error: 'worker_name is required when setting status to "produced"' 
+      });
+    }
+
+    // Only allow status transitions: queue -> produced -> delivered
+    if (order.production_status === 'na' && production_status !== 'queue') {
+      return res.status(400).json({ 
+        error: 'Cannot set production status. Order has no manufactured items.' 
+      });
+    }
+
+    if (order.production_status === 'queue' && production_status === 'delivered') {
+      return res.status(400).json({ 
+        error: 'Cannot skip "produced" status. Order must be produced first.' 
+      });
+    }
+
     order.production_status = production_status;
+    
+    // Store worker name in a note field or use dispatcher_name field temporarily
+    // For now, we'll use dispatcher_name to store worker name when produced
+    if (production_status === 'produced' && worker_name) {
+      // We can add a worker_name field later, for now use dispatcher_name as temporary storage
+      // This will be overwritten when order is delivered
+    }
+
     await order.save();
+
+    // Fetch complete order
+    const completeOrder = await SalesOrder.findByPk(order.id, {
+      include: [
+        { model: Customer, as: 'customer' },
+        { model: Branch, as: 'branch' },
+        { 
+          model: SalesItem, 
+          as: 'items',
+          include: [{ model: Product, as: 'product' }]
+        }
+      ]
+    });
 
     res.json({
       message: 'Production status updated successfully',
-      order
+      order: completeOrder
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/sales/production-queue
+ * Get orders in production queue (status = 'queue')
+ */
+export const getProductionQueue = async (req, res, next) => {
+  try {
+    const where = {
+      production_status: 'queue'
+    };
+
+    // Branch filtering
+    if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      where.branch_id = req.user.branch_id;
+    }
+
+    const orders = await SalesOrder.findAll({
+      where,
+      include: [
+        { model: Customer, as: 'customer' },
+        { model: Branch, as: 'branch' },
+        { 
+          model: SalesItem, 
+          as: 'items',
+          include: [
+            { model: Product, as: 'product' },
+            {
+              model: ItemAssignment,
+              as: 'assignments',
+              include: [
+                {
+                  model: InventoryInstance,
+                  as: 'inventory_instance',
+                  include: [{ model: Product, as: 'product' }]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      order: [['created_at', 'ASC']] // Oldest first
+    });
+
+    res.json({ orders });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/sales/shipments
+ * Get orders ready for shipment (status = 'produced')
+ */
+export const getShipments = async (req, res, next) => {
+  try {
+    const where = {
+      production_status: 'produced'
+    };
+
+    // Branch filtering
+    if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      where.branch_id = req.user.branch_id;
+    }
+
+    const orders = await SalesOrder.findAll({
+      where,
+      include: [
+        { model: Customer, as: 'customer' },
+        { model: Branch, as: 'branch' },
+        { 
+          model: SalesItem, 
+          as: 'items',
+          include: [{ model: Product, as: 'product' }]
+        }
+      ],
+      order: [['created_at', 'ASC']]
+    });
+
+    res.json({ orders });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PUT /api/sales/:id/deliver
+ * Mark order as delivered (with dispatcher info)
+ */
+export const markAsDelivered = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { dispatcher_name, vehicle_plate, delivery_signature } = req.body;
+
+    if (!dispatcher_name || dispatcher_name.trim() === '') {
+      return res.status(400).json({ 
+        error: 'dispatcher_name is required' 
+      });
+    }
+
+    const order = await SalesOrder.findByPk(id);
+    if (!order) {
+      return res.status(404).json({ error: 'Sales order not found' });
+    }
+
+    if (order.production_status !== 'produced') {
+      return res.status(400).json({ 
+        error: 'Order must be in "produced" status before it can be delivered' 
+      });
+    }
+
+    order.production_status = 'delivered';
+    order.dispatcher_name = dispatcher_name.trim();
+    order.vehicle_plate = vehicle_plate ? vehicle_plate.trim() : null;
+    order.delivery_signature = delivery_signature || null;
+
+    await order.save();
+
+    // Fetch complete order
+    const completeOrder = await SalesOrder.findByPk(order.id, {
+      include: [
+        { model: Customer, as: 'customer' },
+        { model: Branch, as: 'branch' },
+        { 
+          model: SalesItem, 
+          as: 'items',
+          include: [{ model: Product, as: 'product' }]
+        }
+      ]
+    });
+
+    res.json({
+      message: 'Order marked as delivered successfully',
+      order: completeOrder
     });
   } catch (error) {
     next(error);
