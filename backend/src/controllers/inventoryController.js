@@ -264,8 +264,6 @@ export const transferInstance = async (req, res, next) => {
       notes: notes || null
     }, { transaction });
 
-    await transaction.commit();
-
     // Load with associations
     const transferWithDetails = await StockTransfer.findByPk(transfer.id, {
       include: [
@@ -273,8 +271,11 @@ export const transferInstance = async (req, res, next) => {
         { model: Branch, as: 'from_branch' },
         { model: Branch, as: 'to_branch' },
         { model: User, as: 'user' }
-      ]
+      ],
+      transaction
     });
+
+    await transaction.commit();
 
     res.status(201).json({
       message: 'Inventory instance transferred successfully',
@@ -299,16 +300,20 @@ export const getTransfers = async (req, res, next) => {
       where.inventory_instance_id = instance_id;
     }
 
-    if (branch_id) {
-      where[Op.or] = [
-        { from_branch_id: branch_id },
-        { to_branch_id: branch_id }
-      ];
-    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
-      // Branch managers only see transfers involving their branch
+    // Check permissions - Branch managers only see transfers involving their branch
+    if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      if (branch_id && branch_id !== req.user.branch_id) {
+        return res.status(403).json({ error: 'You do not have permission to view transfers for this branch' });
+      }
+      
       where[Op.or] = [
         { from_branch_id: req.user.branch_id },
         { to_branch_id: req.user.branch_id }
+      ];
+    } else if (branch_id) {
+      where[Op.or] = [
+        { from_branch_id: branch_id },
+        { to_branch_id: branch_id }
       ];
     }
 
@@ -396,8 +401,6 @@ export const adjustStock = async (req, res, next) => {
       user_id
     }, { transaction });
 
-    await transaction.commit();
-
     // Load with associations
     const adjustmentWithDetails = await StockAdjustment.findByPk(adjustment.id, {
       include: [
@@ -407,8 +410,11 @@ export const adjustStock = async (req, res, next) => {
           include: [{ model: Product, as: 'product' }]
         },
         { model: User, as: 'user' }
-      ]
+      ],
+      transaction
     });
+
+    await transaction.commit();
 
     res.status(201).json({
       message: 'Stock adjusted successfully',
@@ -451,13 +457,18 @@ export const getAdjustments = async (req, res, next) => {
 
     // Filter by branch if needed
     let filteredAdjustments = adjustments;
-    if (branch_id) {
-      filteredAdjustments = adjustments.filter(adj => 
-        adj.inventory_instance?.branch_id === branch_id
-      );
-    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+    
+    if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      if (branch_id && branch_id !== req.user.branch_id) {
+        return res.status(403).json({ error: 'You do not have permission to view adjustments for this branch' });
+      }
+      
       filteredAdjustments = adjustments.filter(adj => 
         adj.inventory_instance?.branch_id === req.user.branch_id
+      );
+    } else if (branch_id) {
+      filteredAdjustments = adjustments.filter(adj => 
+        adj.inventory_instance?.branch_id === branch_id
       );
     }
 

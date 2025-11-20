@@ -413,6 +413,7 @@ export const updateProductionStatus = async (req, res, next) => {
     if (production_status === 'produced' && worker_name) {
       // We can add a worker_name field later, for now use dispatcher_name as temporary storage
       // This will be overwritten when order is delivered
+      order.dispatcher_name = worker_name;
     }
 
     await order.save();
