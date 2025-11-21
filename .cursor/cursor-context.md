@@ -435,6 +435,234 @@ database/
 
 ---
 
+## Frontend UI/UX Structure
+
+### Layout Architecture
+
+The frontend uses a consistent layout pattern with a fixed sidebar and main content area:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Sidebar (Fixed, 256px)  │  Main Content (Flexible)    │
+│  ┌─────────────────────┐  │  ┌──────────────────────┐  │
+│  │ Header              │  │  │                      │  │
+│  │ "Aify ERP v2.0.0"   │  │  │   Page Content       │  │
+│  ├─────────────────────┤  │  │   (p-8 padding)      │  │
+│  │ Navigation Menu     │  │  │                      │  │
+│  │ - Dashboard         │  │  │                      │  │
+│  │ - POS               │  │  │                      │  │
+│  │ - Inventory         │  │  │                      │  │
+│  │ - ...               │  │  │                      │  │
+│  ├─────────────────────┤  │  │                      │  │
+│  │ User Info           │  │  │                      │  │
+│  │ Logout Button       │  │  │                      │  │
+│  └─────────────────────┘  │  └──────────────────────┘  │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Layout Component** (`frontend/src/components/layout/Layout.jsx`):
+- Flexbox layout: `flex min-h-screen bg-gray-50`
+- Sidebar: Fixed width 256px (`w-64`)
+- Main content: Flexible (`flex-1`) with padding (`p-8`)
+- Wraps all protected routes
+
+### Sidebar Configuration
+
+**Location:** `frontend/src/components/layout/Sidebar.jsx`
+
+**Structure:**
+1. **Header Section:**
+   - Title: "Aify ERP"
+   - Version: "v2.0.0"
+   - Styling: `bg-gray-900 text-white`, border-bottom
+
+2. **Navigation Menu:**
+   - Dynamic menu items filtered by permissions
+   - Active route highlighting
+   - Icons from `lucide-react` library
+
+3. **Footer Section:**
+   - User information (name, role, branch)
+   - Logout button
+
+**Menu Items Configuration:**
+```javascript
+const menuItems = [
+  { name: 'Dashboard', path: '/', icon: LayoutDashboard, permission: null },
+  { name: 'POS', path: '/pos', icon: ShoppingCart, permission: 'pos_access' },
+  { name: 'Inventory', path: '/inventory', icon: Package, permission: 'product_view' },
+  { name: 'Products', path: '/products', icon: Boxes, permission: 'product_view' },
+  { name: 'Payments', path: '/payments', icon: CreditCard, permission: 'payment_view' },
+  { name: 'Users', path: '/users', icon: Users, permission: 'user_view' },
+  { name: 'Settings', path: '/settings', icon: Settings, permission: 'product_add' },
+  { name: 'Production Queue', path: '/production-queue', icon: Factory, permission: 'production_view_queue' },
+  { name: 'Shipments', path: '/shipments', icon: Truck, permission: 'production_view_queue' },
+];
+```
+
+**Permission-Based Visibility:**
+- Menu items filtered using `hasPermission(item.permission)`
+- Items with `permission: null` are always visible (e.g., Dashboard)
+- Uses `useAuth().hasPermission()` from AuthContext
+- Super Admin sees all menu items
+
+**Active Route Highlighting:**
+- Uses `useLocation()` from React Router
+- Active item: `bg-primary-600 text-white`
+- Inactive item: `text-gray-300 hover:bg-gray-800`
+- Visual feedback on hover
+
+**Styling:**
+- Background: `bg-gray-900` (dark theme)
+- Text: `text-white` for header, `text-gray-300` for menu items
+- Active state: `bg-primary-600` (blue-600)
+- Hover state: `hover:bg-gray-800`
+- Icons: `h-5 w-5` from lucide-react
+- Spacing: `space-y-2` between menu items, `px-4 py-3` for item padding
+
+### Page Routing Structure
+
+**Location:** `frontend/src/App.jsx`
+
+**Route Configuration:**
+- All routes except `/login` are wrapped in `<ProtectedRoute>` and `<Layout>`
+- Login page is standalone (no layout)
+- Catch-all route redirects to `/` (Dashboard)
+
+**Available Pages:**
+1. **Login** (`/login`) - Standalone, no layout
+2. **Dashboard** (`/`) - Main dashboard with stats
+3. **POS** (`/pos`) - Point of Sale interface
+4. **Inventory** (`/inventory`) - Inventory management
+5. **Products** (`/products`) - Product management
+6. **Payments** (`/payments`) - Payment processing
+7. **Settings** (`/settings`) - System settings
+8. **Production Queue** (`/production-queue`) - Manufacturing queue
+9. **Shipments** (`/shipments`) - Shipment tracking
+
+**Route Protection:**
+- `ProtectedRoute` component checks authentication
+- Redirects to `/login` if not authenticated
+- All protected routes require valid JWT token
+
+### UI Styling & Theme
+
+**Tailwind CSS Configuration** (`frontend/tailwind.config.js`):
+- Custom primary color palette (blue shades):
+  - `primary-50` through `primary-900`
+  - Default: `primary-600` (#2563eb) for buttons and active states
+  - Hover: `primary-700` (#1d4ed8)
+
+**Color Scheme:**
+- **Primary:** Blue (`primary-600`, `primary-700`)
+- **Background:** Light gray (`bg-gray-50`) for main content
+- **Sidebar:** Dark gray (`bg-gray-900`) with white text
+- **Text:** Gray scale (`text-gray-900`, `text-gray-600`, `text-gray-300`)
+- **Borders:** `border-gray-300`, `border-gray-800`
+- **Success/Error:** Standard Tailwind colors (red, green, yellow)
+
+**Typography:**
+- Font family: System fonts (`-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto'`)
+- Font smoothing: Antialiased
+- Headings: `font-bold`, `font-extrabold`
+- Body: Default font size with responsive scaling
+
+**Component Patterns:**
+- **Buttons:** 
+  - Primary: `bg-primary-600 hover:bg-primary-700 text-white`
+  - Disabled: `disabled:opacity-50 disabled:cursor-not-allowed`
+- **Cards:** White background with shadow and rounded corners
+- **Forms:** 
+  - Inputs: `border border-gray-300 focus:ring-primary-500 focus:border-primary-500`
+  - Labels: `sr-only` for accessibility or visible labels
+- **Loading States:** Spinner with `animate-spin` and `border-primary-600`
+
+**Icons:**
+- Library: `lucide-react`
+- Common icons: LayoutDashboard, ShoppingCart, Package, Boxes, CreditCard, Users, Settings, Factory, Truck, LogOut
+- Size: Typically `h-5 w-5` for menu items, `h-8 w-8` for larger displays
+
+### Login Page Design
+
+**Location:** `frontend/src/pages/Login.jsx`
+
+**Layout:**
+- Centered on screen: `min-h-screen flex items-center justify-center`
+- Max width: `max-w-md w-full`
+- Background: `bg-gray-50`
+- Responsive padding: `py-12 px-4 sm:px-6 lg:px-8`
+
+**Components:**
+- Logo/Icon: Primary blue background with LogIn icon
+- Title: "Aify Global ERP" (3xl, bold)
+- Subtitle: "Sign in to your account"
+- Form: Email and password inputs
+- Error display: Red alert box for errors
+- Submit button: Primary blue, full width
+
+**Form Validation:**
+- HTML5 validation (`required` attributes)
+- Error state management via React state
+- Loading state during authentication
+
+### Page Component Patterns
+
+**Common Patterns Across Pages:**
+1. **Loading States:**
+   - Spinner with `animate-spin`
+   - Centered with `flex items-center justify-center`
+   - Uses `useAuth().loading` or React Query `isLoading`
+
+2. **Error Handling:**
+   - Error messages in red alert boxes
+   - Defensive rendering: `{error?.message || 'Error message'}`
+   - Null checks before rendering data
+
+3. **Data Fetching:**
+   - React Query (`useQuery`) for API calls
+   - Query keys for cache management
+   - Automatic refetch disabled (`refetchOnWindowFocus: false`)
+
+4. **Permission Checks:**
+   - Conditional rendering: `{hasPermission('permission_slug') && <Component />}`
+   - Query enabling: `enabled: hasPermission('permission')`
+
+5. **Layout Consistency:**
+   - All pages wrapped in `<Layout>` component
+   - Main content area with `p-8` padding
+   - Responsive design with Tailwind breakpoints
+
+### Responsive Design
+
+**Breakpoints (Tailwind defaults):**
+- `sm`: 640px
+- `md`: 768px
+- `lg`: 1024px
+- `xl`: 1280px
+- `2xl`: 1536px
+
+**Current Implementation:**
+- Sidebar: Fixed width (not collapsible yet)
+- Main content: Flexible width
+- Forms: Responsive padding (`px-4 sm:px-6 lg:px-8`)
+- Mobile-friendly: Touch targets sized appropriately
+
+### Navigation Flow
+
+**User Journey:**
+1. **Unauthenticated:** Redirected to `/login`
+2. **Login:** Submit credentials → JWT stored → Redirect to `/`
+3. **Authenticated:** Access to all routes based on permissions
+4. **Menu Navigation:** Click sidebar item → React Router navigates → Active state updates
+5. **Logout:** Click logout → Clear localStorage → Redirect to `/login`
+
+**Route Matching:**
+- Exact path matching for active state
+- `useLocation().pathname === item.path`
+- Catch-all route (`*`) redirects to Dashboard
+
+---
+
 ## Critical Business Logic
 
 ### Manufacturing Conversion
