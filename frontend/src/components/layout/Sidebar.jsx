@@ -12,6 +12,7 @@ import {
   ShoppingBag,
   Receipt,
   Wallet,
+  Shield,
   Settings,
   Factory,
   Truck,
@@ -88,6 +89,12 @@ const Sidebar = () => {
       path: '/users',
       icon: Users,
       permission: 'user_view',
+    },
+    {
+      name: 'Roles',
+      path: '/roles',
+      icon: Shield,
+      permission: 'role_manage',
     },
     {
       name: 'Settings',

@@ -19,7 +19,7 @@
 | **User Management** | Roles and permissions management | [x] | [ ] |
 | **User Management** | Sales commission agents functionality | [ ] | [ ] |
 | **User Management** | Users management page (/users) | [x] | [ ] |
-| **User Management** | Roles & permissions page (/roles) | [ ] | [ ] |
+| **User Management** | Roles & permissions page (/roles) | [x] | [ ] |
 | **User Management** | Agents management page (/agents) | [ ] | [ ] |
 
 ---
@@ -231,8 +231,8 @@
 ## Summary Statistics
 
 **Total Features:** 95  
-**Built (AI):** 48  
-**Not Built:** 47  
+**Built (AI):** 49  
+**Not Built:** 46  
 **Working (User):** 0 (pending user confirmation)
 
 ---

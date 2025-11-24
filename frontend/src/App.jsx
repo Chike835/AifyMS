@@ -18,6 +18,7 @@ import Expenses from './pages/Expenses';
 import ExpenseCategories from './pages/ExpenseCategories';
 import Payroll from './pages/Payroll';
 import Users from './pages/Users';
+import Roles from './pages/Roles';
 import Settings from './pages/Settings';
 import ProductionQueue from './pages/ProductionQueue';
 import Shipments from './pages/Shipments';
@@ -156,6 +157,16 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <Users />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/roles"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Roles />
                   </Layout>
                 </ProtectedRoute>
               }

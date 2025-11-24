@@ -14,6 +14,7 @@ import purchaseRoutes from './purchaseRoutes.js';
 import expenseRoutes from './expenseRoutes.js';
 import payrollRoutes from './payrollRoutes.js';
 import userRoutes from './userRoutes.js';
+import roleRoutes from './roleRoutes.js';
 
 const router = express.Router();
 
@@ -32,6 +33,7 @@ router.use('/purchases', purchaseRoutes);
 router.use('/expenses', expenseRoutes);
 router.use('/payroll', payrollRoutes);
 router.use('/users', userRoutes);
+router.use('/roles', roleRoutes);
 router.use('/', importExportRoutes);
 
 export default router;
