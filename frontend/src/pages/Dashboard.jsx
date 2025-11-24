@@ -68,7 +68,7 @@ const Dashboard = () => {
           Welcome, {user?.full_name}
         </h1>
         <p className="text-gray-600 mt-2">
-          {user?.role_name} {user?.branch?.name && `• ${user.branch.name}`}
+          {user?.role_name} {user?.branch?.name && `• ${user?.branch?.name}`}
         </p>
       </div>
 

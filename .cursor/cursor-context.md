@@ -292,6 +292,9 @@ graph TB
 - **StockTransfer** → belongsTo InventoryInstance, Branch (from/to), User
 - **StockAdjustment** → belongsTo InventoryInstance, User
 - **Wastage** → belongsTo InventoryInstance, User
+- **ExpenseCategory** → belongsTo Branch; hasMany Expense
+- **Expense** → belongsTo ExpenseCategory, Branch, User (creator)
+- **PayrollRecord** → belongsTo Branch, User (employee)
 
 ### Product Types (Enum)
 - `standard`: Regular products
@@ -412,6 +415,18 @@ Request → authenticate → requirePermission → Controller
 - `POST /api/purchases` - Create purchase (auto-creates inventory instances for raw_tracked)
 - `PUT /api/purchases/:id/status` - Update purchase status
 - `DELETE /api/purchases/:id` - Delete purchase (only draft/cancelled)
+
+**Expenses:**
+- `GET /api/expenses` - List expenses (branch-filtered for non-Super Admin)
+- `GET /api/expenses/:id` - Get expense details
+- `POST /api/expenses` - Create expense (permission: expense_manage)
+- `PUT /api/expenses/:id` - Update expense
+- `DELETE /api/expenses/:id` - Delete expense
+- `GET /api/expenses/summary` - Get expense summary by category
+- `GET /api/expenses/categories` - List expense categories (branch-filtered)
+- `POST /api/expenses/categories` - Create expense category (permission: expense_category_manage)
+- `PUT /api/expenses/categories/:id` - Update expense category
+- `DELETE /api/expenses/categories/:id` - Delete expense category
 
 **Import/Export:**
 - `POST /api/import/products` - Import products from CSV/Excel

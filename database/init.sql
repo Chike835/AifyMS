@@ -248,6 +248,46 @@ CREATE TABLE production_wastage (
     CHECK (quantity_wasted > 0)
 );
 
+-- Expense Categories table (branch-scoped)
+CREATE TABLE expense_categories (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(100) NOT NULL,
+    branch_id UUID NOT NULL REFERENCES branches(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(name, branch_id)
+);
+
+-- Expenses table (branch-scoped, linked to category and user)
+CREATE TABLE expenses (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    category_id UUID NOT NULL REFERENCES expense_categories(id),
+    branch_id UUID NOT NULL REFERENCES branches(id),
+    user_id UUID NOT NULL REFERENCES users(id),
+    amount DECIMAL(15, 2) NOT NULL,
+    description TEXT,
+    expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CHECK (amount > 0)
+);
+
+-- Payroll Records table (branch-scoped, linked to user/employee)
+CREATE TABLE payroll_records (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id),
+    branch_id UUID NOT NULL REFERENCES branches(id),
+    month INTEGER NOT NULL CHECK (month >= 1 AND month <= 12),
+    year INTEGER NOT NULL CHECK (year >= 2000),
+    gross_pay DECIMAL(15, 2) NOT NULL DEFAULT 0,
+    deductions DECIMAL(15, 2) NOT NULL DEFAULT 0,
+    net_pay DECIMAL(15, 2) NOT NULL DEFAULT 0,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, month, year),
+    CHECK (gross_pay >= 0),
+    CHECK (deductions >= 0),
+    CHECK (net_pay >= 0)
+);
+
 -- Product Attributes: Brands
 CREATE TABLE product_attributes_brands (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -330,6 +370,15 @@ CREATE INDEX idx_stock_transfers_to_branch ON stock_transfers(to_branch_id);
 CREATE INDEX idx_stock_adjustments_instance_id ON stock_adjustments(inventory_instance_id);
 CREATE INDEX idx_production_wastage_instance_id ON production_wastage(inventory_instance_id);
 CREATE INDEX idx_sales_orders_production_status ON sales_orders(production_status);
+CREATE INDEX idx_expense_categories_branch_id ON expense_categories(branch_id);
+CREATE INDEX idx_expense_categories_name ON expense_categories(name);
+CREATE INDEX idx_expenses_branch_id ON expenses(branch_id);
+CREATE INDEX idx_expenses_category_id ON expenses(category_id);
+CREATE INDEX idx_expenses_user_id ON expenses(user_id);
+CREATE INDEX idx_expenses_expense_date ON expenses(expense_date);
+CREATE INDEX idx_payroll_records_branch_id ON payroll_records(branch_id);
+CREATE INDEX idx_payroll_records_user_id ON payroll_records(user_id);
+CREATE INDEX idx_payroll_records_month_year ON payroll_records(month, year);
 
 -- ============================================
 -- SEED DATA: ROLES
@@ -407,6 +456,17 @@ INSERT INTO permissions (slug, group_name) VALUES
     ('report_view_financial', 'reports'),
     ('report_view_sales', 'reports');
 
+-- Expenses Permissions (3)
+INSERT INTO permissions (slug, group_name) VALUES
+    ('expense_view', 'expenses'),
+    ('expense_manage', 'expenses'),
+    ('expense_category_manage', 'expenses');
+
+-- Payroll Permissions (2)
+INSERT INTO permissions (slug, group_name) VALUES
+    ('payroll_view', 'payroll'),
+    ('payroll_manage', 'payroll');
+
 -- ============================================
 -- SEED DATA: ROLE-PERMISSION MAPPINGS
 -- ============================================
@@ -418,13 +478,13 @@ FROM roles r
 CROSS JOIN permissions p
 WHERE r.name = 'Super Admin';
 
--- Branch Manager: Most permissions except global user view and role management
+-- Branch Manager: Most permissions except global user view, role management, and payroll management
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id
 FROM roles r
 CROSS JOIN permissions p
 WHERE r.name = 'Branch Manager'
-  AND p.slug NOT IN ('user_view_global', 'role_manage');
+  AND p.slug NOT IN ('user_view_global', 'role_manage', 'payroll_manage');
 
 -- Sales Representative: Sales and view permissions only
 INSERT INTO role_permissions (role_id, permission_id)
@@ -513,6 +573,10 @@ COMMENT ON TABLE recipes IS 'Conversion rules for Manufacturing (e.g., 1 Meter L
 COMMENT ON COLUMN inventory_instances.instance_code IS 'Unique identifier for physical coil/pallet (e.g., COIL-001)';
 COMMENT ON COLUMN inventory_instances.remaining_quantity IS 'Current available quantity for this specific instance';
 COMMENT ON COLUMN item_assignments.quantity_deducted IS 'Amount of raw material deducted from the specific inventory instance';
+COMMENT ON TABLE expense_categories IS 'Branch-scoped expense categories for organizing business expenses';
+COMMENT ON TABLE expenses IS 'Individual expense records tied to branches, categories, and users';
+COMMENT ON TABLE payroll_records IS 'Monthly payroll records for employees, scoped by branch';
+COMMENT ON COLUMN payroll_records.net_pay IS 'Calculated as gross_pay - deductions';
 
 -- ============================================
 -- INITIALIZATION COMPLETE

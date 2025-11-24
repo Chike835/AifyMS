@@ -10,6 +10,8 @@ import {
   UserCheck,
   Building2,
   ShoppingBag,
+  Receipt,
+  Wallet,
   Settings,
   Factory,
   Truck,
@@ -68,6 +70,18 @@ const Sidebar = () => {
       path: '/purchases',
       icon: ShoppingBag,
       permission: 'stock_add_opening',
+    },
+    {
+      name: 'Expenses',
+      path: '/expenses',
+      icon: Receipt,
+      permission: 'expense_view',
+    },
+    {
+      name: 'Payroll',
+      path: '/payroll',
+      icon: Wallet,
+      permission: 'payroll_view',
     },
     {
       name: 'Users',

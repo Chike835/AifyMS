@@ -18,7 +18,7 @@
 | **User Management** | User CRUD operations with role assignment | [x] | [ ] |
 | **User Management** | Roles and permissions management | [x] | [ ] |
 | **User Management** | Sales commission agents functionality | [ ] | [ ] |
-| **User Management** | Users management page (/users) | [ ] | [ ] |
+| **User Management** | Users management page (/users) | [x] | [ ] |
 | **User Management** | Roles & permissions page (/roles) | [ ] | [ ] |
 | **User Management** | Agents management page (/agents) | [ ] | [ ] |
 
@@ -109,11 +109,11 @@
 
 | Feature Category | Sub-Feature | Built (AI) | Working (User) |
 |-----------------|-------------|------------|----------------|
-| **Expenses** | Expense management system | [ ] | [ ] |
-| **Expenses** | Expense categories | [ ] | [ ] |
-| **Expenses** | Expenses list page (/expenses) | [ ] | [ ] |
-| **Expenses** | Add expense page (/expenses/add) | [ ] | [ ] |
-| **Expenses** | Expense categories page (/expenses/categories) | [ ] | [ ] |
+| **Expenses** | Expense management system (backend) | [x] | [ ] |
+| **Expenses** | Expense categories (backend) | [x] | [ ] |
+| **Expenses** | Expenses list page (/expenses) | [x] | [ ] |
+| **Expenses** | Add expense page (/expenses/add) | [x] | [ ] |
+| **Expenses** | Expense categories page (/expenses/categories) | [x] | [ ] |
 
 ---
 
@@ -121,10 +121,11 @@
 
 | Feature Category | Sub-Feature | Built (AI) | Working (User) |
 |-----------------|-------------|------------|----------------|
-| **Payroll** | Payroll management system | [ ] | [ ] |
+| **Payroll** | Payroll management system (backend model) | [x] | [ ] |
+| **Payroll** | Payroll CRUD API (controller & routes) | [x] | [ ] |
 | **Payroll** | Salary calculations and commissions | [ ] | [ ] |
-| **Payroll** | Payroll list page (/payroll) | [ ] | [ ] |
-| **Payroll** | Add payroll page (/payroll/add) | [ ] | [ ] |
+| **Payroll** | Payroll list page (/payroll) | [x] | [ ] |
+| **Payroll** | Payroll navigation in sidebar | [x] | [ ] |
 
 ---
 
@@ -230,8 +231,8 @@
 ## Summary Statistics
 
 **Total Features:** 95  
-**Built (AI):** 42  
-**Not Built:** 53  
+**Built (AI):** 48  
+**Not Built:** 47  
 **Working (User):** 0 (pending user confirmation)
 
 ---

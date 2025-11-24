@@ -11,6 +11,9 @@ import importExportRoutes from './importExportRoutes.js';
 import customerRoutes from './customerRoutes.js';
 import supplierRoutes from './supplierRoutes.js';
 import purchaseRoutes from './purchaseRoutes.js';
+import expenseRoutes from './expenseRoutes.js';
+import payrollRoutes from './payrollRoutes.js';
+import userRoutes from './userRoutes.js';
 
 const router = express.Router();
 
@@ -26,6 +29,9 @@ router.use('/payments', paymentRoutes);
 router.use('/customers', customerRoutes);
 router.use('/suppliers', supplierRoutes);
 router.use('/purchases', purchaseRoutes);
+router.use('/expenses', expenseRoutes);
+router.use('/payroll', payrollRoutes);
+router.use('/users', userRoutes);
 router.use('/', importExportRoutes);
 
 export default router;

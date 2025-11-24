@@ -14,6 +14,10 @@ import Customers from './pages/Customers';
 import Suppliers from './pages/Suppliers';
 import Purchases from './pages/Purchases';
 import AddPurchase from './pages/AddPurchase';
+import Expenses from './pages/Expenses';
+import ExpenseCategories from './pages/ExpenseCategories';
+import Payroll from './pages/Payroll';
+import Users from './pages/Users';
 import Settings from './pages/Settings';
 import ProductionQueue from './pages/ProductionQueue';
 import Shipments from './pages/Shipments';
@@ -112,6 +116,46 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <AddPurchase />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/expenses"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Expenses />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/expenses/categories"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <ExpenseCategories />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/payroll"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Payroll />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/users"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Users />
                   </Layout>
                 </ProtectedRoute>
               }

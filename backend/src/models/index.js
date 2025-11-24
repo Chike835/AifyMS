@@ -19,6 +19,9 @@ import ItemAssignment from './ItemAssignment.js';
 import Payment from './Payment.js';
 import Purchase from './Purchase.js';
 import PurchaseItem from './PurchaseItem.js';
+import ExpenseCategory from './ExpenseCategory.js';
+import Expense from './Expense.js';
+import PayrollRecord from './PayrollRecord.js';
 
 // Define all associations
 export const associateModels = () => {
@@ -381,6 +384,66 @@ export const associateModels = () => {
     foreignKey: 'inventory_instance_id',
     as: 'purchase_items'
   });
+
+  // ExpenseCategory - Branch (Many-to-One)
+  ExpenseCategory.belongsTo(Branch, {
+    foreignKey: 'branch_id',
+    as: 'branch'
+  });
+  Branch.hasMany(ExpenseCategory, {
+    foreignKey: 'branch_id',
+    as: 'expense_categories'
+  });
+
+  // Expense - ExpenseCategory (Many-to-One)
+  Expense.belongsTo(ExpenseCategory, {
+    foreignKey: 'category_id',
+    as: 'category'
+  });
+  ExpenseCategory.hasMany(Expense, {
+    foreignKey: 'category_id',
+    as: 'expenses'
+  });
+
+  // Expense - Branch (Many-to-One)
+  Expense.belongsTo(Branch, {
+    foreignKey: 'branch_id',
+    as: 'branch'
+  });
+  Branch.hasMany(Expense, {
+    foreignKey: 'branch_id',
+    as: 'expenses'
+  });
+
+  // Expense - User (Many-to-One: Creator)
+  Expense.belongsTo(User, {
+    foreignKey: 'user_id',
+    as: 'creator'
+  });
+  User.hasMany(Expense, {
+    foreignKey: 'user_id',
+    as: 'expenses'
+  });
+
+  // PayrollRecord - Branch (Many-to-One)
+  PayrollRecord.belongsTo(Branch, {
+    foreignKey: 'branch_id',
+    as: 'branch'
+  });
+  Branch.hasMany(PayrollRecord, {
+    foreignKey: 'branch_id',
+    as: 'payroll_records'
+  });
+
+  // PayrollRecord - User (Many-to-One: Employee)
+  PayrollRecord.belongsTo(User, {
+    foreignKey: 'user_id',
+    as: 'employee'
+  });
+  User.hasMany(PayrollRecord, {
+    foreignKey: 'user_id',
+    as: 'payroll_records'
+  });
 };
 
 // Export all models
@@ -405,6 +468,9 @@ export {
   ItemAssignment,
   Payment,
   Purchase,
-  PurchaseItem
+  PurchaseItem,
+  ExpenseCategory,
+  Expense,
+  PayrollRecord
 };
 
