@@ -277,14 +277,18 @@ graph TB
 - **User** → belongsTo Role, Branch
 - **Role** → belongsToMany Permission (through `role_permissions`)
 - **Permission** → belongsToMany Role
-- **Branch** → hasMany User, SalesOrder, InventoryInstance
-- **Product** → hasMany InventoryInstance, SalesItem, Recipe
-- **InventoryInstance** → belongsTo Product, Branch; hasMany ItemAssignment
+- **Branch** → hasMany User, SalesOrder, InventoryInstance, Supplier, Purchase
+- **Customer** → hasMany SalesOrder, Payment (global, not branch-filtered)
+- **Supplier** → belongsTo Branch; hasMany Purchase (branch-filtered for non-Super Admin)
+- **Product** → hasMany InventoryInstance, SalesItem, Recipe, PurchaseItem
+- **InventoryInstance** → belongsTo Product, Branch; hasMany ItemAssignment, PurchaseItem
 - **SalesOrder** → belongsTo Customer, Branch, User; hasMany SalesItem
 - **SalesItem** → belongsTo SalesOrder, Product; hasMany ItemAssignment
 - **ItemAssignment** → belongsTo SalesItem, InventoryInstance
 - **Recipe** → belongsTo Product (virtual_product, raw_product)
 - **Payment** → belongsTo Customer, User (created_by, confirmed_by)
+- **Purchase** → belongsTo Supplier, Branch, User; hasMany PurchaseItem
+- **PurchaseItem** → belongsTo Purchase, Product, InventoryInstance (for raw_tracked)
 - **StockTransfer** → belongsTo InventoryInstance, Branch (from/to), User
 - **StockAdjustment** → belongsTo InventoryInstance, User
 - **Wastage** → belongsTo InventoryInstance, User
@@ -385,6 +389,29 @@ Request → authenticate → requirePermission → Controller
 
 **Branches:**
 - `GET /api/branches` - List branches
+
+**Customers:**
+- `GET /api/customers` - List customers (global, not branch-filtered)
+- `GET /api/customers/:id` - Get customer details
+- `GET /api/customers/:id/ledger` - Get customer ledger/balance history
+- `POST /api/customers` - Create customer
+- `PUT /api/customers/:id` - Update customer
+- `DELETE /api/customers/:id` - Delete customer (if no orders/payments)
+
+**Suppliers:**
+- `GET /api/suppliers` - List suppliers (branch-filtered for non-Super Admin)
+- `GET /api/suppliers/:id` - Get supplier details
+- `GET /api/suppliers/:id/ledger` - Get supplier ledger/balance history
+- `POST /api/suppliers` - Create supplier
+- `PUT /api/suppliers/:id` - Update supplier
+- `DELETE /api/suppliers/:id` - Delete supplier
+
+**Purchases:**
+- `GET /api/purchases` - List purchases (branch-filtered for non-Super Admin)
+- `GET /api/purchases/:id` - Get purchase details with items
+- `POST /api/purchases` - Create purchase (auto-creates inventory instances for raw_tracked)
+- `PUT /api/purchases/:id/status` - Update purchase status
+- `DELETE /api/purchases/:id` - Delete purchase (only draft/cancelled)
 
 **Import/Export:**
 - `POST /api/import/products` - Import products from CSV/Excel
@@ -503,6 +530,8 @@ const menuItems = [
   { name: 'Inventory', path: '/inventory', icon: Package, permission: 'product_view' },
   { name: 'Products', path: '/products', icon: Boxes, permission: 'product_view' },
   { name: 'Payments', path: '/payments', icon: CreditCard, permission: 'payment_view' },
+  { name: 'Customers', path: '/customers', icon: UserCheck, permission: 'payment_view' },
+  { name: 'Suppliers', path: '/suppliers', icon: Building2, permission: 'product_view' },
   { name: 'Users', path: '/users', icon: Users, permission: 'user_view' },
   { name: 'Settings', path: '/settings', icon: Settings, permission: 'product_add' },
   { name: 'Production Queue', path: '/production-queue', icon: Factory, permission: 'production_view_queue' },
@@ -546,9 +575,13 @@ const menuItems = [
 4. **Inventory** (`/inventory`) - Inventory management
 5. **Products** (`/products`) - Product management
 6. **Payments** (`/payments`) - Payment processing
-7. **Settings** (`/settings`) - System settings
-8. **Production Queue** (`/production-queue`) - Manufacturing queue
-9. **Shipments** (`/shipments`) - Shipment tracking
+7. **Customers** (`/customers`) - Customer management with ledger view
+8. **Suppliers** (`/suppliers`) - Supplier management (branch-filtered)
+9. **Purchases** (`/purchases`) - Purchase order list and details
+10. **Add Purchase** (`/purchases/add`) - Create purchase with inventory integration
+11. **Settings** (`/settings`) - System settings
+12. **Production Queue** (`/production-queue`) - Manufacturing queue
+13. **Shipments** (`/shipments`) - Shipment tracking
 
 **Route Protection:**
 - `ProtectedRoute` component checks authentication

@@ -1,7 +1,7 @@
 # AifyMS ERP - Feature Status Ledger
 
 **Version:** 1.0.0  
-**Last Updated:** 2025-01-27  
+**Last Updated:** 2025-11-24  
 **Purpose:** Truth source for project completeness tracking
 
 **Legend:**
@@ -29,10 +29,10 @@
 | Feature Category | Sub-Feature | Built (AI) | Working (User) |
 |-----------------|-------------|------------|----------------|
 | **Contacts** | Customer management (CRUD controller) | [x] | [ ] |
-| **Contacts** | Supplier management | [ ] | [ ] |
+| **Contacts** | Supplier management | [x] | [ ] |
 | **Contacts** | Contact import functionality (CSV/Excel) | [ ] | [ ] |
-| **Contacts** | Customers page (/customers) | [ ] | [ ] |
-| **Contacts** | Suppliers page (/suppliers) | [ ] | [ ] |
+| **Contacts** | Customers page (/customers) | [x] | [ ] |
+| **Contacts** | Suppliers page (/suppliers) | [x] | [ ] |
 | **Contacts** | Import contacts page (/import-contacts) | [ ] | [ ] |
 
 ---
@@ -74,11 +74,11 @@
 
 | Feature Category | Sub-Feature | Built (AI) | Working (User) |
 |-----------------|-------------|------------|----------------|
-| **Purchases** | Purchase orders management | [ ] | [ ] |
+| **Purchases** | Purchase orders management | [x] | [ ] |
 | **Purchases** | Purchase returns processing | [ ] | [ ] |
-| **Purchases** | Inventory instance registration on purchase | [ ] | [ ] |
-| **Purchases** | Purchases list page (/purchases) | [ ] | [ ] |
-| **Purchases** | Add purchase page (/purchases/add) | [ ] | [ ] |
+| **Purchases** | Inventory instance registration on purchase | [x] | [ ] |
+| **Purchases** | Purchases list page (/purchases) | [x] | [ ] |
+| **Purchases** | Add purchase page (/purchases/add) | [x] | [ ] |
 | **Purchases** | Purchase returns page (/purchases/returns) | [ ] | [ ] |
 
 ---
@@ -230,8 +230,8 @@
 ## Summary Statistics
 
 **Total Features:** 95  
-**Built (AI):** 35  
-**Not Built:** 60  
+**Built (AI):** 42  
+**Not Built:** 53  
 **Working (User):** 0 (pending user confirmation)
 
 ---

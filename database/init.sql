@@ -74,6 +74,18 @@ CREATE TABLE customers (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Suppliers table
+CREATE TABLE suppliers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(200) NOT NULL,
+    phone VARCHAR(20),
+    email VARCHAR(255),
+    address TEXT,
+    ledger_balance DECIMAL(15, 2) DEFAULT 0,
+    branch_id UUID REFERENCES branches(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Products table
 CREATE TABLE products (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -170,6 +182,37 @@ CREATE TABLE payments (
     CHECK (amount > 0)
 );
 
+-- Purchases table (purchase orders from suppliers)
+CREATE TABLE purchases (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    purchase_number VARCHAR(100) NOT NULL UNIQUE,
+    supplier_id UUID REFERENCES suppliers(id),
+    branch_id UUID NOT NULL REFERENCES branches(id),
+    user_id UUID NOT NULL REFERENCES users(id),
+    total_amount DECIMAL(15, 2) NOT NULL DEFAULT 0,
+    payment_status VARCHAR(20) DEFAULT 'unpaid' CHECK (payment_status IN ('unpaid', 'partial', 'paid')),
+    status VARCHAR(20) DEFAULT 'confirmed' CHECK (status IN ('draft', 'confirmed', 'received', 'cancelled')),
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Purchase Items table
+CREATE TABLE purchase_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    purchase_id UUID NOT NULL REFERENCES purchases(id) ON DELETE CASCADE,
+    product_id UUID NOT NULL REFERENCES products(id),
+    quantity DECIMAL(15, 3) NOT NULL,
+    unit_cost DECIMAL(15, 2) NOT NULL,
+    subtotal DECIMAL(15, 2) NOT NULL,
+    instance_code VARCHAR(100),
+    inventory_instance_id UUID REFERENCES inventory_instances(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CHECK (quantity > 0),
+    CHECK (unit_cost >= 0),
+    CHECK (subtotal >= 0)
+);
+
 -- Stock Transfers table (tracking inventory movement between branches)
 CREATE TABLE stock_transfers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -257,6 +300,8 @@ CREATE INDEX idx_users_role_id ON users(role_id);
 CREATE INDEX idx_users_branch_id ON users(branch_id);
 CREATE INDEX idx_products_sku ON products(sku);
 CREATE INDEX idx_products_type ON products(type);
+CREATE INDEX idx_suppliers_branch_id ON suppliers(branch_id);
+CREATE INDEX idx_suppliers_name ON suppliers(name);
 CREATE INDEX idx_inventory_instances_product_id ON inventory_instances(product_id);
 CREATE INDEX idx_inventory_instances_branch_id ON inventory_instances(branch_id);
 CREATE INDEX idx_inventory_instances_status ON inventory_instances(status);
@@ -269,6 +314,13 @@ CREATE INDEX idx_item_assignments_inventory_instance_id ON item_assignments(inve
 CREATE INDEX idx_payments_customer_id ON payments(customer_id);
 CREATE INDEX idx_payments_status ON payments(status);
 CREATE INDEX idx_payments_created_by ON payments(created_by);
+CREATE INDEX idx_purchases_branch_id ON purchases(branch_id);
+CREATE INDEX idx_purchases_supplier_id ON purchases(supplier_id);
+CREATE INDEX idx_purchases_user_id ON purchases(user_id);
+CREATE INDEX idx_purchases_status ON purchases(status);
+CREATE INDEX idx_purchases_purchase_number ON purchases(purchase_number);
+CREATE INDEX idx_purchase_items_purchase_id ON purchase_items(purchase_id);
+CREATE INDEX idx_purchase_items_product_id ON purchase_items(product_id);
 CREATE INDEX idx_products_brand_id ON products(brand_id);
 CREATE INDEX idx_products_color_id ON products(color_id);
 CREATE INDEX idx_products_gauge_id ON products(gauge_id);

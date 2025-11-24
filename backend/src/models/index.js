@@ -3,6 +3,7 @@ import Permission from './Permission.js';
 import Branch from './Branch.js';
 import User from './User.js';
 import Customer from './Customer.js';
+import Supplier from './Supplier.js';
 import Product from './Product.js';
 import ProductBrand from './ProductBrand.js';
 import ProductColor from './ProductColor.js';
@@ -16,6 +17,8 @@ import SalesOrder from './SalesOrder.js';
 import SalesItem from './SalesItem.js';
 import ItemAssignment from './ItemAssignment.js';
 import Payment from './Payment.js';
+import Purchase from './Purchase.js';
+import PurchaseItem from './PurchaseItem.js';
 
 // Define all associations
 export const associateModels = () => {
@@ -307,6 +310,77 @@ export const associateModels = () => {
     foreignKey: 'user_id',
     as: 'user'
   });
+
+  // Supplier - Branch (Many-to-One)
+  Supplier.belongsTo(Branch, {
+    foreignKey: 'branch_id',
+    as: 'branch'
+  });
+  Branch.hasMany(Supplier, {
+    foreignKey: 'branch_id',
+    as: 'suppliers'
+  });
+
+  // Purchase - Supplier (Many-to-One)
+  Purchase.belongsTo(Supplier, {
+    foreignKey: 'supplier_id',
+    as: 'supplier'
+  });
+  Supplier.hasMany(Purchase, {
+    foreignKey: 'supplier_id',
+    as: 'purchases'
+  });
+
+  // Purchase - Branch (Many-to-One)
+  Purchase.belongsTo(Branch, {
+    foreignKey: 'branch_id',
+    as: 'branch'
+  });
+  Branch.hasMany(Purchase, {
+    foreignKey: 'branch_id',
+    as: 'purchases'
+  });
+
+  // Purchase - User (Many-to-One: Creator)
+  Purchase.belongsTo(User, {
+    foreignKey: 'user_id',
+    as: 'creator'
+  });
+  User.hasMany(Purchase, {
+    foreignKey: 'user_id',
+    as: 'purchases'
+  });
+
+  // Purchase - PurchaseItem (One-to-Many)
+  Purchase.hasMany(PurchaseItem, {
+    foreignKey: 'purchase_id',
+    as: 'items',
+    onDelete: 'CASCADE'
+  });
+  PurchaseItem.belongsTo(Purchase, {
+    foreignKey: 'purchase_id',
+    as: 'purchase'
+  });
+
+  // PurchaseItem - Product (Many-to-One)
+  PurchaseItem.belongsTo(Product, {
+    foreignKey: 'product_id',
+    as: 'product'
+  });
+  Product.hasMany(PurchaseItem, {
+    foreignKey: 'product_id',
+    as: 'purchase_items'
+  });
+
+  // PurchaseItem - InventoryInstance (Many-to-One)
+  PurchaseItem.belongsTo(InventoryInstance, {
+    foreignKey: 'inventory_instance_id',
+    as: 'inventory_instance'
+  });
+  InventoryInstance.hasMany(PurchaseItem, {
+    foreignKey: 'inventory_instance_id',
+    as: 'purchase_items'
+  });
 };
 
 // Export all models
@@ -316,6 +390,7 @@ export {
   Branch,
   User,
   Customer,
+  Supplier,
   Product,
   ProductBrand,
   ProductColor,
@@ -328,6 +403,8 @@ export {
   SalesOrder,
   SalesItem,
   ItemAssignment,
-  Payment
+  Payment,
+  Purchase,
+  PurchaseItem
 };
 

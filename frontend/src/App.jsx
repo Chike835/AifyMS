@@ -10,6 +10,10 @@ import POS from './pages/POS';
 import Inventory from './pages/Inventory';
 import Products from './pages/Products';
 import Payments from './pages/Payments';
+import Customers from './pages/Customers';
+import Suppliers from './pages/Suppliers';
+import Purchases from './pages/Purchases';
+import AddPurchase from './pages/AddPurchase';
 import Settings from './pages/Settings';
 import ProductionQueue from './pages/ProductionQueue';
 import Shipments from './pages/Shipments';
@@ -68,6 +72,46 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <Payments />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/customers"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Customers />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/suppliers"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Suppliers />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/purchases"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Purchases />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/purchases/add"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <AddPurchase />
                   </Layout>
                 </ProtectedRoute>
               }
