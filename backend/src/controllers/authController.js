@@ -45,8 +45,15 @@ export const login = async (req, res, next) => {
       return res.status(401).json({ error: 'Account is inactive' });
     }
 
-    // Check password
-    const isValidPassword = await user.checkPassword(password);
+    // Check password with error handling
+    let isValidPassword = false;
+    try {
+      isValidPassword = await user.checkPassword(password);
+    } catch (passwordError) {
+      console.error('Password verification error:', passwordError.message);
+      return res.status(500).json({ error: 'Authentication service error' });
+    }
+
     if (!isValidPassword) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
@@ -94,4 +101,3 @@ export const getMe = async (req, res, next) => {
     next(error);
   }
 };
-

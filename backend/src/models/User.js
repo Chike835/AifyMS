@@ -1,6 +1,6 @@
 import { DataTypes } from 'sequelize';
-import bcrypt from 'bcrypt';
 import sequelize from '../config/db.js';
+import { hashPassword, comparePassword } from '../utils/passwordUtils.js';
 
 const User = sequelize.define('User', {
   id: {
@@ -18,7 +18,15 @@ const User = sequelize.define('User', {
   },
   password_hash: {
     type: DataTypes.STRING(255),
-    allowNull: false
+    allowNull: false,
+    validate: {
+      notNull: {
+        msg: 'Password hash is required'
+      },
+      notEmpty: {
+        msg: 'Password hash cannot be empty'
+      }
+    }
   },
   full_name: {
     type: DataTypes.STRING(200),
@@ -58,16 +66,14 @@ const User = sequelize.define('User', {
   underscored: true,
   hooks: {
     beforeCreate: async (user) => {
-      if (user.password_hash && !user.password_hash.startsWith('$2b$')) {
-        // Only hash if it's not already hashed
-        const salt = await bcrypt.genSalt(10);
-        user.password_hash = await bcrypt.hash(user.password_hash, salt);
+      if (user.password_hash && !user.password_hash.startsWith('$2')) {
+        // Only hash if it's not already hashed (bcrypt hashes start with $2a$ or $2b$)
+        user.password_hash = await hashPassword(user.password_hash);
       }
     },
     beforeUpdate: async (user) => {
-      if (user.changed('password_hash') && !user.password_hash.startsWith('$2b$')) {
-        const salt = await bcrypt.genSalt(10);
-        user.password_hash = await bcrypt.hash(user.password_hash, salt);
+      if (user.changed('password_hash') && !user.password_hash.startsWith('$2')) {
+        user.password_hash = await hashPassword(user.password_hash);
       }
       user.updated_at = new Date();
     }
@@ -75,9 +81,13 @@ const User = sequelize.define('User', {
 });
 
 // Instance method to check password
-User.prototype.checkPassword = async function(password) {
-  return await bcrypt.compare(password, this.password_hash);
+User.prototype.checkPassword = async function (password) {
+  if (!this.password_hash) {
+    console.error('checkPassword: password_hash is missing');
+    return false;
+  }
+  
+  return await comparePassword(password, this.password_hash);
 };
 
 export default User;
-

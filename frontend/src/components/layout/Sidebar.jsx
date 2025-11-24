@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   ShoppingCart,
   Package,
+  Boxes,
   CreditCard,
   Users,
   Settings,
@@ -33,6 +34,12 @@ const Sidebar = () => {
       name: 'Inventory',
       path: '/inventory',
       icon: Package,
+      permission: 'product_view',
+    },
+    {
+      name: 'Products',
+      path: '/products',
+      icon: Boxes,
       permission: 'product_view',
     },
     {

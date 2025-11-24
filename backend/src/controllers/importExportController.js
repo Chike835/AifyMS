@@ -47,6 +47,22 @@ const parseCSV = (buffer) => {
   });
 };
 
+const getFileType = (file) => {
+  const mimetype = file.mimetype?.toLowerCase();
+  const filename = file.originalname?.toLowerCase() || '';
+
+  const excelMimes = [
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-excel'
+  ];
+
+  if (excelMimes.includes(mimetype) || filename.endsWith('.xlsx') || filename.endsWith('.xls')) {
+    return 'excel';
+  }
+
+  return 'csv';
+};
+
 /**
  * POST /api/import/:entity
  * Import data from CSV file
@@ -67,8 +83,10 @@ export const importData = async (req, res, next) => {
       });
     }
 
-    // Parse CSV
-    const data = await parseCSV(req.file.buffer);
+    const fileType = getFileType(req.file);
+    const data = fileType === 'excel'
+      ? importService.parseExcel(req.file.buffer)
+      : await parseCSV(req.file.buffer);
 
     if (data.length === 0) {
       return res.status(400).json({ error: 'CSV file is empty or invalid' });

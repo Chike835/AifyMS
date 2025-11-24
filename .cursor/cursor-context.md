@@ -82,7 +82,7 @@ graph TB
 
 ## Data Flow Explanations
 
-### 1. Authentication Flow
+### 1. Authentication Flow (Hardened)
 
 **Path:** `Login.jsx` → `AuthContext.login()` → `POST /api/auth/login` → `authController.login()` → Database → JWT Token
 
@@ -95,7 +95,9 @@ graph TB
 6. `backend/src/controllers/authController.js` → `login()` function:
    - Validates email/password presence
    - Queries `User` model with `Role` and `Permission` includes
-   - Calls `user.checkPassword(password)` (bcrypt comparison)
+   - Calls `user.checkPassword(password)` via `passwordUtils.comparePassword()`
+   - Uses **bcryptjs** (pure JS) in Docker (`USE_BCRYPT_JS=true`) for stability
+   - Wraps password check in try/catch to prevent server crashes
    - Generates JWT token using `jwt.sign({ userId, email }, JWT_SECRET)`
    - Returns `{ token, user: { id, email, full_name, role, permissions, branch } }`
 7. Frontend receives response:
@@ -103,6 +105,13 @@ graph TB
    - Stores user data in `localStorage.setItem('user', JSON.stringify(userData))`
    - Updates `AuthContext` state with user and permissions
    - Redirects to Dashboard
+
+**Error Handling:**
+- Missing credentials → 400 Bad Request
+- User not found → 401 Unauthorized
+- Invalid password → 401 Unauthorized
+- Missing password_hash → 500 Server Error (logged for debugging)
+- Bcrypt error → 500 Server Error (logged with stack trace, prevents crash)
 
 **JWT Token Structure:**
 - Payload: `{ userId: UUID, email: string }`
@@ -244,7 +253,7 @@ graph TB
 - **Framework:** Express.js
 - **ORM:** Sequelize
 - **Authentication:** JWT (jsonwebtoken)
-- **Password Hashing:** bcrypt
+- **Password Hashing:** passwordUtils abstraction (bcryptjs in Docker, native bcrypt locally)
 - **Validation:** Express built-in + custom
 - **Port:** 5000
 
@@ -423,6 +432,7 @@ src/
 ├── routes/             # Express route definitions
 ├── middleware/         # Auth and permission middleware
 ├── services/           # Business logic services
+├── utils/              # Utilities (passwordUtils.js)
 └── server.js           # Express app entry point
 ```
 
@@ -694,7 +704,10 @@ const menuItems = [
 ## Security Considerations
 
 1. **JWT Tokens:** Stored in localStorage (consider httpOnly cookies for production)
-2. **Password Hashing:** bcrypt with cost factor 10
+2. **Password Hashing:** passwordUtils abstraction (`backend/src/utils/passwordUtils.js`)
+   - Uses bcryptjs (pure JS) in Docker via `USE_BCRYPT_JS=true` env var
+   - Uses native bcrypt locally for performance
+   - Cost factor: 10 salt rounds
 3. **SQL Injection:** Prevented by Sequelize parameterized queries
 4. **XSS:** React automatically escapes content
 5. **CORS:** Configured to allow only specified origin

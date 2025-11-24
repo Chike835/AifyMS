@@ -8,6 +8,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import POS from './pages/POS';
 import Inventory from './pages/Inventory';
+import Products from './pages/Products';
 import Payments from './pages/Payments';
 import Settings from './pages/Settings';
 import ProductionQueue from './pages/ProductionQueue';
@@ -67,6 +68,16 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <Payments />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/products"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Products />
                   </Layout>
                 </ProtectedRoute>
               }

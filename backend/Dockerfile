@@ -1,6 +1,9 @@
-FROM node:18-alpine
+FROM node:18-slim
 
 WORKDIR /app
+
+# Use pure JS bcrypt implementation to avoid native module issues
+ENV USE_BCRYPT_JS=true
 
 # Copy package files
 COPY package*.json ./
@@ -14,6 +17,5 @@ COPY . .
 # Expose port
 EXPOSE 5000
 
-# Start the application (use npm run dev for development with hot reload)
-CMD ["npm", "run", "dev"]
-
+# Start the application
+CMD ["npm", "start"]

@@ -7,6 +7,22 @@ import sequelize, { testConnection } from './src/config/db.js';
 import { associateModels } from './src/models/index.js';
 import apiRoutes from './src/routes/index.js';
 
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION:', err);
+  console.error('Stack:', err.stack);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('UNHANDLED REJECTION:', reason);
+  if (reason && reason.stack) {
+    console.error('Stack:', reason.stack);
+  }
+});
+
+process.on('exit', (code) => {
+  console.log(`Process exiting with code: ${code}`);
+});
+
 const app = express();
 
 // Middleware
@@ -46,7 +62,8 @@ const startServer = async () => {
     // Test database connection
     const connected = await testConnection();
     if (!connected) {
-      console.error('Failed to connect to database. Exiting...');
+      console.error('❌ Failed to connect to database. Exiting...');
+      console.error('Check DATABASE_URL and ensure PostgreSQL is running.');
       process.exit(1);
     }
 
@@ -63,7 +80,8 @@ const startServer = async () => {
       console.log(`📊 Environment: ${config.nodeEnv}`);
     });
   } catch (error) {
-    console.error('Failed to start server:', error);
+    console.error('❌ Failed to start server:', error);
+    console.error('Stack:', error.stack);
     process.exit(1);
   }
 };

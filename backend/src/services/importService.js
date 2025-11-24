@@ -1,5 +1,6 @@
 import { Product, InventoryInstance, Branch, Customer } from '../models/index.js';
 import { Op } from 'sequelize';
+import XLSX from 'xlsx';
 
 /**
  * Import products from CSV/JSON data
@@ -261,5 +262,27 @@ export const importCustomers = async (data, errors = []) => {
   }
 
   return results;
+};
+
+/**
+ * Parse Excel buffer into JSON rows
+ */
+export const parseExcel = (buffer) => {
+  if (!buffer || buffer.length === 0) {
+    throw new Error('Uploaded file is empty');
+  }
+
+  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+  if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+    throw new Error('Excel file is invalid or has no sheets');
+  }
+
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, {
+    defval: '',
+    blankrows: false
+  });
+
+  return rows;
 };
 

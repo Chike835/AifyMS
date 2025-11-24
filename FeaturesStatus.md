@@ -201,6 +201,7 @@
 | **Auth** | Permission middleware | [x] | [ ] |
 | **Auth** | Login page | [x] | [ ] |
 | **Auth** | Protected routes | [x] | [ ] |
+| **Auth** | Stable login with crash prevention | [x] | [ ] |
 
 ---
 
