@@ -238,6 +238,84 @@ export const deleteCustomer = async (req, res) => {
 /**
  * Get customer ledger/balance history
  */
+/**
+ * GET /api/customers/:id/orders
+ * Get customer order history
+ */
+export const getCustomerOrders = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { limit = 50, offset = 0 } = req.query;
+
+    const customer = await Customer.findByPk(id);
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    const where = { customer_id: id };
+
+    // Branch filtering
+    if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      where.branch_id = req.user.branch_id;
+    }
+
+    const orders = await SalesOrder.findAll({
+      where,
+      include: [
+        { model: Branch, as: 'branch', attributes: ['id', 'name'] }
+      ],
+      order: [['created_at', 'DESC']],
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
+
+    return res.json({ orders });
+  } catch (error) {
+    console.error('Error fetching customer orders:', error);
+    return res.status(500).json({ error: 'Failed to fetch customer orders' });
+  }
+};
+
+/**
+ * GET /api/customers/:id/balance
+ * Get customer balance summary
+ */
+export const getCustomerBalance = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const customer = await Customer.findByPk(id);
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    // Get total sales
+    const where = { customer_id: id };
+    if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      where.branch_id = req.user.branch_id;
+    }
+
+    const totalSales = await SalesOrder.sum('total_amount', { where });
+    const totalPayments = await Payment.sum('amount', { 
+      where: { 
+        customer_id: id,
+        status: 'confirmed'
+      } 
+    });
+
+    return res.json({
+      customer_id: id,
+      ledger_balance: parseFloat(customer.ledger_balance || 0),
+      total_sales: parseFloat(totalSales || 0),
+      total_payments: parseFloat(totalPayments || 0),
+      outstanding_balance: parseFloat(customer.ledger_balance || 0)
+    });
+  } catch (error) {
+    console.error('Error fetching customer balance:', error);
+    return res.status(500).json({ error: 'Failed to fetch customer balance' });
+  }
+};
+
 export const getCustomerLedger = async (req, res) => {
   try {
     const { id } = req.params;

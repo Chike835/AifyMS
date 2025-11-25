@@ -1,4 +1,4 @@
-import { Supplier, Branch } from '../models/index.js';
+import { Supplier, Branch, Purchase } from '../models/index.js';
 import { Op } from 'sequelize';
 
 /**
@@ -306,6 +306,77 @@ export const deleteSupplier = async (req, res) => {
 /**
  * Get supplier ledger/balance history
  */
+/**
+ * GET /api/suppliers/:id/purchases
+ * Get supplier purchase history
+ */
+export const getSupplierPurchases = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { limit = 50, offset = 0 } = req.query;
+
+    const supplier = await Supplier.findByPk(id);
+    if (!supplier) {
+      return res.status(404).json({ error: 'Supplier not found' });
+    }
+
+    const where = { supplier_id: id };
+
+    // Branch filtering
+    if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      where.branch_id = req.user.branch_id;
+    }
+
+    const purchases = await Purchase.findAll({
+      where,
+      include: [
+        { model: Branch, as: 'branch', attributes: ['id', 'name'] }
+      ],
+      order: [['created_at', 'DESC']],
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
+
+    return res.json({ purchases });
+  } catch (error) {
+    console.error('Error fetching supplier purchases:', error);
+    return res.status(500).json({ error: 'Failed to fetch supplier purchases' });
+  }
+};
+
+/**
+ * GET /api/suppliers/:id/balance
+ * Get supplier balance summary
+ */
+export const getSupplierBalance = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const supplier = await Supplier.findByPk(id);
+    if (!supplier) {
+      return res.status(404).json({ error: 'Supplier not found' });
+    }
+
+    const where = { supplier_id: id };
+    if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      where.branch_id = req.user.branch_id;
+    }
+
+    const totalPurchases = await Purchase.sum('total_amount', { where });
+    const totalPayments = await Purchase.sum('amount_paid', { where });
+
+    return res.json({
+      supplier_id: id,
+      total_purchases: parseFloat(totalPurchases || 0),
+      total_payments: parseFloat(totalPayments || 0),
+      outstanding_balance: parseFloat(totalPurchases || 0) - parseFloat(totalPayments || 0)
+    });
+  } catch (error) {
+    console.error('Error fetching supplier balance:', error);
+    return res.status(500).json({ error: 'Failed to fetch supplier balance' });
+  }
+};
+
 export const getSupplierLedger = async (req, res) => {
   try {
     const { id } = req.params;

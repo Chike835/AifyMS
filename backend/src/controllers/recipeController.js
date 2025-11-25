@@ -1,3 +1,4 @@
+import { Op } from 'sequelize';
 import { Recipe, Product } from '../models/index.js';
 
 /**
@@ -142,6 +143,123 @@ export const getRecipeByVirtualProduct = async (req, res, next) => {
     }
 
     res.json({ recipe });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PUT /api/recipes/:id
+ * Update a recipe
+ */
+export const updateRecipe = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const {
+      name,
+      virtual_product_id,
+      raw_product_id,
+      conversion_factor,
+      wastage_margin
+    } = req.body;
+
+    const recipe = await Recipe.findByPk(id);
+    if (!recipe) {
+      return res.status(404).json({ error: 'Recipe not found' });
+    }
+
+    // Validation
+    if (conversion_factor !== undefined && conversion_factor <= 0) {
+      return res.status(400).json({ error: 'conversion_factor must be greater than 0' });
+    }
+
+    if (wastage_margin !== undefined && (wastage_margin < 0 || wastage_margin > 100)) {
+      return res.status(400).json({ error: 'wastage_margin must be between 0 and 100' });
+    }
+
+    // If changing products, verify they exist and have correct types
+    if (virtual_product_id && virtual_product_id !== recipe.virtual_product_id) {
+      const virtualProduct = await Product.findByPk(virtual_product_id);
+      if (!virtualProduct) {
+        return res.status(404).json({ error: 'Virtual product not found' });
+      }
+      if (virtualProduct.type !== 'manufactured_virtual') {
+        return res.status(400).json({ 
+          error: 'Virtual product must be of type manufactured_virtual' 
+        });
+      }
+    }
+
+    if (raw_product_id && raw_product_id !== recipe.raw_product_id) {
+      const rawProduct = await Product.findByPk(raw_product_id);
+      if (!rawProduct) {
+        return res.status(404).json({ error: 'Raw product not found' });
+      }
+      if (rawProduct.type !== 'raw_tracked') {
+        return res.status(400).json({ 
+          error: 'Raw product must be of type raw_tracked' 
+        });
+      }
+
+      // Check if recipe already exists for new combination
+      const existingRecipe = await Recipe.findOne({
+        where: {
+          virtual_product_id: virtual_product_id || recipe.virtual_product_id,
+          raw_product_id,
+          id: { [Op.ne]: id }
+        }
+      });
+      if (existingRecipe) {
+        return res.status(409).json({ 
+          error: 'Recipe already exists for this virtual product and raw product combination' 
+        });
+      }
+    }
+
+    // Update fields
+    if (name !== undefined) recipe.name = name;
+    if (virtual_product_id !== undefined) recipe.virtual_product_id = virtual_product_id;
+    if (raw_product_id !== undefined) recipe.raw_product_id = raw_product_id;
+    if (conversion_factor !== undefined) recipe.conversion_factor = conversion_factor;
+    if (wastage_margin !== undefined) recipe.wastage_margin = wastage_margin;
+
+    await recipe.save();
+
+    // Load with associations
+    const recipeWithDetails = await Recipe.findByPk(recipe.id, {
+      include: [
+        { model: Product, as: 'virtual_product' },
+        { model: Product, as: 'raw_product' }
+      ]
+    });
+
+    res.json({
+      message: 'Recipe updated successfully',
+      recipe: recipeWithDetails
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * DELETE /api/recipes/:id
+ * Delete a recipe
+ */
+export const deleteRecipe = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const recipe = await Recipe.findByPk(id);
+    if (!recipe) {
+      return res.status(404).json({ error: 'Recipe not found' });
+    }
+
+    await recipe.destroy();
+
+    res.json({
+      message: 'Recipe deleted successfully'
+    });
   } catch (error) {
     next(error);
   }

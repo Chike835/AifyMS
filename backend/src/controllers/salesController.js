@@ -1,5 +1,5 @@
 import sequelize from '../config/db.js';
-import { SalesOrder, SalesItem, ItemAssignment, Product, InventoryInstance, Recipe, Customer, Branch, User } from '../models/index.js';
+import { SalesOrder, SalesItem, ItemAssignment, Product, InventoryInstance, Recipe, Customer, Branch, User, Agent, AgentCommission } from '../models/index.js';
 import { Op } from 'sequelize';
 
 /**
@@ -45,7 +45,11 @@ export const createSale = async (req, res, next) => {
       customer_id,
       branch_id,
       items, // Array of { product_id, quantity, unit_price, item_assignments? }
-      payment_status = 'unpaid'
+      payment_status = 'unpaid',
+      order_type = 'invoice',
+      valid_until,
+      quotation_notes,
+      agent_id
     } = req.body;
 
     // Validation
@@ -71,16 +75,42 @@ export const createSale = async (req, res, next) => {
       totalAmount += subtotal;
     }
 
+    // Determine if inventory should be deducted (only for actual invoices)
+    const shouldDeductInventory = order_type === 'invoice';
+
+    // Validate agent if provided
+    let agent = null;
+    if (agent_id) {
+      agent = await Agent.findByPk(agent_id, { transaction });
+      if (!agent) {
+        await transaction.rollback();
+        return res.status(404).json({ error: 'Agent not found' });
+      }
+      if (!agent.is_active) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'Agent is not active' });
+      }
+      // Branch check for non-Super Admin
+      if (req.user?.role_name !== 'Super Admin' && agent.branch_id !== finalBranchId) {
+        await transaction.rollback();
+        return res.status(403).json({ error: 'Agent does not belong to this branch' });
+      }
+    }
+
     // Create sales order
     const salesOrder = await SalesOrder.create({
       invoice_number: invoiceNumber,
       customer_id: customer_id || null,
       branch_id: finalBranchId,
       user_id: req.user.id,
+      agent_id: agent_id || null,
       total_amount: totalAmount,
       payment_status,
       production_status: 'na', // Will be updated if manufactured items exist
-      is_legacy: false
+      is_legacy: false,
+      order_type,
+      valid_until: order_type === 'quotation' ? valid_until : null,
+      quotation_notes: order_type === 'quotation' ? quotation_notes : null
     }, { transaction });
 
     // Track if any manufactured items exist
@@ -117,7 +147,8 @@ export const createSale = async (req, res, next) => {
       }, { transaction });
 
       // Handle manufactured_virtual products - CRITICAL LOGIC
-      if (product.type === 'manufactured_virtual') {
+      // Only process inventory deduction for actual invoices (not drafts/quotations)
+      if (product.type === 'manufactured_virtual' && shouldDeductInventory) {
         hasManufacturedItems = true;
 
         // Validate that item_assignments exist
@@ -218,13 +249,30 @@ export const createSale = async (req, res, next) => {
             quantity_deducted: qtyToDeduct
           }, { transaction });
         }
+      } else if (product.type === 'manufactured_virtual' && !shouldDeductInventory) {
+        // For drafts/quotations, just mark that it has manufactured items (for display purposes)
+        hasManufacturedItems = true;
       }
     }
 
-    // Update production status if manufactured items exist
-    if (hasManufacturedItems) {
+    // Update production status if manufactured items exist (only for actual invoices)
+    if (hasManufacturedItems && shouldDeductInventory) {
       salesOrder.production_status = 'queue';
       await salesOrder.save({ transaction });
+    }
+
+    // Create agent commission if agent is assigned (only for actual invoices)
+    if (agent && shouldDeductInventory && agent.commission_rate > 0) {
+      const commissionAmount = (total_amount * parseFloat(agent.commission_rate)) / 100;
+      
+      await AgentCommission.create({
+        agent_id: agent.id,
+        sales_order_id: salesOrder.id,
+        commission_amount: commissionAmount,
+        commission_rate: agent.commission_rate,
+        order_amount: total_amount,
+        payment_status: 'pending'
+      }, { transaction });
     }
 
     // Commit transaction
@@ -235,6 +283,8 @@ export const createSale = async (req, res, next) => {
       include: [
         { model: Customer, as: 'customer' },
         { model: Branch, as: 'branch' },
+        { model: Agent, as: 'agent', attributes: ['id', 'name', 'commission_rate'] },
+        { model: Agent, as: 'agent', attributes: ['id', 'name', 'commission_rate'] },
         { 
           model: SalesItem, 
           as: 'items',
@@ -272,7 +322,7 @@ export const createSale = async (req, res, next) => {
  */
 export const getSales = async (req, res, next) => {
   try {
-    const { branch_id, customer_id, payment_status, production_status } = req.query;
+    const { branch_id, customer_id, payment_status, production_status, order_type, start_date, end_date } = req.query;
     const where = {};
 
     // Apply filters
@@ -295,6 +345,21 @@ export const getSales = async (req, res, next) => {
       where.production_status = production_status;
     }
 
+    if (order_type) {
+      where.order_type = order_type;
+    }
+
+    // Date range filter
+    if (start_date || end_date) {
+      where.created_at = {};
+      if (start_date) {
+        where.created_at[Op.gte] = new Date(start_date);
+      }
+      if (end_date) {
+        where.created_at[Op.lte] = new Date(end_date);
+      }
+    }
+
     // Check permissions for view scope
     const canViewAll = req.user?.permissions?.includes('sale_view_all');
     if (!canViewAll && req.user?.permissions?.includes('sale_view_own')) {
@@ -306,6 +371,7 @@ export const getSales = async (req, res, next) => {
       include: [
         { model: Customer, as: 'customer' },
         { model: Branch, as: 'branch' },
+        { model: User, as: 'creator', attributes: ['id', 'full_name', 'email'] },
         { 
           model: SalesItem, 
           as: 'items',
@@ -313,7 +379,7 @@ export const getSales = async (req, res, next) => {
         }
       ],
       order: [['created_at', 'DESC']],
-      limit: 100
+      limit: 500 // Increased limit for POS list
     });
 
     res.json({ orders });
@@ -573,6 +639,686 @@ export const markAsDelivered = async (req, res, next) => {
       message: 'Order marked as delivered successfully',
       order: completeOrder
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/sales/drafts
+ * Get all draft orders
+ */
+export const getDrafts = async (req, res, next) => {
+  try {
+    const where = {
+      order_type: 'draft'
+    };
+
+    // Branch filtering
+    if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      where.branch_id = req.user.branch_id;
+    }
+
+    // Permission-based filtering
+    const canViewAll = req.user?.permissions?.includes('sale_view_all');
+    if (!canViewAll && req.user?.permissions?.includes('sale_view_own')) {
+      where.user_id = req.user.id;
+    }
+
+    const drafts = await SalesOrder.findAll({
+      where,
+      include: [
+        { model: Customer, as: 'customer' },
+        { model: Branch, as: 'branch' },
+        { 
+          model: SalesItem, 
+          as: 'items',
+          include: [{ model: Product, as: 'product' }]
+        }
+      ],
+      order: [['created_at', 'DESC']]
+    });
+
+    res.json({ drafts });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PUT /api/sales/drafts/:id
+ * Update an existing draft
+ */
+export const updateDraft = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const { customer_id, items } = req.body;
+
+    // Find the draft
+    const draft = await SalesOrder.findByPk(id, { transaction });
+    
+    if (!draft) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Draft not found' });
+    }
+
+    if (draft.order_type !== 'draft') {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Only drafts can be updated' });
+    }
+
+    // Delete existing items
+    await SalesItem.destroy({
+      where: { order_id: id },
+      transaction
+    });
+
+    // Calculate new total
+    let totalAmount = 0;
+    for (const item of items) {
+      const subtotal = parseFloat(item.quantity) * parseFloat(item.unit_price);
+      totalAmount += subtotal;
+    }
+
+    // Update draft
+    draft.customer_id = customer_id || null;
+    draft.total_amount = totalAmount;
+    await draft.save({ transaction });
+
+    // Create new items
+    for (const item of items) {
+      const subtotal = parseFloat(item.quantity) * parseFloat(item.unit_price);
+      await SalesItem.create({
+        order_id: id,
+        product_id: item.product_id,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        subtotal
+      }, { transaction });
+    }
+
+    await transaction.commit();
+
+    // Fetch updated draft
+    const updatedDraft = await SalesOrder.findByPk(id, {
+      include: [
+        { model: Customer, as: 'customer' },
+        { model: Branch, as: 'branch' },
+        { 
+          model: SalesItem, 
+          as: 'items',
+          include: [{ model: Product, as: 'product' }]
+        }
+      ]
+    });
+
+    res.json({
+      message: 'Draft updated successfully',
+      draft: updatedDraft
+    });
+  } catch (error) {
+    await transaction.rollback();
+    next(error);
+  }
+};
+
+/**
+ * POST /api/sales/drafts/:id/convert
+ * Convert a draft to an invoice
+ */
+export const convertDraftToInvoice = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const { item_assignments } = req.body; // For manufactured products
+
+    // Find the draft with items
+    const draft = await SalesOrder.findByPk(id, {
+      include: [
+        { 
+          model: SalesItem, 
+          as: 'items',
+          include: [{ model: Product, as: 'product' }]
+        }
+      ],
+      transaction
+    });
+
+    if (!draft) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Draft not found' });
+    }
+
+    if (draft.order_type !== 'draft') {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Only drafts can be converted to invoices' });
+    }
+
+    // Check for manufactured products and process inventory
+    let hasManufacturedItems = false;
+    
+    for (const item of draft.items) {
+      if (item.product?.type === 'manufactured_virtual') {
+        hasManufacturedItems = true;
+        
+        // Find assignments for this item
+        const itemAssignments = item_assignments?.[item.id];
+        if (!itemAssignments || itemAssignments.length === 0) {
+          await transaction.rollback();
+          return res.status(400).json({
+            error: `Coil assignments required for manufactured product: ${item.product.name}`
+          });
+        }
+
+        // Get recipe
+        const recipe = await Recipe.findOne({
+          where: { virtual_product_id: item.product_id },
+          transaction
+        });
+
+        if (!recipe) {
+          await transaction.rollback();
+          return res.status(404).json({
+            error: `No recipe found for product: ${item.product.name}`
+          });
+        }
+
+        // Calculate required quantity
+        const requiredQty = parseFloat(item.quantity) * parseFloat(recipe.conversion_factor);
+        let totalAssigned = 0;
+
+        // Process each assignment
+        for (const assignment of itemAssignments) {
+          const { inventory_instance_id, quantity_deducted } = assignment;
+          totalAssigned += parseFloat(quantity_deducted);
+
+          // Get and lock inventory instance
+          const instance = await InventoryInstance.findByPk(inventory_instance_id, {
+            lock: transaction.LOCK.UPDATE,
+            transaction
+          });
+
+          if (!instance) {
+            await transaction.rollback();
+            return res.status(404).json({
+              error: `Inventory instance not found: ${inventory_instance_id}`
+            });
+          }
+
+          if (instance.remaining_quantity < quantity_deducted) {
+            await transaction.rollback();
+            return res.status(400).json({
+              error: `Insufficient stock in ${instance.instance_code}`
+            });
+          }
+
+          // Deduct inventory
+          instance.remaining_quantity -= quantity_deducted;
+          if (instance.remaining_quantity <= 0) {
+            instance.status = 'depleted';
+          }
+          await instance.save({ transaction });
+
+          // Create item assignment
+          await ItemAssignment.create({
+            sales_item_id: item.id,
+            inventory_instance_id,
+            quantity_deducted
+          }, { transaction });
+        }
+
+        // Verify total assigned
+        if (Math.abs(totalAssigned - requiredQty) > 0.001) {
+          await transaction.rollback();
+          return res.status(400).json({
+            error: `Assigned quantity mismatch for ${item.product.name}`
+          });
+        }
+      }
+    }
+
+    // Update order type to invoice
+    draft.order_type = 'invoice';
+    if (hasManufacturedItems) {
+      draft.production_status = 'queue';
+    }
+    await draft.save({ transaction });
+
+    await transaction.commit();
+
+    // Fetch converted order
+    const convertedOrder = await SalesOrder.findByPk(id, {
+      include: [
+        { model: Customer, as: 'customer' },
+        { model: Branch, as: 'branch' },
+        { 
+          model: SalesItem, 
+          as: 'items',
+          include: [
+            { model: Product, as: 'product' },
+            {
+              model: ItemAssignment,
+              as: 'assignments',
+              include: [{ model: InventoryInstance, as: 'inventory_instance' }]
+            }
+          ]
+        }
+      ]
+    });
+
+    res.json({
+      message: 'Draft converted to invoice successfully',
+      order: convertedOrder
+    });
+  } catch (error) {
+    await transaction.rollback();
+    next(error);
+  }
+};
+
+/**
+ * DELETE /api/sales/drafts/:id
+ * Delete a draft order
+ */
+export const deleteDraft = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const draft = await SalesOrder.findByPk(id);
+
+    if (!draft) {
+      return res.status(404).json({ error: 'Draft not found' });
+    }
+
+    if (draft.order_type !== 'draft') {
+      return res.status(400).json({ error: 'Only drafts can be deleted' });
+    }
+
+    // Delete items first (cascade should handle this, but being explicit)
+    await SalesItem.destroy({ where: { order_id: id } });
+    
+    // Delete draft
+    await draft.destroy();
+
+    res.json({ message: 'Draft deleted successfully' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/sales/quotations
+ * Get all quotations
+ */
+export const getQuotations = async (req, res, next) => {
+  try {
+    const { status } = req.query; // 'active', 'expired', or 'all'
+    const where = {
+      order_type: 'quotation'
+    };
+
+    // Filter by expiry status
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    if (status === 'active') {
+      where.valid_until = {
+        [Op.gte]: today
+      };
+    } else if (status === 'expired') {
+      where.valid_until = {
+        [Op.lt]: today
+      };
+    }
+
+    // Branch filtering
+    if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      where.branch_id = req.user.branch_id;
+    }
+
+    // Permission-based filtering
+    const canViewAll = req.user?.permissions?.includes('sale_view_all');
+    if (!canViewAll && req.user?.permissions?.includes('sale_view_own')) {
+      where.user_id = req.user.id;
+    }
+
+    const quotations = await SalesOrder.findAll({
+      where,
+      include: [
+        { model: Customer, as: 'customer' },
+        { model: Branch, as: 'branch' },
+        { 
+          model: SalesItem, 
+          as: 'items',
+          include: [{ model: Product, as: 'product' }]
+        }
+      ],
+      order: [['created_at', 'DESC']]
+    });
+
+    // Add status field to each quotation
+    const quotationsWithStatus = quotations.map(q => {
+      const qData = q.toJSON();
+      const validUntil = q.valid_until ? new Date(q.valid_until) : null;
+      qData.is_expired = validUntil ? validUntil < today : false;
+      return qData;
+    });
+
+    res.json({ quotations: quotationsWithStatus });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/sales/quotations/:id/convert
+ * Convert a quotation to an invoice
+ */
+export const convertQuotationToInvoice = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const { item_assignments } = req.body;
+
+    // Find the quotation with items
+    const quotation = await SalesOrder.findByPk(id, {
+      include: [
+        { 
+          model: SalesItem, 
+          as: 'items',
+          include: [{ model: Product, as: 'product' }]
+        }
+      ],
+      transaction
+    });
+
+    if (!quotation) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Quotation not found' });
+    }
+
+    if (quotation.order_type !== 'quotation') {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Only quotations can be converted' });
+    }
+
+    // Check if quotation is expired
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (quotation.valid_until && new Date(quotation.valid_until) < today) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'This quotation has expired' });
+    }
+
+    // Process manufactured products
+    let hasManufacturedItems = false;
+    
+    for (const item of quotation.items) {
+      if (item.product?.type === 'manufactured_virtual') {
+        hasManufacturedItems = true;
+        
+        const itemAssignments = item_assignments?.[item.id];
+        if (!itemAssignments || itemAssignments.length === 0) {
+          await transaction.rollback();
+          return res.status(400).json({
+            error: `Coil assignments required for manufactured product: ${item.product.name}`
+          });
+        }
+
+        // Get recipe
+        const recipe = await Recipe.findOne({
+          where: { virtual_product_id: item.product_id },
+          transaction
+        });
+
+        if (!recipe) {
+          await transaction.rollback();
+          return res.status(404).json({
+            error: `No recipe found for product: ${item.product.name}`
+          });
+        }
+
+        // Calculate required quantity
+        const requiredQty = parseFloat(item.quantity) * parseFloat(recipe.conversion_factor);
+        let totalAssigned = 0;
+
+        // Process each assignment
+        for (const assignment of itemAssignments) {
+          const { inventory_instance_id, quantity_deducted } = assignment;
+          totalAssigned += parseFloat(quantity_deducted);
+
+          // Get and lock inventory instance
+          const instance = await InventoryInstance.findByPk(inventory_instance_id, {
+            lock: transaction.LOCK.UPDATE,
+            transaction
+          });
+
+          if (!instance) {
+            await transaction.rollback();
+            return res.status(404).json({
+              error: `Inventory instance not found: ${inventory_instance_id}`
+            });
+          }
+
+          if (instance.remaining_quantity < quantity_deducted) {
+            await transaction.rollback();
+            return res.status(400).json({
+              error: `Insufficient stock in ${instance.instance_code}`
+            });
+          }
+
+          // Deduct inventory
+          instance.remaining_quantity -= quantity_deducted;
+          if (instance.remaining_quantity <= 0) {
+            instance.status = 'depleted';
+          }
+          await instance.save({ transaction });
+
+          // Create item assignment
+          await ItemAssignment.create({
+            sales_item_id: item.id,
+            inventory_instance_id,
+            quantity_deducted
+          }, { transaction });
+        }
+
+        // Verify total assigned
+        if (Math.abs(totalAssigned - requiredQty) > 0.001) {
+          await transaction.rollback();
+          return res.status(400).json({
+            error: `Assigned quantity mismatch for ${item.product.name}`
+          });
+        }
+      }
+    }
+
+    // Update order type to invoice
+    quotation.order_type = 'invoice';
+    quotation.valid_until = null; // Clear quotation-specific fields
+    quotation.quotation_notes = null;
+    if (hasManufacturedItems) {
+      quotation.production_status = 'queue';
+    }
+    await quotation.save({ transaction });
+
+    await transaction.commit();
+
+    // Fetch converted order
+    const convertedOrder = await SalesOrder.findByPk(id, {
+      include: [
+        { model: Customer, as: 'customer' },
+        { model: Branch, as: 'branch' },
+        { 
+          model: SalesItem, 
+          as: 'items',
+          include: [
+            { model: Product, as: 'product' },
+            {
+              model: ItemAssignment,
+              as: 'assignments',
+              include: [{ model: InventoryInstance, as: 'inventory_instance' }]
+            }
+          ]
+        }
+      ]
+    });
+
+    res.json({
+      message: 'Quotation converted to invoice successfully',
+      order: convertedOrder
+    });
+  } catch (error) {
+    await transaction.rollback();
+    next(error);
+  }
+};
+
+/**
+ * DELETE /api/sales/quotations/:id
+ * Delete a quotation
+ */
+export const deleteQuotation = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const quotation = await SalesOrder.findByPk(id);
+
+    if (!quotation) {
+      return res.status(404).json({ error: 'Quotation not found' });
+    }
+
+    if (quotation.order_type !== 'quotation') {
+      return res.status(400).json({ error: 'Only quotations can be deleted' });
+    }
+
+    // Delete items first
+    await SalesItem.destroy({ where: { order_id: id } });
+    
+    // Delete quotation
+    await quotation.destroy();
+
+    res.json({ message: 'Quotation deleted successfully' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PUT /api/sales/:id
+ * Update sales order (only for drafts)
+ */
+export const updateSale = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const order = await SalesOrder.findByPk(id);
+
+    if (!order) {
+      return res.status(404).json({ error: 'Sales order not found' });
+    }
+
+    // Only allow updates to drafts
+    if (order.order_type !== 'draft') {
+      return res.status(400).json({ error: 'Only draft orders can be updated. Use the drafts endpoint instead.' });
+    }
+
+    // Redirect to updateDraft for consistency
+    return updateDraft(req, res, next);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * DELETE /api/sales/:id
+ * Cancel/void a sales order
+ */
+export const cancelSale = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const order = await SalesOrder.findByPk(id, {
+      include: [
+        { model: Customer, as: 'customer' },
+        { 
+          model: SalesItem, 
+          as: 'items',
+          include: [
+            { model: Product, as: 'product' },
+            {
+              model: ItemAssignment,
+              as: 'assignments',
+              include: [
+                {
+                  model: InventoryInstance,
+                  as: 'inventory_instance'
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    });
+
+    if (!order) {
+      return res.status(404).json({ error: 'Sales order not found' });
+    }
+
+    // Only allow cancellation of unpaid orders
+    if (order.payment_status === 'paid') {
+      return res.status(400).json({ error: 'Cannot cancel a paid order' });
+    }
+
+    // If order was invoiced and has inventory deductions, reverse them
+    if (order.order_type === 'invoice' && order.items) {
+      const transaction = await sequelize.transaction();
+      try {
+        for (const item of order.items) {
+          if (item.assignments && item.assignments.length > 0) {
+            for (const assignment of item.assignments) {
+              const instance = await InventoryInstance.findByPk(
+                assignment.inventory_instance_id,
+                { transaction }
+              );
+              
+              if (instance) {
+                // Reverse the inventory deduction
+                instance.remaining_quantity += parseFloat(assignment.quantity_deducted);
+                if (instance.status === 'depleted' && instance.remaining_quantity > 0) {
+                  instance.status = 'in_stock';
+                }
+                await instance.save({ transaction });
+              }
+            }
+          }
+        }
+
+        // Mark order as cancelled (we can add a cancelled status or just delete)
+        // For now, we'll add a cancelled flag or just delete if it's a draft/quotation
+        if (order.order_type === 'draft' || order.order_type === 'quotation') {
+          await SalesItem.destroy({ where: { order_id: id }, transaction });
+          await order.destroy({ transaction });
+        } else {
+          // For invoices, we might want to keep a record, but mark as cancelled
+          // For now, we'll just delete
+          await SalesItem.destroy({ where: { order_id: id }, transaction });
+          await order.destroy({ transaction });
+        }
+
+        await transaction.commit();
+        res.json({ message: 'Sales order cancelled successfully' });
+      } catch (error) {
+        await transaction.rollback();
+        throw error;
+      }
+    } else {
+      // For drafts/quotations or orders without inventory, just delete
+      await SalesItem.destroy({ where: { order_id: id } });
+      await order.destroy();
+      res.json({ message: 'Sales order cancelled successfully' });
+    }
   } catch (error) {
     next(error);
   }

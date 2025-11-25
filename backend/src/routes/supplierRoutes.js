@@ -7,7 +7,9 @@ import {
   createSupplier,
   updateSupplier,
   deleteSupplier,
-  getSupplierLedger
+  getSupplierLedger,
+  getSupplierPurchases,
+  getSupplierBalance
 } from '../controllers/supplierController.js';
 
 const router = express.Router();
@@ -35,6 +37,20 @@ router.get('/:id', requirePermission('product_view'), getSupplierById);
  * Permission: product_view
  */
 router.get('/:id/ledger', requirePermission('product_view'), getSupplierLedger);
+
+/**
+ * GET /api/suppliers/:id/purchases
+ * Get supplier purchase history
+ * Permission: product_view
+ */
+router.get('/:id/purchases', requirePermission('product_view'), getSupplierPurchases);
+
+/**
+ * GET /api/suppliers/:id/balance
+ * Get supplier balance summary
+ * Permission: product_view
+ */
+router.get('/:id/balance', requirePermission('product_view'), getSupplierBalance);
 
 /**
  * POST /api/suppliers

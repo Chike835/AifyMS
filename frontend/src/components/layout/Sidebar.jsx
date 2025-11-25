@@ -3,8 +3,13 @@ import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard,
   ShoppingCart,
+  ClipboardList,
+  FileEdit,
+  FileText,
+  RotateCcw,
   Package,
   Boxes,
+  DollarSign,
   CreditCard,
   Users,
   UserCheck,
@@ -17,6 +22,13 @@ import {
   Factory,
   Truck,
   LogOut,
+  BarChart3,
+  UserPlus,
+  Upload,
+  Percent,
+  FileCheck,
+  Printer,
+  MapPin,
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -37,6 +49,30 @@ const Sidebar = () => {
       permission: 'pos_access',
     },
     {
+      name: 'Sales',
+      path: '/sales',
+      icon: ClipboardList,
+      permission: 'sale_view_all',
+    },
+    {
+      name: 'Drafts',
+      path: '/sales/drafts',
+      icon: FileEdit,
+      permission: 'draft_manage',
+    },
+    {
+      name: 'Quotations',
+      path: '/sales/quotations',
+      icon: FileText,
+      permission: 'quote_manage',
+    },
+    {
+      name: 'Sales Returns',
+      path: '/sales/returns',
+      icon: RotateCcw,
+      permission: 'sale_return_view',
+    },
+    {
       name: 'Inventory',
       path: '/inventory',
       icon: Package,
@@ -47,6 +83,12 @@ const Sidebar = () => {
       path: '/products',
       icon: Boxes,
       permission: 'product_view',
+    },
+    {
+      name: 'Update Prices',
+      path: '/products/update-price',
+      icon: DollarSign,
+      permission: 'product_edit',
     },
     {
       name: 'Payments',
@@ -73,6 +115,12 @@ const Sidebar = () => {
       permission: 'stock_add_opening',
     },
     {
+      name: 'Purchase Returns',
+      path: '/purchases/returns',
+      icon: RotateCcw,
+      permission: 'purchase_return_view',
+    },
+    {
       name: 'Expenses',
       path: '/expenses',
       icon: Receipt,
@@ -83,6 +131,18 @@ const Sidebar = () => {
       path: '/payroll',
       icon: Wallet,
       permission: 'payroll_view',
+    },
+    {
+      name: 'Reports',
+      path: '/accounts/reports',
+      icon: BarChart3,
+      permission: 'report_view_sales',
+    },
+    {
+      name: 'Payment Accounts',
+      path: '/accounts/payment-accounts',
+      icon: Wallet,
+      permission: 'payment_account_view',
     },
     {
       name: 'Users',
@@ -103,6 +163,18 @@ const Sidebar = () => {
       permission: 'product_add',
     },
     {
+      name: 'Manufacturing',
+      path: '/manufacturing/status',
+      icon: Factory,
+      permission: 'production_view_queue',
+    },
+    {
+      name: 'Recipes',
+      path: '/manufacturing/recipes',
+      icon: FileText,
+      permission: 'recipe_manage',
+    },
+    {
       name: 'Production Queue',
       path: '/production-queue',
       icon: Factory,
@@ -113,6 +185,48 @@ const Sidebar = () => {
       path: '/shipments',
       icon: Truck,
       permission: 'production_view_queue',
+    },
+    {
+      name: 'Agents',
+      path: '/agents',
+      icon: UserPlus,
+      permission: 'agent_view',
+    },
+    {
+      name: 'Import Contacts',
+      path: '/import/contacts',
+      icon: Upload,
+      permission: 'data_import',
+    },
+    {
+      name: 'Discounts',
+      path: '/discounts',
+      icon: Percent,
+      permission: 'discount_view',
+    },
+    {
+      name: 'Delivery Notes',
+      path: '/delivery-notes',
+      icon: FileCheck,
+      permission: 'sale_view_all',
+    },
+    {
+      name: 'Print Labels',
+      path: '/inventory/print-labels',
+      icon: Printer,
+      permission: 'stock_add_opening',
+    },
+    {
+      name: 'POS List',
+      path: '/sales/pos-list',
+      icon: ShoppingCart,
+      permission: 'sale_view_all',
+    },
+    {
+      name: 'Business Locations',
+      path: '/settings/locations',
+      icon: MapPin,
+      permission: 'settings_manage',
     },
   ];
 

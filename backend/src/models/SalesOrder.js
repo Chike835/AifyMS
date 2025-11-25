@@ -72,6 +72,29 @@ const SalesOrder = sequelize.define('SalesOrder', {
     type: DataTypes.DECIMAL(15, 2),
     allowNull: true
   },
+  agent_id: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    references: {
+      model: 'agents',
+      key: 'id'
+    }
+  },
+  order_type: {
+    type: DataTypes.STRING(20),
+    defaultValue: 'invoice',
+    validate: {
+      isIn: [['draft', 'quotation', 'invoice']]
+    }
+  },
+  valid_until: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
+  quotation_notes: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

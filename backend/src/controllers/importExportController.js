@@ -75,7 +75,7 @@ export const importData = async (req, res, next) => {
 
 
     const { entity } = req.params;
-    const validEntities = ['products', 'inventory', 'customers'];
+    const validEntities = ['products', 'inventory', 'customers', 'suppliers'];
 
     if (!validEntities.includes(entity)) {
       return res.status(400).json({
@@ -103,7 +103,10 @@ export const importData = async (req, res, next) => {
         results = await importService.importInventoryInstances(data);
         break;
       case 'customers':
-        results = await importService.importCustomers(data);
+        results = await importService.importCustomers(data, req.user);
+        break;
+      case 'suppliers':
+        results = await importService.importSuppliers(data, req.user);
         break;
       default:
         return res.status(400).json({ error: 'Invalid entity type' });

@@ -7,7 +7,9 @@ import {
   createCustomer,
   updateCustomer,
   deleteCustomer,
-  getCustomerLedger
+  getCustomerLedger,
+  getCustomerOrders,
+  getCustomerBalance
 } from '../controllers/customerController.js';
 
 const router = express.Router();
@@ -35,6 +37,20 @@ router.get('/:id', requirePermission('payment_view'), getCustomerById);
  * Permission: payment_view
  */
 router.get('/:id/ledger', requirePermission('payment_view'), getCustomerLedger);
+
+/**
+ * GET /api/customers/:id/orders
+ * Get customer order history
+ * Permission: payment_view
+ */
+router.get('/:id/orders', requirePermission('payment_view'), getCustomerOrders);
+
+/**
+ * GET /api/customers/:id/balance
+ * Get customer balance summary
+ * Permission: payment_view
+ */
+router.get('/:id/balance', requirePermission('payment_view'), getCustomerBalance);
 
 /**
  * POST /api/customers

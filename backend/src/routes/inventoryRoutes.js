@@ -7,7 +7,11 @@ import {
   transferInstance,
   getTransfers,
   adjustStock,
-  getAdjustments
+  getAdjustments,
+  generateLabels,
+  getLabelTemplate,
+  getLowStock,
+  getInstanceHistory
 } from '../controllers/inventoryController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { requirePermission } from '../middleware/permissionMiddleware.js';
@@ -40,6 +44,18 @@ router.post('/adjust', requirePermission('stock_adjust'), adjustStock);
 
 // GET /api/inventory/adjustments - Get adjustment history (requires product_view)
 router.get('/adjustments', requirePermission('product_view'), getAdjustments);
+
+// POST /api/inventory/instances/labels - Generate labels (requires stock_add_opening)
+router.post('/instances/labels', requirePermission('stock_add_opening'), generateLabels);
+
+// GET /api/inventory/label-template - Get label template (requires product_view)
+router.get('/label-template', requirePermission('product_view'), getLabelTemplate);
+
+// GET /api/inventory/low-stock - Get low stock items (requires product_view)
+router.get('/low-stock', requirePermission('product_view'), getLowStock);
+
+// GET /api/inventory/instances/:id/history - Get instance history (requires product_view)
+router.get('/instances/:id/history', requirePermission('product_view'), getInstanceHistory);
 
 export default router;
 

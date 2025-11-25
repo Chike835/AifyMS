@@ -478,3 +478,199 @@ export const getAdjustments = async (req, res, next) => {
   }
 };
 
+/**
+ * POST /api/inventory/instances/labels
+ * Generate labels for inventory instances
+ */
+export const generateLabels = async (req, res, next) => {
+  try {
+    const { instance_ids, format = 'barcode', size = 'medium' } = req.body;
+
+    if (!instance_ids || !Array.isArray(instance_ids) || instance_ids.length === 0) {
+      return res.status(400).json({ 
+        error: 'instance_ids array is required and must not be empty' 
+      });
+    }
+
+    // Fetch instances with product and branch info
+    const instances = await InventoryInstance.findAll({
+      where: {
+        id: { [Op.in]: instance_ids }
+      },
+      include: [
+        { model: Product, as: 'product', attributes: ['id', 'name', 'sku', 'type'] },
+        { model: Branch, as: 'branch', attributes: ['id', 'name', 'label_template'] }
+      ]
+    });
+
+    if (instances.length === 0) {
+      return res.status(404).json({ error: 'No instances found' });
+    }
+
+    // Branch access check
+    if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      const invalidInstances = instances.filter(inst => inst.branch_id !== req.user.branch_id);
+      if (invalidInstances.length > 0) {
+        return res.status(403).json({ 
+          error: 'You do not have permission to generate labels for instances from other branches' 
+        });
+      }
+    }
+
+    // Generate label data
+    const labels = instances.map(instance => ({
+      instance_id: instance.id,
+      instance_code: instance.instance_code,
+      product_name: instance.product?.name || 'N/A',
+      product_sku: instance.product?.sku || 'N/A',
+      remaining_quantity: parseFloat(instance.remaining_quantity),
+      branch_name: instance.branch?.name || 'N/A',
+      label_template: instance.branch?.label_template || null
+    }));
+
+    res.json({
+      labels,
+      format,
+      size,
+      count: labels.length
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/inventory/label-template
+ * Get branch-specific label template
+ */
+export const getLabelTemplate = async (req, res, next) => {
+  try {
+    const branchId = req.user?.branch_id;
+
+    if (!branchId) {
+      return res.status(400).json({ error: 'User must be assigned to a branch' });
+    }
+
+    const branch = await Branch.findByPk(branchId);
+    if (!branch) {
+      return res.status(404).json({ error: 'Branch not found' });
+    }
+
+    res.json({
+      template: branch.label_template || null,
+      branch_id: branch.id,
+      branch_name: branch.name
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/inventory/low-stock
+ * Get products/instances below threshold
+ */
+export const getLowStock = async (req, res, next) => {
+  try {
+    const { threshold = 10 } = req.query;
+    const thresholdValue = parseFloat(threshold);
+
+    const where = {};
+    if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      where.branch_id = req.user.branch_id;
+    }
+    where.status = 'in_stock';
+    where.remaining_quantity = { [Op.lte]: thresholdValue };
+
+    const instances = await InventoryInstance.findAll({
+      where,
+      include: [
+        { model: Product, as: 'product', attributes: ['id', 'name', 'sku', 'type'] },
+        { model: Branch, as: 'branch', attributes: ['id', 'name'] }
+      ],
+      order: [['remaining_quantity', 'ASC']]
+    });
+
+    res.json({ 
+      instances,
+      threshold: thresholdValue,
+      count: instances.length
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/inventory/instances/:id/history
+ * Get instance movement history (transfers, adjustments)
+ */
+export const getInstanceHistory = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const instance = await InventoryInstance.findByPk(id);
+    if (!instance) {
+      return res.status(404).json({ error: 'Instance not found' });
+    }
+
+    // Branch access check
+    if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id) {
+      if (instance.branch_id !== req.user.branch_id) {
+        return res.status(403).json({ error: 'Unauthorized to view this instance' });
+      }
+    }
+
+    // Get transfers
+    const transfers = await StockTransfer.findAll({
+      where: {
+        [Op.or]: [
+          { from_instance_id: id },
+          { to_instance_id: id }
+        ]
+      },
+      include: [
+        { model: User, as: 'user', attributes: ['id', 'full_name'] },
+        { model: Branch, as: 'to_branch', attributes: ['id', 'name'] }
+      ],
+      order: [['created_at', 'DESC']]
+    });
+
+    // Get adjustments
+    const adjustments = await StockAdjustment.findAll({
+      where: { inventory_instance_id: id },
+      include: [
+        { model: User, as: 'user', attributes: ['id', 'full_name'] }
+      ],
+      order: [['adjustment_date', 'DESC']]
+    });
+
+    res.json({
+      instance: {
+        id: instance.id,
+        instance_code: instance.instance_code,
+        product: instance.product,
+        current_quantity: instance.remaining_quantity
+      },
+      transfers,
+      adjustments,
+      history: [
+        ...transfers.map(t => ({
+          type: 'transfer',
+          date: t.created_at,
+          description: `Transferred ${t.quantity} ${t.quantity_unit} to ${t.to_branch?.name || 'N/A'}`,
+          user: t.user
+        })),
+        ...adjustments.map(a => ({
+          type: 'adjustment',
+          date: a.adjustment_date,
+          description: `Adjusted by ${a.adjustment_quantity} ${a.quantity_unit}. Reason: ${a.reason || 'N/A'}`,
+          user: a.user
+        }))
+      ].sort((a, b) => new Date(b.date) - new Date(a.date))
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+

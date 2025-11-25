@@ -22,6 +22,29 @@ import Roles from './pages/Roles';
 import Settings from './pages/Settings';
 import ProductionQueue from './pages/ProductionQueue';
 import Shipments from './pages/Shipments';
+import Sales from './pages/Sales';
+import AddSale from './pages/AddSale';
+import Drafts from './pages/Drafts';
+import Quotations from './pages/Quotations';
+import SalesReturns from './pages/SalesReturns';
+import PurchaseReturns from './pages/PurchaseReturns';
+import UpdatePrice from './pages/UpdatePrice';
+import Reports from './pages/Reports';
+import PaymentAccounts from './pages/PaymentAccounts';
+import BusinessSettings from './pages/BusinessSettings';
+import TaxRates from './pages/TaxRates';
+import InvoiceSettings from './pages/InvoiceSettings';
+import ManufacturingStatus from './pages/ManufacturingStatus';
+import Recipes from './pages/Recipes';
+import PrintLabels from './pages/PrintLabels';
+import Agents from './pages/Agents';
+import ImportContacts from './pages/ImportContacts';
+import Discounts from './pages/Discounts';
+import DeliveryNotes from './pages/DeliveryNotes';
+import BarcodeSettings from './pages/BarcodeSettings';
+import ReceiptPrinters from './pages/ReceiptPrinters';
+import POSList from './pages/POSList';
+import BusinessLocations from './pages/BusinessLocations';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -57,6 +80,66 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <POS />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/sales"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Sales />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/sales/add"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <AddSale />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/sales/drafts"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Drafts />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/sales/quotations"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Quotations />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/sales/pos-list"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <POSList />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/sales/returns"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <SalesReturns />
                   </Layout>
                 </ProtectedRoute>
               }
@@ -122,6 +205,16 @@ function App() {
               }
             />
             <Route
+              path="/purchases/returns"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <PurchaseReturns />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/expenses"
               element={
                 <ProtectedRoute>
@@ -182,6 +275,16 @@ function App() {
               }
             />
             <Route
+              path="/products/update-price"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <UpdatePrice />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/settings"
               element={
                 <ProtectedRoute>
@@ -207,6 +310,156 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <Shipments />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/accounts/reports"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Reports />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/accounts/payment-accounts"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <PaymentAccounts />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings/business"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <BusinessSettings />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings/tax"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <TaxRates />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings/invoice"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <InvoiceSettings />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/manufacturing/status"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <ManufacturingStatus />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/manufacturing/recipes"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Recipes />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/inventory/print-labels"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <PrintLabels />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/agents"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Agents />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/import/contacts"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <ImportContacts />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/discounts"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Discounts />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/delivery-notes"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <DeliveryNotes />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings/barcode"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <BarcodeSettings />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings/receipt-printers"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <ReceiptPrinters />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings/locations"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <BusinessLocations />
                   </Layout>
                 </ProtectedRoute>
               }

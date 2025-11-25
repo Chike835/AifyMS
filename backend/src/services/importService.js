@@ -1,4 +1,4 @@
-import { Product, InventoryInstance, Branch, Customer } from '../models/index.js';
+import { Product, InventoryInstance, Branch, Customer, Supplier } from '../models/index.js';
 import { Op } from 'sequelize';
 import XLSX from 'xlsx';
 
@@ -200,7 +200,7 @@ export const importInventoryInstances = async (data, errors = []) => {
  * Import customers from CSV/JSON data
  * Expected columns: name, phone, email, address
  */
-export const importCustomers = async (data, errors = []) => {
+export const importCustomers = async (data, user, errors = []) => {
   const results = {
     created: 0,
     updated: 0,
@@ -223,17 +223,26 @@ export const importCustomers = async (data, errors = []) => {
         continue;
       }
 
+      // Determine branch_id
+      const branchId = user?.branch_id || null;
+
       // Check if customer exists (by name or email if provided)
       let existingCustomer = null;
       if (row.email) {
         existingCustomer = await Customer.findOne({
-          where: { email: row.email.trim() }
+          where: { 
+            email: row.email.trim(),
+            branch_id: branchId
+          }
         });
       }
 
       if (!existingCustomer) {
         existingCustomer = await Customer.findOne({
-          where: { name: row.name.trim() }
+          where: { 
+            name: row.name.trim(),
+            branch_id: branchId
+          }
         });
       }
 
@@ -242,7 +251,8 @@ export const importCustomers = async (data, errors = []) => {
         phone: row.phone ? row.phone.trim() : null,
         email: row.email ? row.email.trim() : null,
         address: row.address ? row.address.trim() : null,
-        ledger_balance: row.ledger_balance ? parseFloat(row.ledger_balance) : 0
+        ledger_balance: row.ledger_balance ? parseFloat(row.ledger_balance) : 0,
+        branch_id: branchId
       };
 
       if (existingCustomer) {
@@ -250,6 +260,83 @@ export const importCustomers = async (data, errors = []) => {
         results.updated++;
       } else {
         await Customer.create(customerData);
+        results.created++;
+      }
+    } catch (error) {
+      results.errors.push({
+        row: rowNum,
+        error: error.message || 'Unknown error'
+      });
+      results.skipped++;
+    }
+  }
+
+  return results;
+};
+
+/**
+ * Import suppliers from CSV/JSON data
+ * Expected columns: name, phone, email, address
+ */
+export const importSuppliers = async (data, user, errors = []) => {
+  const results = {
+    created: 0,
+    updated: 0,
+    skipped: 0,
+    errors: []
+  };
+
+  // Determine branch_id
+  const branchId = user?.branch_id || null;
+
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    const rowNum = i + 2;
+
+    try {
+      // Validate required fields
+      if (!row.name) {
+        results.errors.push({
+          row: rowNum,
+          error: 'Missing required field: name'
+        });
+        results.skipped++;
+        continue;
+      }
+
+      // Check if supplier exists (by name or email if provided)
+      let existingSupplier = null;
+      if (row.email) {
+        existingSupplier = await Supplier.findOne({
+          where: { 
+            email: row.email.trim(),
+            branch_id: branchId
+          }
+        });
+      }
+
+      if (!existingSupplier) {
+        existingSupplier = await Supplier.findOne({
+          where: { 
+            name: row.name.trim(),
+            branch_id: branchId
+          }
+        });
+      }
+
+      const supplierData = {
+        name: row.name.trim(),
+        phone: row.phone ? row.phone.trim() : null,
+        email: row.email ? row.email.trim() : null,
+        address: row.address ? row.address.trim() : null,
+        branch_id: branchId
+      };
+
+      if (existingSupplier) {
+        await existingSupplier.update(supplierData);
+        results.updated++;
+      } else {
+        await Supplier.create(supplierData);
         results.created++;
       }
     } catch (error) {

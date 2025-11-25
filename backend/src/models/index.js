@@ -22,6 +22,20 @@ import PurchaseItem from './PurchaseItem.js';
 import ExpenseCategory from './ExpenseCategory.js';
 import Expense from './Expense.js';
 import PayrollRecord from './PayrollRecord.js';
+import SalesReturn from './SalesReturn.js';
+import SalesReturnItem from './SalesReturnItem.js';
+import PurchaseReturn from './PurchaseReturn.js';
+import PurchaseReturnItem from './PurchaseReturnItem.js';
+import PriceHistory from './PriceHistory.js';
+import PaymentAccount from './PaymentAccount.js';
+import AccountTransaction from './AccountTransaction.js';
+import BusinessSetting from './BusinessSetting.js';
+import TaxRate from './TaxRate.js';
+import Agent from './Agent.js';
+import AgentCommission from './AgentCommission.js';
+import Discount from './Discount.js';
+import DeliveryNoteTemplate from './DeliveryNoteTemplate.js';
+import ReceiptPrinter from './ReceiptPrinter.js';
 
 // Define all associations
 export const associateModels = () => {
@@ -444,6 +458,266 @@ export const associateModels = () => {
     foreignKey: 'user_id',
     as: 'payroll_records'
   });
+
+  // SalesReturn - SalesOrder (Many-to-One)
+  SalesReturn.belongsTo(SalesOrder, {
+    foreignKey: 'sales_order_id',
+    as: 'sales_order'
+  });
+  SalesOrder.hasMany(SalesReturn, {
+    foreignKey: 'sales_order_id',
+    as: 'returns'
+  });
+
+  // SalesReturn - Customer (Many-to-One)
+  SalesReturn.belongsTo(Customer, {
+    foreignKey: 'customer_id',
+    as: 'customer'
+  });
+  Customer.hasMany(SalesReturn, {
+    foreignKey: 'customer_id',
+    as: 'sales_returns'
+  });
+
+  // SalesReturn - Branch (Many-to-One)
+  SalesReturn.belongsTo(Branch, {
+    foreignKey: 'branch_id',
+    as: 'branch'
+  });
+  Branch.hasMany(SalesReturn, {
+    foreignKey: 'branch_id',
+    as: 'sales_returns'
+  });
+
+  // SalesReturn - User (Many-to-One: Creator)
+  SalesReturn.belongsTo(User, {
+    foreignKey: 'user_id',
+    as: 'creator'
+  });
+  User.hasMany(SalesReturn, {
+    foreignKey: 'user_id',
+    as: 'sales_returns_created'
+  });
+
+  // SalesReturn - User (Many-to-One: Approver)
+  SalesReturn.belongsTo(User, {
+    foreignKey: 'approved_by',
+    as: 'approver'
+  });
+
+  // SalesReturn - SalesReturnItem (One-to-Many)
+  SalesReturn.hasMany(SalesReturnItem, {
+    foreignKey: 'sales_return_id',
+    as: 'items',
+    onDelete: 'CASCADE'
+  });
+  SalesReturnItem.belongsTo(SalesReturn, {
+    foreignKey: 'sales_return_id',
+    as: 'sales_return'
+  });
+
+  // SalesReturnItem - SalesItem (Many-to-One)
+  SalesReturnItem.belongsTo(SalesItem, {
+    foreignKey: 'sales_item_id',
+    as: 'original_item'
+  });
+
+  // SalesReturnItem - Product (Many-to-One)
+  SalesReturnItem.belongsTo(Product, {
+    foreignKey: 'product_id',
+    as: 'product'
+  });
+
+  // PurchaseReturn - Purchase (Many-to-One)
+  PurchaseReturn.belongsTo(Purchase, {
+    foreignKey: 'purchase_id',
+    as: 'purchase'
+  });
+  Purchase.hasMany(PurchaseReturn, {
+    foreignKey: 'purchase_id',
+    as: 'returns'
+  });
+
+  // PurchaseReturn - Supplier (Many-to-One)
+  PurchaseReturn.belongsTo(Supplier, {
+    foreignKey: 'supplier_id',
+    as: 'supplier'
+  });
+  Supplier.hasMany(PurchaseReturn, {
+    foreignKey: 'supplier_id',
+    as: 'purchase_returns'
+  });
+
+  // PurchaseReturn - Branch (Many-to-One)
+  PurchaseReturn.belongsTo(Branch, {
+    foreignKey: 'branch_id',
+    as: 'branch'
+  });
+  Branch.hasMany(PurchaseReturn, {
+    foreignKey: 'branch_id',
+    as: 'purchase_returns'
+  });
+
+  // PurchaseReturn - User (Many-to-One: Creator)
+  PurchaseReturn.belongsTo(User, {
+    foreignKey: 'user_id',
+    as: 'creator'
+  });
+  User.hasMany(PurchaseReturn, {
+    foreignKey: 'user_id',
+    as: 'purchase_returns_created'
+  });
+
+  // PurchaseReturn - User (Many-to-One: Approver)
+  PurchaseReturn.belongsTo(User, {
+    foreignKey: 'approved_by',
+    as: 'approver'
+  });
+
+  // PurchaseReturn - PurchaseReturnItem (One-to-Many)
+  PurchaseReturn.hasMany(PurchaseReturnItem, {
+    foreignKey: 'purchase_return_id',
+    as: 'items',
+    onDelete: 'CASCADE'
+  });
+  PurchaseReturnItem.belongsTo(PurchaseReturn, {
+    foreignKey: 'purchase_return_id',
+    as: 'purchase_return'
+  });
+
+  // PurchaseReturnItem - PurchaseItem (Many-to-One)
+  PurchaseReturnItem.belongsTo(PurchaseItem, {
+    foreignKey: 'purchase_item_id',
+    as: 'original_item'
+  });
+
+  // PurchaseReturnItem - Product (Many-to-One)
+  PurchaseReturnItem.belongsTo(Product, {
+    foreignKey: 'product_id',
+    as: 'product'
+  });
+
+  // PurchaseReturnItem - InventoryInstance (Many-to-One)
+  PurchaseReturnItem.belongsTo(InventoryInstance, {
+    foreignKey: 'inventory_instance_id',
+    as: 'inventory_instance'
+  });
+
+  // PriceHistory - Product (Many-to-One)
+  PriceHistory.belongsTo(Product, {
+    foreignKey: 'product_id',
+    as: 'product'
+  });
+  Product.hasMany(PriceHistory, {
+    foreignKey: 'product_id',
+    as: 'price_history'
+  });
+
+  // PriceHistory - User (Many-to-One)
+  PriceHistory.belongsTo(User, {
+    foreignKey: 'user_id',
+    as: 'user'
+  });
+
+  // PaymentAccount - Branch (Many-to-One)
+  PaymentAccount.belongsTo(Branch, {
+    foreignKey: 'branch_id',
+    as: 'branch'
+  });
+  Branch.hasMany(PaymentAccount, {
+    foreignKey: 'branch_id',
+    as: 'payment_accounts'
+  });
+
+  // PaymentAccount - AccountTransaction (One-to-Many)
+  PaymentAccount.hasMany(AccountTransaction, {
+    foreignKey: 'account_id',
+    as: 'transactions'
+  });
+  AccountTransaction.belongsTo(PaymentAccount, {
+    foreignKey: 'account_id',
+    as: 'account'
+  });
+
+  // AccountTransaction - User (Many-to-One)
+  AccountTransaction.belongsTo(User, {
+    foreignKey: 'user_id',
+    as: 'user'
+  });
+  User.hasMany(AccountTransaction, {
+    foreignKey: 'user_id',
+    as: 'account_transactions'
+  });
+
+  // Agent - Branch (Many-to-One)
+  Agent.belongsTo(Branch, {
+    foreignKey: 'branch_id',
+    as: 'branch'
+  });
+  Branch.hasMany(Agent, {
+    foreignKey: 'branch_id',
+    as: 'agents'
+  });
+
+  // Agent - AgentCommission (One-to-Many)
+  Agent.hasMany(AgentCommission, {
+    foreignKey: 'agent_id',
+    as: 'commissions'
+  });
+  AgentCommission.belongsTo(Agent, {
+    foreignKey: 'agent_id',
+    as: 'agent'
+  });
+
+  // SalesOrder - Agent (Many-to-One)
+  SalesOrder.belongsTo(Agent, {
+    foreignKey: 'agent_id',
+    as: 'agent'
+  });
+  Agent.hasMany(SalesOrder, {
+    foreignKey: 'agent_id',
+    as: 'sales_orders'
+  });
+
+  // SalesOrder - AgentCommission (One-to-Many)
+  SalesOrder.hasMany(AgentCommission, {
+    foreignKey: 'sales_order_id',
+    as: 'agent_commissions'
+  });
+  AgentCommission.belongsTo(SalesOrder, {
+    foreignKey: 'sales_order_id',
+    as: 'sales_order'
+  });
+
+  // Discount - Branch (Many-to-One)
+  Discount.belongsTo(Branch, {
+    foreignKey: 'branch_id',
+    as: 'branch'
+  });
+  Branch.hasMany(Discount, {
+    foreignKey: 'branch_id',
+    as: 'discounts'
+  });
+
+  // DeliveryNoteTemplate - Branch (Many-to-One)
+  DeliveryNoteTemplate.belongsTo(Branch, {
+    foreignKey: 'branch_id',
+    as: 'branch'
+  });
+  Branch.hasMany(DeliveryNoteTemplate, {
+    foreignKey: 'branch_id',
+    as: 'delivery_note_templates'
+  });
+
+  // ReceiptPrinter - Branch (Many-to-One)
+  ReceiptPrinter.belongsTo(Branch, {
+    foreignKey: 'branch_id',
+    as: 'branch'
+  });
+  Branch.hasMany(ReceiptPrinter, {
+    foreignKey: 'branch_id',
+    as: 'receipt_printers'
+  });
 };
 
 // Export all models
@@ -471,6 +745,20 @@ export {
   PurchaseItem,
   ExpenseCategory,
   Expense,
-  PayrollRecord
+  PayrollRecord,
+  SalesReturn,
+  SalesReturnItem,
+  PurchaseReturn,
+  PurchaseReturnItem,
+  PriceHistory,
+  PaymentAccount,
+  AccountTransaction,
+  BusinessSetting,
+  TaxRate,
+  Agent,
+  AgentCommission,
+  Discount,
+  DeliveryNoteTemplate,
+  ReceiptPrinter
 };
 

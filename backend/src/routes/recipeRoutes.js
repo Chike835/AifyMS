@@ -2,7 +2,9 @@ import express from 'express';
 import { 
   createRecipe, 
   getRecipes, 
-  getRecipeByVirtualProduct 
+  getRecipeByVirtualProduct,
+  updateRecipe,
+  deleteRecipe
 } from '../controllers/recipeController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { requirePermission } from '../middleware/permissionMiddleware.js';
@@ -20,6 +22,12 @@ router.get('/by-virtual/:productId', requirePermission('recipe_view'), getRecipe
 
 // POST /api/recipes - Create recipe (requires recipe_manage)
 router.post('/', requirePermission('recipe_manage'), createRecipe);
+
+// PUT /api/recipes/:id - Update recipe (requires recipe_manage)
+router.put('/:id', requirePermission('recipe_manage'), updateRecipe);
+
+// DELETE /api/recipes/:id - Delete recipe (requires recipe_manage)
+router.delete('/:id', requirePermission('recipe_manage'), deleteRecipe);
 
 export default router;
 

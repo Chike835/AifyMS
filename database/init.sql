@@ -47,6 +47,7 @@ CREATE TABLE branches (
     name VARCHAR(200) NOT NULL,
     code VARCHAR(10) NOT NULL UNIQUE,
     address TEXT,
+    label_template TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -129,6 +130,20 @@ CREATE TABLE recipes (
     CHECK (conversion_factor > 0)
 );
 
+-- Agents table (Sales Commission Agents)
+CREATE TABLE agents (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(200) NOT NULL,
+    email VARCHAR(200),
+    phone VARCHAR(50),
+    commission_rate DECIMAL(5, 2) DEFAULT 0 CHECK (commission_rate >= 0 AND commission_rate <= 100),
+    is_active BOOLEAN DEFAULT true,
+    branch_id UUID REFERENCES branches(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_agents_branch_id ON agents(branch_id);
+CREATE INDEX idx_agents_active ON agents(is_active);
+
 -- Sales Orders table
 CREATE TABLE sales_orders (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -136,6 +151,7 @@ CREATE TABLE sales_orders (
     customer_id UUID REFERENCES customers(id),
     branch_id UUID NOT NULL REFERENCES branches(id),
     user_id UUID NOT NULL REFERENCES users(id),
+    agent_id UUID REFERENCES agents(id),
     total_amount DECIMAL(15, 2) NOT NULL,
     payment_status VARCHAR(20) DEFAULT 'unpaid' CHECK (payment_status IN ('unpaid', 'partial', 'paid')),
     production_status production_status DEFAULT 'na',
@@ -288,6 +304,116 @@ CREATE TABLE payroll_records (
     CHECK (net_pay >= 0)
 );
 
+-- Payment Accounts table (bank accounts, cash registers, mobile money, POS terminals)
+CREATE TABLE payment_accounts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(200) NOT NULL,
+    account_type VARCHAR(50) NOT NULL CHECK (account_type IN ('cash', 'bank', 'mobile_money', 'pos_terminal')),
+    account_number VARCHAR(100),
+    bank_name VARCHAR(200),
+    opening_balance DECIMAL(15, 2) DEFAULT 0,
+    current_balance DECIMAL(15, 2) DEFAULT 0,
+    is_active BOOLEAN DEFAULT true,
+    branch_id UUID REFERENCES branches(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_payment_accounts_branch_id ON payment_accounts(branch_id);
+CREATE INDEX idx_payment_accounts_type ON payment_accounts(account_type);
+
+-- Account Transactions table (tracks all movements in payment accounts)
+CREATE TABLE account_transactions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    account_id UUID NOT NULL REFERENCES payment_accounts(id),
+    transaction_type VARCHAR(20) NOT NULL CHECK (transaction_type IN ('deposit', 'withdrawal', 'transfer', 'payment_received', 'payment_made')),
+    amount DECIMAL(15, 2) NOT NULL,
+    reference_type VARCHAR(50),
+    reference_id UUID,
+    notes TEXT,
+    user_id UUID NOT NULL REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CHECK (amount > 0)
+);
+CREATE INDEX idx_account_transactions_account_id ON account_transactions(account_id);
+CREATE INDEX idx_account_transactions_type ON account_transactions(transaction_type);
+CREATE INDEX idx_account_transactions_reference ON account_transactions(reference_type, reference_id);
+
+-- Agent Commissions table
+CREATE TABLE agent_commissions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    agent_id UUID NOT NULL REFERENCES agents(id),
+    sales_order_id UUID NOT NULL REFERENCES sales_orders(id),
+    commission_amount DECIMAL(15, 2) NOT NULL,
+    commission_rate DECIMAL(5, 2) NOT NULL,
+    order_amount DECIMAL(15, 2) NOT NULL,
+    payment_status VARCHAR(20) DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'cancelled')),
+    paid_at TIMESTAMP,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_agent_commissions_agent_id ON agent_commissions(agent_id);
+CREATE INDEX idx_agent_commissions_order_id ON agent_commissions(sales_order_id);
+CREATE INDEX idx_agent_commissions_payment_status ON agent_commissions(payment_status);
+
+-- Discounts table
+CREATE TABLE discounts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(200) NOT NULL,
+    discount_type VARCHAR(20) NOT NULL CHECK (discount_type IN ('percentage', 'fixed')),
+    value DECIMAL(15, 2) NOT NULL,
+    min_purchase_amount DECIMAL(15, 2) DEFAULT 0,
+    max_discount_amount DECIMAL(15, 2),
+    valid_from DATE,
+    valid_until DATE,
+    is_active BOOLEAN DEFAULT true,
+    branch_id UUID REFERENCES branches(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_discounts_branch_id ON discounts(branch_id);
+CREATE INDEX idx_discounts_active ON discounts(is_active);
+CREATE INDEX idx_discounts_valid_dates ON discounts(valid_from, valid_until);
+
+-- Delivery Note Templates table
+CREATE TABLE delivery_note_templates (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(200) NOT NULL,
+    template_content TEXT NOT NULL,
+    is_default BOOLEAN DEFAULT false,
+    branch_id UUID REFERENCES branches(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_delivery_note_templates_branch_id ON delivery_note_templates(branch_id);
+CREATE INDEX idx_delivery_note_templates_default ON delivery_note_templates(is_default);
+
+-- Receipt Printers table
+CREATE TABLE receipt_printers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(200) NOT NULL,
+    printer_type VARCHAR(50) NOT NULL CHECK (printer_type IN ('thermal', 'inkjet', 'laser', 'dot_matrix')),
+    connection_type VARCHAR(50) NOT NULL CHECK (connection_type IN ('usb', 'network', 'bluetooth', 'serial')),
+    connection_string VARCHAR(500),
+    paper_width_mm INT DEFAULT 80,
+    is_default BOOLEAN DEFAULT false,
+    is_active BOOLEAN DEFAULT true,
+    branch_id UUID REFERENCES branches(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_receipt_printers_branch_id ON receipt_printers(branch_id);
+CREATE INDEX idx_receipt_printers_active ON receipt_printers(is_active);
+
+-- Tax Rates table
+CREATE TABLE tax_rates (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(100) NOT NULL,
+    rate DECIMAL(5, 2) NOT NULL CHECK (rate >= 0 AND rate <= 100),
+    is_compound BOOLEAN DEFAULT false,
+    is_default BOOLEAN DEFAULT false,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_tax_rates_active ON tax_rates(is_active);
+
 -- Product Attributes: Brands
 CREATE TABLE product_attributes_brands (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -309,6 +435,19 @@ CREATE TABLE product_attributes_gauges (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Business Settings table
+CREATE TABLE business_settings (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    setting_key VARCHAR(100) NOT NULL UNIQUE,
+    setting_value TEXT,
+    setting_type VARCHAR(20) DEFAULT 'string' CHECK (setting_type IN ('string', 'number', 'boolean', 'json')),
+    category VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_business_settings_category ON business_settings(category);
+CREATE INDEX idx_business_settings_key ON business_settings(setting_key);
+
 -- ============================================
 -- ALTER EXISTING TABLES
 -- ============================================
@@ -317,7 +456,8 @@ CREATE TABLE product_attributes_gauges (
 ALTER TABLE products 
     ADD COLUMN IF NOT EXISTS brand_id UUID REFERENCES product_attributes_brands(id),
     ADD COLUMN IF NOT EXISTS color_id UUID REFERENCES product_attributes_colors(id),
-    ADD COLUMN IF NOT EXISTS gauge_id UUID REFERENCES product_attributes_gauges(id);
+    ADD COLUMN IF NOT EXISTS gauge_id UUID REFERENCES product_attributes_gauges(id),
+    ADD COLUMN IF NOT EXISTS tax_rate_id UUID REFERENCES tax_rates(id);
 
 -- Add dispatcher fields to sales_orders table
 ALTER TABLE sales_orders
@@ -327,9 +467,104 @@ ALTER TABLE sales_orders
     ADD COLUMN IF NOT EXISTS subtotal DECIMAL(15, 2),
     ADD COLUMN IF NOT EXISTS total_tax DECIMAL(15, 2);
 
+-- Add order_type and quotation fields to sales_orders table
+ALTER TABLE sales_orders
+    ADD COLUMN IF NOT EXISTS order_type VARCHAR(20) DEFAULT 'invoice' CHECK (order_type IN ('draft', 'quotation', 'invoice')),
+    ADD COLUMN IF NOT EXISTS valid_until DATE,
+    ADD COLUMN IF NOT EXISTS quotation_notes TEXT;
+
 -- Add wastage margin to recipes table
 ALTER TABLE recipes
     ADD COLUMN IF NOT EXISTS wastage_margin DECIMAL(5, 2) DEFAULT 0 CHECK (wastage_margin >= 0 AND wastage_margin <= 100);
+
+-- ============================================
+-- PHASE 2: RETURNS TABLES
+-- ============================================
+
+-- Sales Returns table
+CREATE TABLE IF NOT EXISTS sales_returns (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    return_number VARCHAR(100) NOT NULL UNIQUE,
+    sales_order_id UUID NOT NULL REFERENCES sales_orders(id),
+    customer_id UUID REFERENCES customers(id),
+    branch_id UUID NOT NULL REFERENCES branches(id),
+    user_id UUID NOT NULL REFERENCES users(id),
+    total_amount DECIMAL(15, 2) NOT NULL DEFAULT 0,
+    reason TEXT NOT NULL,
+    refund_method VARCHAR(20) CHECK (refund_method IN ('cash', 'credit', 'replacement')),
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'completed', 'cancelled')),
+    approved_by UUID REFERENCES users(id),
+    approved_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Sales Return Items table
+CREATE TABLE IF NOT EXISTS sales_return_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    sales_return_id UUID NOT NULL REFERENCES sales_returns(id) ON DELETE CASCADE,
+    sales_item_id UUID NOT NULL REFERENCES sales_items(id),
+    product_id UUID NOT NULL REFERENCES products(id),
+    quantity DECIMAL(15, 3) NOT NULL,
+    unit_price DECIMAL(15, 2) NOT NULL,
+    subtotal DECIMAL(15, 2) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CHECK (quantity > 0)
+);
+
+-- Purchase Returns table
+CREATE TABLE IF NOT EXISTS purchase_returns (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    return_number VARCHAR(100) NOT NULL UNIQUE,
+    purchase_id UUID NOT NULL REFERENCES purchases(id),
+    supplier_id UUID REFERENCES suppliers(id),
+    branch_id UUID NOT NULL REFERENCES branches(id),
+    user_id UUID NOT NULL REFERENCES users(id),
+    total_amount DECIMAL(15, 2) NOT NULL DEFAULT 0,
+    reason TEXT NOT NULL,
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'completed', 'cancelled')),
+    approved_by UUID REFERENCES users(id),
+    approved_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Purchase Return Items table
+CREATE TABLE IF NOT EXISTS purchase_return_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    purchase_return_id UUID NOT NULL REFERENCES purchase_returns(id) ON DELETE CASCADE,
+    purchase_item_id UUID NOT NULL REFERENCES purchase_items(id),
+    product_id UUID NOT NULL REFERENCES products(id),
+    quantity DECIMAL(15, 3) NOT NULL,
+    unit_cost DECIMAL(15, 2) NOT NULL,
+    subtotal DECIMAL(15, 2) NOT NULL,
+    inventory_instance_id UUID REFERENCES inventory_instances(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CHECK (quantity > 0)
+);
+
+-- Price History table
+CREATE TABLE IF NOT EXISTS price_history (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    product_id UUID NOT NULL REFERENCES products(id),
+    old_sale_price DECIMAL(15, 2),
+    new_sale_price DECIMAL(15, 2),
+    old_cost_price DECIMAL(15, 2),
+    new_cost_price DECIMAL(15, 2),
+    user_id UUID NOT NULL REFERENCES users(id),
+    reason TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes for new tables
+CREATE INDEX IF NOT EXISTS idx_sales_returns_order_id ON sales_returns(sales_order_id);
+CREATE INDEX IF NOT EXISTS idx_sales_returns_branch_id ON sales_returns(branch_id);
+CREATE INDEX IF NOT EXISTS idx_sales_returns_status ON sales_returns(status);
+CREATE INDEX IF NOT EXISTS idx_sales_return_items_return_id ON sales_return_items(sales_return_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_returns_purchase_id ON purchase_returns(purchase_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_returns_branch_id ON purchase_returns(branch_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_returns_status ON purchase_returns(status);
+CREATE INDEX IF NOT EXISTS idx_purchase_return_items_return_id ON purchase_return_items(purchase_return_id);
+CREATE INDEX IF NOT EXISTS idx_price_history_product_id ON price_history(product_id);
 
 -- ============================================
 -- INDEXES
@@ -467,6 +702,42 @@ INSERT INTO permissions (slug, group_name) VALUES
     ('payroll_view', 'payroll'),
     ('payroll_manage', 'payroll');
 
+-- Sales Returns Permissions (3)
+INSERT INTO permissions (slug, group_name) VALUES
+    ('sale_return_view', 'sales_pos'),
+    ('sale_return_create', 'sales_pos'),
+    ('sale_return_approve', 'sales_pos');
+
+-- Purchase Returns Permissions (3)
+INSERT INTO permissions (slug, group_name) VALUES
+    ('purchase_return_view', 'purchases'),
+    ('purchase_return_create', 'purchases'),
+    ('purchase_return_approve', 'purchases');
+
+-- Settings Permissions (1)
+INSERT INTO permissions (slug, group_name) VALUES
+    ('settings_manage', 'settings');
+
+-- Payment Account Permissions (2)
+INSERT INTO permissions (slug, group_name) VALUES
+    ('payment_account_view', 'payments'),
+    ('payment_account_manage', 'payments');
+
+-- Discount Permissions (2)
+INSERT INTO permissions (slug, group_name) VALUES
+    ('discount_view', 'sales_pos'),
+    ('discount_manage', 'sales_pos');
+
+-- Agent Permissions (6) - Note: agent_view was already added above, so we use INSERT ... ON CONFLICT
+INSERT INTO permissions (slug, group_name) VALUES
+    ('agent_view', 'user_management'),
+    ('agent_add', 'user_management'),
+    ('agent_edit', 'user_management'),
+    ('agent_delete', 'user_management'),
+    ('agent_commission_view', 'user_management'),
+    ('agent_commission_manage', 'user_management')
+ON CONFLICT (slug) DO NOTHING;
+
 -- ============================================
 -- SEED DATA: ROLE-PERMISSION MAPPINGS
 -- ============================================
@@ -533,6 +804,40 @@ WHERE r.name = 'Production Worker'
     'production_view_queue', 'production_update_status',
     'product_view', 'recipe_view'
   );
+
+-- ============================================
+-- SEED DATA: BUSINESS SETTINGS
+-- ============================================
+
+INSERT INTO business_settings (setting_key, setting_value, setting_type, category) VALUES
+    ('business_name', 'Aify Global', 'string', 'general'),
+    ('business_address', '', 'string', 'general'),
+    ('business_phone', '', 'string', 'general'),
+    ('business_email', '', 'string', 'general'),
+    ('business_logo', '', 'string', 'general'),
+    ('currency_symbol', '₦', 'string', 'general'),
+    ('currency_code', 'NGN', 'string', 'general'),
+    ('date_format', 'DD/MM/YYYY', 'string', 'general'),
+    ('time_format', '24h', 'string', 'general'),
+    ('fiscal_year_start', '01-01', 'string', 'financial'),
+    ('invoice_prefix', 'INV', 'string', 'invoice'),
+    ('invoice_footer', 'Thank you for your business!', 'string', 'invoice'),
+    ('invoice_terms', 'Payment due within 30 days', 'string', 'invoice'),
+    ('invoice_show_tax', 'true', 'boolean', 'invoice'),
+    ('invoice_show_discount', 'true', 'boolean', 'invoice'),
+    ('barcode_type', 'CODE128', 'string', 'barcode'),
+    ('barcode_width', '2', 'number', 'barcode'),
+    ('barcode_height', '100', 'number', 'barcode'),
+    ('barcode_show_text', 'true', 'boolean', 'barcode'),
+    ('barcode_text_position', 'bottom', 'string', 'barcode');
+
+-- ============================================
+-- SEED DATA: TAX RATES
+-- ============================================
+
+INSERT INTO tax_rates (name, rate, is_default) VALUES
+    ('VAT', 7.5, true),
+    ('No Tax', 0, false);
 
 -- ============================================
 -- SEED DATA: BRANCHES
