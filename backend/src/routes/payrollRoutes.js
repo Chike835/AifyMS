@@ -26,6 +26,9 @@ router.get('/', authenticate, requirePermission('payroll_view'), getPayrollRecor
 // GET /payroll/:id - Get payroll record by ID
 router.get('/:id', authenticate, requirePermission('payroll_view'), getPayrollById);
 
+// POST /payroll/calculate - Auto-calculate payroll (must come before generic POST /)
+router.post('/calculate', authenticate, requirePermission('payroll_manage'), calculatePayroll);
+
 // POST /payroll - Create a new payroll record
 router.post('/', authenticate, requirePermission('payroll_manage'), createPayrollRecord);
 
@@ -34,9 +37,6 @@ router.put('/:id', authenticate, requirePermission('payroll_manage'), updatePayr
 
 // DELETE /payroll/:id - Delete a payroll record
 router.delete('/:id', authenticate, requirePermission('payroll_manage'), deletePayrollRecord);
-
-// POST /payroll/calculate - Auto-calculate payroll
-router.post('/calculate', authenticate, requirePermission('payroll_manage'), calculatePayroll);
 
 export default router;
 

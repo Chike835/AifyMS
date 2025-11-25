@@ -66,3 +66,7 @@ const PaymentAccount = sequelize.define('PaymentAccount', {
 export default PaymentAccount;
 
 
+
+
+
+

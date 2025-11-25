@@ -58,3 +58,7 @@ const Agent = sequelize.define('Agent', {
 export default Agent;
 
 
+
+
+
+

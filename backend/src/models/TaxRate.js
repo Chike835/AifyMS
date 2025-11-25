@@ -47,3 +47,7 @@ const TaxRate = sequelize.define('TaxRate', {
 export default TaxRate;
 
 
+
+
+
+

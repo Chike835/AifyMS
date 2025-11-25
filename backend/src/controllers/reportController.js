@@ -15,7 +15,9 @@ import {
   Branch,
   User,
   PaymentAccount,
-  AccountTransaction
+  AccountTransaction,
+  StockAdjustment,
+  Agent
 } from '../models/index.js';
 
 /**
@@ -817,6 +819,852 @@ export const getCashFlowStatement = async (req, res, next) => {
         net_cash_flow: financingCashFlow
       },
       net_increase_in_cash: netCashFlow
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/reports/stock-adjustment
+ * Get stock adjustment report
+ */
+export const getStockAdjustmentReport = async (req, res, next) => {
+  try {
+    const { start_date, end_date, branch_id } = req.query;
+    const where = {};
+
+    if (start_date && end_date) {
+      where.adjustment_date = {
+        [Op.between]: [new Date(start_date), new Date(end_date + 'T23:59:59')]
+      };
+    }
+
+    // Branch filtering through inventory instances
+    let instanceWhere = {};
+    if (branch_id) {
+      instanceWhere.branch_id = branch_id;
+    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      instanceWhere.branch_id = req.user.branch_id;
+    }
+
+    const adjustments = await StockAdjustment.findAll({
+      where,
+      include: [
+        {
+          model: InventoryInstance,
+          as: 'inventory_instance',
+          where: instanceWhere,
+          include: [
+            { model: Product, as: 'product', attributes: ['id', 'sku', 'name', 'base_unit'] },
+            { model: Branch, as: 'branch', attributes: ['id', 'name', 'code'] }
+          ]
+        },
+        { model: User, as: 'user', attributes: ['id', 'full_name'] }
+      ],
+      order: [['adjustment_date', 'DESC']]
+    });
+
+    const totalAdjustments = adjustments.length;
+    const totalIncrease = adjustments
+      .filter(a => parseFloat(a.new_quantity) > parseFloat(a.old_quantity))
+      .reduce((sum, a) => sum + (parseFloat(a.new_quantity) - parseFloat(a.old_quantity)), 0);
+    const totalDecrease = adjustments
+      .filter(a => parseFloat(a.new_quantity) < parseFloat(a.old_quantity))
+      .reduce((sum, a) => sum + (parseFloat(a.old_quantity) - parseFloat(a.new_quantity)), 0);
+
+    res.json({
+      summary: {
+        total_adjustments: totalAdjustments,
+        total_increase: totalIncrease,
+        total_decrease: totalDecrease,
+        net_change: totalIncrease - totalDecrease
+      },
+      adjustments: adjustments.map(a => ({
+        id: a.id,
+        product: a.inventory_instance?.product,
+        branch: a.inventory_instance?.branch,
+        instance_code: a.inventory_instance?.instance_code,
+        old_quantity: parseFloat(a.old_quantity),
+        new_quantity: parseFloat(a.new_quantity),
+        change: parseFloat(a.new_quantity) - parseFloat(a.old_quantity),
+        reason: a.reason,
+        user: a.user,
+        adjustment_date: a.adjustment_date
+      }))
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/reports/trending-products
+ * Get trending products report (best sellers)
+ */
+export const getTrendingProducts = async (req, res, next) => {
+  try {
+    const { start_date, end_date, branch_id, limit = 20 } = req.query;
+    const orderWhere = {
+      order_type: 'invoice'
+    };
+
+    if (start_date && end_date) {
+      orderWhere.created_at = {
+        [Op.between]: [new Date(start_date), new Date(end_date + 'T23:59:59')]
+      };
+    }
+
+    if (branch_id) {
+      orderWhere.branch_id = branch_id;
+    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      orderWhere.branch_id = req.user.branch_id;
+    }
+
+    const trendingProducts = await SalesItem.findAll({
+      attributes: [
+        'product_id',
+        [fn('SUM', col('quantity')), 'total_quantity'],
+        [fn('SUM', col('subtotal')), 'total_revenue'],
+        [fn('COUNT', col('SalesItem.id')), 'order_count']
+      ],
+      include: [
+        {
+          model: SalesOrder,
+          as: 'order',
+          attributes: [],
+          where: orderWhere
+        },
+        {
+          model: Product,
+          as: 'product',
+          attributes: ['id', 'sku', 'name', 'type', 'base_unit', 'sale_price']
+        }
+      ],
+      group: ['SalesItem.product_id', 'product.id'],
+      order: [[literal('total_revenue'), 'DESC']],
+      limit: parseInt(limit)
+    });
+
+    res.json({
+      products: trendingProducts.map(tp => ({
+        product: tp.product,
+        total_quantity: parseFloat(tp.getDataValue('total_quantity')),
+        total_revenue: parseFloat(tp.getDataValue('total_revenue')),
+        order_count: parseInt(tp.getDataValue('order_count'))
+      }))
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/reports/items
+ * Get items report (all sales items)
+ */
+export const getItemsReport = async (req, res, next) => {
+  try {
+    const { start_date, end_date, branch_id, product_id } = req.query;
+    const orderWhere = {
+      order_type: 'invoice'
+    };
+
+    if (start_date && end_date) {
+      orderWhere.created_at = {
+        [Op.between]: [new Date(start_date), new Date(end_date + 'T23:59:59')]
+      };
+    }
+
+    if (branch_id) {
+      orderWhere.branch_id = branch_id;
+    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      orderWhere.branch_id = req.user.branch_id;
+    }
+
+    const itemWhere = {};
+    if (product_id) {
+      itemWhere.product_id = product_id;
+    }
+
+    const items = await SalesItem.findAll({
+      where: itemWhere,
+      include: [
+        {
+          model: SalesOrder,
+          as: 'order',
+          where: orderWhere,
+          attributes: ['id', 'invoice_number', 'created_at', 'customer_id'],
+          include: [
+            { model: Customer, as: 'customer', attributes: ['id', 'name'] },
+            { model: Branch, as: 'branch', attributes: ['id', 'name', 'code'] }
+          ]
+        },
+        {
+          model: Product,
+          as: 'product',
+          attributes: ['id', 'sku', 'name', 'type', 'base_unit']
+        }
+      ],
+      order: [['created_at', 'DESC']],
+      limit: 1000
+    });
+
+    res.json({
+      items: items.map(item => ({
+        id: item.id,
+        product: item.product,
+        order: item.order,
+        quantity: parseFloat(item.quantity),
+        unit_price: parseFloat(item.unit_price),
+        subtotal: parseFloat(item.subtotal),
+        created_at: item.created_at
+      }))
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/reports/product-purchase
+ * Get product purchase report
+ */
+export const getProductPurchaseReport = async (req, res, next) => {
+  try {
+    const { start_date, end_date, branch_id, product_id } = req.query;
+    const where = {};
+
+    if (start_date && end_date) {
+      where.created_at = {
+        [Op.between]: [new Date(start_date), new Date(end_date + 'T23:59:59')]
+      };
+    }
+
+    if (branch_id) {
+      where.branch_id = branch_id;
+    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      where.branch_id = req.user.branch_id;
+    }
+
+    const itemWhere = {};
+    if (product_id) {
+      itemWhere.product_id = product_id;
+    }
+
+    const purchaseItems = await PurchaseItem.findAll({
+      where: itemWhere,
+      include: [
+        {
+          model: Purchase,
+          as: 'purchase',
+          where,
+          attributes: ['id', 'purchase_number', 'created_at', 'supplier_id'],
+          include: [
+            { model: Supplier, as: 'supplier', attributes: ['id', 'name'] },
+            { model: Branch, as: 'branch', attributes: ['id', 'name', 'code'] }
+          ]
+        },
+        {
+          model: Product,
+          as: 'product',
+          attributes: ['id', 'sku', 'name', 'type', 'base_unit']
+        }
+      ],
+      order: [['created_at', 'DESC']],
+      limit: 1000
+    });
+
+    res.json({
+      items: purchaseItems.map(item => ({
+        id: item.id,
+        product: item.product,
+        purchase: item.purchase,
+        quantity: parseFloat(item.quantity),
+        unit_cost: parseFloat(item.unit_cost),
+        subtotal: parseFloat(item.subtotal),
+        created_at: item.created_at
+      }))
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/reports/product-sell
+ * Get product sell report (grouped by product)
+ */
+export const getProductSellReport = async (req, res, next) => {
+  try {
+    const { start_date, end_date, branch_id, product_id } = req.query;
+    const orderWhere = {
+      order_type: 'invoice'
+    };
+
+    if (start_date && end_date) {
+      orderWhere.created_at = {
+        [Op.between]: [new Date(start_date), new Date(end_date + 'T23:59:59')]
+      };
+    }
+
+    if (branch_id) {
+      orderWhere.branch_id = branch_id;
+    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      orderWhere.branch_id = req.user.branch_id;
+    }
+
+    const itemWhere = {};
+    if (product_id) {
+      itemWhere.product_id = product_id;
+    }
+
+    // Group by product
+    const productSales = await SalesItem.findAll({
+      where: itemWhere,
+      attributes: [
+        'product_id',
+        [fn('SUM', col('quantity')), 'total_quantity'],
+        [fn('SUM', col('subtotal')), 'total_revenue'],
+        [fn('AVG', col('unit_price')), 'avg_price'],
+        [fn('COUNT', col('SalesItem.id')), 'sale_count']
+      ],
+      include: [
+        {
+          model: SalesOrder,
+          as: 'order',
+          where: orderWhere,
+          attributes: []
+        },
+        {
+          model: Product,
+          as: 'product',
+          attributes: ['id', 'sku', 'name', 'type', 'base_unit']
+        }
+      ],
+      group: ['SalesItem.product_id', 'product.id'],
+      order: [[literal('total_revenue'), 'DESC']]
+    });
+
+    res.json({
+      products: productSales.map(ps => ({
+        product: ps.product,
+        total_quantity: parseFloat(ps.getDataValue('total_quantity')),
+        total_revenue: parseFloat(ps.getDataValue('total_revenue')),
+        avg_price: parseFloat(ps.getDataValue('avg_price')),
+        sale_count: parseInt(ps.getDataValue('sale_count'))
+      }))
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/reports/purchase-payment
+ * Get purchase payment report
+ */
+export const getPurchasePaymentReport = async (req, res, next) => {
+  try {
+    const { start_date, end_date, branch_id, supplier_id } = req.query;
+    const where = {};
+
+    if (start_date && end_date) {
+      where.created_at = {
+        [Op.between]: [new Date(start_date), new Date(end_date + 'T23:59:59')]
+      };
+    }
+
+    if (branch_id) {
+      where.branch_id = branch_id;
+    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      where.branch_id = req.user.branch_id;
+    }
+
+    if (supplier_id) {
+      where.supplier_id = supplier_id;
+    }
+
+    const purchases = await Purchase.findAll({
+      where,
+      include: [
+        { model: Supplier, as: 'supplier', attributes: ['id', 'name'] },
+        { model: Branch, as: 'branch', attributes: ['id', 'name', 'code'] }
+      ],
+      order: [['created_at', 'DESC']]
+    });
+
+    const totalPurchases = purchases.reduce((sum, p) => sum + parseFloat(p.total_amount), 0);
+    const paidPurchases = purchases
+      .filter(p => p.payment_status === 'paid')
+      .reduce((sum, p) => sum + parseFloat(p.total_amount), 0);
+    const unpaidPurchases = purchases
+      .filter(p => p.payment_status === 'unpaid')
+      .reduce((sum, p) => sum + parseFloat(p.total_amount), 0);
+
+    res.json({
+      summary: {
+        total_purchases: totalPurchases,
+        paid: paidPurchases,
+        unpaid: unpaidPurchases,
+        purchase_count: purchases.length
+      },
+      purchases: purchases.map(p => ({
+        id: p.id,
+        purchase_number: p.purchase_number,
+        supplier: p.supplier,
+        branch: p.branch,
+        total_amount: parseFloat(p.total_amount),
+        payment_status: p.payment_status,
+        created_at: p.created_at
+      }))
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/reports/sell-payment
+ * Get sell payment report (sales with payment status)
+ */
+export const getSellPaymentReport = async (req, res, next) => {
+  try {
+    const { start_date, end_date, branch_id, customer_id } = req.query;
+    const where = {
+      order_type: 'invoice'
+    };
+
+    if (start_date && end_date) {
+      where.created_at = {
+        [Op.between]: [new Date(start_date), new Date(end_date + 'T23:59:59')]
+      };
+    }
+
+    if (branch_id) {
+      where.branch_id = branch_id;
+    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      where.branch_id = req.user.branch_id;
+    }
+
+    if (customer_id) {
+      where.customer_id = customer_id;
+    }
+
+    const sales = await SalesOrder.findAll({
+      where,
+      include: [
+        { model: Customer, as: 'customer', attributes: ['id', 'name'] },
+        { model: Branch, as: 'branch', attributes: ['id', 'name', 'code'] }
+      ],
+      order: [['created_at', 'DESC']]
+    });
+
+    const totalSales = sales.reduce((sum, s) => sum + parseFloat(s.total_amount), 0);
+    const paidSales = sales
+      .filter(s => s.payment_status === 'paid')
+      .reduce((sum, s) => sum + parseFloat(s.total_amount), 0);
+    const unpaidSales = sales
+      .filter(s => s.payment_status === 'unpaid')
+      .reduce((sum, s) => sum + parseFloat(s.total_amount), 0);
+    const partialSales = sales
+      .filter(s => s.payment_status === 'partial')
+      .reduce((sum, s) => sum + parseFloat(s.total_amount), 0);
+
+    res.json({
+      summary: {
+        total_sales: totalSales,
+        paid: paidSales,
+        unpaid: unpaidSales,
+        partial: partialSales,
+        sales_count: sales.length
+      },
+      sales: sales.map(s => ({
+        id: s.id,
+        invoice_number: s.invoice_number,
+        customer: s.customer,
+        branch: s.branch,
+        total_amount: parseFloat(s.total_amount),
+        payment_status: s.payment_status,
+        created_at: s.created_at
+      }))
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/reports/tax
+ * Get tax report
+ */
+export const getTaxReport = async (req, res, next) => {
+  try {
+    const { start_date, end_date, branch_id } = req.query;
+    const where = {
+      order_type: 'invoice'
+    };
+
+    if (start_date && end_date) {
+      where.created_at = {
+        [Op.between]: [new Date(start_date), new Date(end_date + 'T23:59:59')]
+      };
+    }
+
+    if (branch_id) {
+      where.branch_id = branch_id;
+    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      where.branch_id = req.user.branch_id;
+    }
+
+    // Get sales with tax
+    const sales = await SalesOrder.findAll({
+      where,
+      include: [
+        { model: Branch, as: 'branch', attributes: ['id', 'name', 'code'] }
+      ]
+    });
+
+    // Calculate tax from sales
+    const totalSales = sales.reduce((sum, s) => sum + parseFloat(s.total_amount || 0), 0);
+    const totalTax = sales.reduce((sum, s) => sum + parseFloat(s.total_tax || 0), 0);
+
+    // Group by branch
+    const byBranch = sales.reduce((acc, s) => {
+      const branchName = s.branch?.name || 'Unknown';
+      if (!acc[branchName]) {
+        acc[branchName] = { sales: 0, tax: 0, count: 0 };
+      }
+      acc[branchName].sales += parseFloat(s.total_amount || 0);
+      acc[branchName].tax += parseFloat(s.total_tax || 0);
+      acc[branchName].count++;
+      return acc;
+    }, {});
+
+    res.json({
+      summary: {
+        total_sales: totalSales,
+        total_tax: totalTax,
+        tax_percentage: totalSales > 0 ? (totalTax / totalSales) * 100 : 0,
+        sales_count: sales.length
+      },
+      by_branch: Object.entries(byBranch).map(([branch, data]) => ({
+        branch,
+        sales: data.sales,
+        tax: data.tax,
+        count: data.count
+      }))
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/reports/sales-representative
+ * Get sales representative report (agent performance)
+ */
+export const getSalesRepresentativeReport = async (req, res, next) => {
+  try {
+    const { start_date, end_date, branch_id, agent_id } = req.query;
+    const where = {
+      order_type: 'invoice',
+      agent_id: { [Op.ne]: null }
+    };
+
+    if (start_date && end_date) {
+      where.created_at = {
+        [Op.between]: [new Date(start_date), new Date(end_date + 'T23:59:59')]
+      };
+    }
+
+    if (branch_id) {
+      where.branch_id = branch_id;
+    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      where.branch_id = req.user.branch_id;
+    }
+
+    if (agent_id) {
+      where.agent_id = agent_id;
+    }
+
+    const sales = await SalesOrder.findAll({
+      where,
+      include: [
+        { model: Agent, as: 'agent', attributes: ['id', 'name', 'commission_rate'] },
+        { model: Branch, as: 'branch', attributes: ['id', 'name', 'code'] },
+        { model: Customer, as: 'customer', attributes: ['id', 'name'] }
+      ],
+      order: [['created_at', 'DESC']]
+    });
+
+    // Group by agent
+    const byAgent = sales.reduce((acc, s) => {
+      const agentId = s.agent_id;
+      if (!agentId) return acc;
+      const agentName = s.agent?.name || 'Unknown';
+      if (!acc[agentId]) {
+        acc[agentId] = {
+          agent: s.agent,
+          sales: 0,
+          commission: 0,
+          count: 0
+        };
+      }
+      acc[agentId].sales += parseFloat(s.total_amount || 0);
+      if (s.agent?.commission_rate) {
+        acc[agentId].commission += (parseFloat(s.total_amount || 0) * parseFloat(s.agent.commission_rate)) / 100;
+      }
+      acc[agentId].count++;
+      return acc;
+    }, {});
+
+    res.json({
+      summary: {
+        total_sales: sales.reduce((sum, s) => sum + parseFloat(s.total_amount || 0), 0),
+        total_commission: Object.values(byAgent).reduce((sum, a) => sum + a.commission, 0),
+        agent_count: Object.keys(byAgent).length
+      },
+      by_agent: Object.values(byAgent).map(a => ({
+        agent: a.agent,
+        total_sales: a.sales,
+        total_commission: a.commission,
+        sales_count: a.count
+      })).sort((a, b) => b.total_sales - a.total_sales)
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/reports/customer-groups
+ * Get customer groups report (grouped by revenue ranges)
+ */
+export const getCustomerGroupsReport = async (req, res, next) => {
+  try {
+    const { start_date, end_date, branch_id } = req.query;
+    const orderWhere = {
+      order_type: 'invoice'
+    };
+
+    if (start_date && end_date) {
+      orderWhere.created_at = {
+        [Op.between]: [new Date(start_date), new Date(end_date + 'T23:59:59')]
+      };
+    }
+
+    if (branch_id) {
+      orderWhere.branch_id = branch_id;
+    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      orderWhere.branch_id = req.user.branch_id;
+    }
+
+    // Group customers by revenue ranges
+    const customerSales = await SalesOrder.findAll({
+      attributes: [
+        'customer_id',
+        [fn('SUM', col('total_amount')), 'total_revenue'],
+        [fn('COUNT', col('id')), 'order_count']
+      ],
+      include: [
+        { model: Customer, as: 'customer', attributes: ['id', 'name', 'phone', 'ledger_balance'] }
+      ],
+      where: { ...orderWhere, customer_id: { [Op.ne]: null } },
+      group: ['SalesOrder.customer_id', 'customer.id'],
+      order: [[literal('total_revenue'), 'DESC']]
+    });
+
+    // Group into ranges
+    const groups = {
+      'High Value (>₦1,000,000)': [],
+      'Medium Value (₦100,000 - ₦1,000,000)': [],
+      'Low Value (<₦100,000)': []
+    };
+
+    customerSales.forEach(cs => {
+      const revenue = parseFloat(cs.getDataValue('total_revenue'));
+      if (revenue >= 1000000) {
+        groups['High Value (>₦1,000,000)'].push({
+          customer: cs.customer,
+          total_revenue: revenue,
+          order_count: parseInt(cs.getDataValue('order_count'))
+        });
+      } else if (revenue >= 100000) {
+        groups['Medium Value (₦100,000 - ₦1,000,000)'].push({
+          customer: cs.customer,
+          total_revenue: revenue,
+          order_count: parseInt(cs.getDataValue('order_count'))
+        });
+      } else {
+        groups['Low Value (<₦100,000)'].push({
+          customer: cs.customer,
+          total_revenue: revenue,
+          order_count: parseInt(cs.getDataValue('order_count'))
+        });
+      }
+    });
+
+    res.json({
+      groups: Object.entries(groups).map(([groupName, customers]) => ({
+        group_name: groupName,
+        customer_count: customers.length,
+        total_revenue: customers.reduce((sum, c) => sum + c.total_revenue, 0),
+        customers
+      }))
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/reports/register
+ * Get register report (daily cash register summary)
+ */
+export const getRegisterReport = async (req, res, next) => {
+  try {
+    const { start_date, end_date, branch_id } = req.query;
+    const where = {
+      status: 'confirmed'
+    };
+
+    if (start_date && end_date) {
+      where.created_at = {
+        [Op.between]: [new Date(start_date), new Date(end_date + 'T23:59:59')]
+      };
+    }
+
+    // Get payments grouped by date and method
+    const dailyPayments = await Payment.findAll({
+      attributes: [
+        [fn('DATE', col('created_at')), 'date'],
+        'method',
+        [fn('SUM', col('amount')), 'total_amount'],
+        [fn('COUNT', col('id')), 'count']
+      ],
+      where,
+      group: [fn('DATE', col('created_at')), 'method'],
+      order: [[literal('date'), 'DESC']],
+      raw: true
+    });
+
+    // Get daily totals
+    const dailyTotals = await Payment.findAll({
+      attributes: [
+        [fn('DATE', col('created_at')), 'date'],
+        [fn('SUM', col('amount')), 'total_amount'],
+        [fn('COUNT', col('id')), 'count']
+      ],
+      where,
+      group: [fn('DATE', col('created_at'))],
+      order: [[literal('date'), 'DESC']],
+      raw: true
+    });
+
+    res.json({
+      daily_totals: dailyTotals.map(dt => ({
+        date: dt.date,
+        total_amount: parseFloat(dt.total_amount),
+        transaction_count: parseInt(dt.count)
+      })),
+      by_method: dailyPayments.map(dp => ({
+        date: dp.date,
+        method: dp.method,
+        total_amount: parseFloat(dp.total_amount),
+        transaction_count: parseInt(dp.count)
+      }))
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/reports/activity-log
+ * Get activity log report (recent system activities)
+ */
+export const getActivityLogReport = async (req, res, next) => {
+  try {
+    const { start_date, end_date, branch_id, limit = 100 } = req.query;
+    const where = {};
+
+    if (start_date && end_date) {
+      where.created_at = {
+        [Op.between]: [new Date(start_date), new Date(end_date + 'T23:59:59')]
+      };
+    }
+
+    // Get recent activities from multiple sources
+    const activities = [];
+
+    // Recent sales
+    const salesWhere = { ...where };
+    if (branch_id) {
+      salesWhere.branch_id = branch_id;
+    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      salesWhere.branch_id = req.user.branch_id;
+    }
+
+    const recentSales = await SalesOrder.findAll({
+      where: salesWhere,
+      include: [
+        { model: Customer, as: 'customer', attributes: ['id', 'name'] },
+        { model: Branch, as: 'branch', attributes: ['id', 'name'] },
+        { model: User, as: 'creator', attributes: ['id', 'full_name'] }
+      ],
+      order: [['created_at', 'DESC']],
+      limit: Math.floor(parseInt(limit) / 2)
+    });
+
+    recentSales.forEach(sale => {
+      activities.push({
+        type: 'sale',
+        description: `Sale ${sale.invoice_number} to ${sale.customer?.name || 'Walk-in'}`,
+        amount: parseFloat(sale.total_amount),
+        user: sale.creator,
+        branch: sale.branch,
+        created_at: sale.created_at
+      });
+    });
+
+    // Recent purchases
+    const purchasesWhere = { ...where };
+    if (branch_id) {
+      purchasesWhere.branch_id = branch_id;
+    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      purchasesWhere.branch_id = req.user.branch_id;
+    }
+
+    const recentPurchases = await Purchase.findAll({
+      where: purchasesWhere,
+      include: [
+        { model: Supplier, as: 'supplier', attributes: ['id', 'name'] },
+        { model: Branch, as: 'branch', attributes: ['id', 'name'] },
+        { model: User, as: 'user', attributes: ['id', 'full_name'] }
+      ],
+      order: [['created_at', 'DESC']],
+      limit: Math.floor(parseInt(limit) / 2)
+    });
+
+    recentPurchases.forEach(purchase => {
+      activities.push({
+        type: 'purchase',
+        description: `Purchase ${purchase.purchase_number} from ${purchase.supplier?.name || 'Unknown'}`,
+        amount: parseFloat(purchase.total_amount),
+        user: purchase.user,
+        branch: purchase.branch,
+        created_at: purchase.created_at
+      });
+    });
+
+    // Sort by date and limit
+    activities.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    activities.splice(parseInt(limit));
+
+    res.json({
+      activities,
+      total_count: activities.length
     });
   } catch (error) {
     next(error);

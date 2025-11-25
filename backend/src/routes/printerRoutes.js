@@ -36,3 +36,7 @@ router.delete('/:id', requirePermission('sale_edit_price'), deleteReceiptPrinter
 export default router;
 
 
+
+
+
+

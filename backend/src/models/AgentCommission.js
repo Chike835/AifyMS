@@ -70,3 +70,7 @@ const AgentCommission = sequelize.define('AgentCommission', {
 export default AgentCommission;
 
 
+
+
+
+

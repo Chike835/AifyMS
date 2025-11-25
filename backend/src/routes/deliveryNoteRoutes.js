@@ -36,3 +36,7 @@ router.delete('/templates/:id', requirePermission('sale_edit_price'), deleteTemp
 export default router;
 
 
+
+
+
+

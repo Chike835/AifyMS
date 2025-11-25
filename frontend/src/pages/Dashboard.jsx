@@ -188,14 +188,23 @@ const Dashboard = () => {
     const expensesMap = new Map(expenseChartData.daily_trend.map(d => [d.date, d.amount]));
     const allDates = new Set([...salesMap.keys(), ...expensesMap.keys()]);
     
-    allDates.forEach(date => {
-      revenueVsExpensesData.push({
-        date: new Date(date).toLocaleDateString('en-NG', { month: 'short', day: 'numeric' }),
-        revenue: parseFloat(salesMap.get(date) || 0),
-        expenses: parseFloat(expensesMap.get(date) || 0)
-      });
-    });
-    revenueVsExpensesData.sort((a, b) => new Date(a.date) - new Date(b.date));
+    // Build data with original date for sorting
+    const unsortedData = Array.from(allDates).map(date => ({
+      originalDate: new Date(date),
+      date: date,
+      revenue: parseFloat(salesMap.get(date) || 0),
+      expenses: parseFloat(expensesMap.get(date) || 0)
+    }));
+    
+    // Sort by original date before formatting
+    unsortedData.sort((a, b) => a.originalDate - b.originalDate);
+    
+    // Format dates after sorting
+    revenueVsExpensesData.push(...unsortedData.map(item => ({
+      date: item.originalDate.toLocaleDateString('en-NG', { month: 'short', day: 'numeric' }),
+      revenue: item.revenue,
+      expenses: item.expenses
+    })));
   }
 
   return (

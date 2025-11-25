@@ -36,6 +36,11 @@ import AgentCommission from './AgentCommission.js';
 import Discount from './Discount.js';
 import DeliveryNoteTemplate from './DeliveryNoteTemplate.js';
 import ReceiptPrinter from './ReceiptPrinter.js';
+import ProductVariation from './ProductVariation.js';
+import ProductVariationValue from './ProductVariationValue.js';
+import Unit from './Unit.js';
+import Category from './Category.js';
+import Warranty from './Warranty.js';
 
 // Define all associations
 export const associateModels = () => {
@@ -718,6 +723,47 @@ export const associateModels = () => {
     foreignKey: 'branch_id',
     as: 'receipt_printers'
   });
+
+  // ProductVariation - ProductVariationValue (One-to-Many)
+  ProductVariation.hasMany(ProductVariationValue, {
+    foreignKey: 'variation_id',
+    as: 'values',
+    onDelete: 'CASCADE'
+  });
+  ProductVariationValue.belongsTo(ProductVariation, {
+    foreignKey: 'variation_id',
+    as: 'variation'
+  });
+
+  // Unit - Unit (Self-referential: Base Unit)
+  Unit.belongsTo(Unit, {
+    foreignKey: 'base_unit_id',
+    as: 'base_unit'
+  });
+  Unit.hasMany(Unit, {
+    foreignKey: 'base_unit_id',
+    as: 'derived_units'
+  });
+
+  // Category - Category (Self-referential: Parent Category)
+  Category.belongsTo(Category, {
+    foreignKey: 'parent_id',
+    as: 'parent'
+  });
+  Category.hasMany(Category, {
+    foreignKey: 'parent_id',
+    as: 'children'
+  });
+
+  // Warranty - Product (One-to-Many)
+  Warranty.hasMany(Product, {
+    foreignKey: 'warranty_id',
+    as: 'products'
+  });
+  Product.belongsTo(Warranty, {
+    foreignKey: 'warranty_id',
+    as: 'warranty'
+  });
 };
 
 // Export all models
@@ -759,6 +805,11 @@ export {
   AgentCommission,
   Discount,
   DeliveryNoteTemplate,
-  ReceiptPrinter
+  ReceiptPrinter,
+  ProductVariation,
+  ProductVariationValue,
+  Unit,
+  Category,
+  Warranty
 };
 

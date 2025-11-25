@@ -32,3 +32,7 @@ router.delete('/:id', requirePermission('settings_manage'), deleteTaxRate);
 export default router;
 
 
+
+
+
+

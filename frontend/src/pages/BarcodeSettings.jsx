@@ -265,3 +265,7 @@ const BarcodeSettings = () => {
 export default BarcodeSettings;
 
 
+
+
+
+

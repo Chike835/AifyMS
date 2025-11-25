@@ -4,12 +4,27 @@ import { useAuth } from '../context/AuthContext';
 import { LogIn } from 'lucide-react';
 
 const Login = () => {
+  console.log('[DEBUG] Login.jsx: Component rendering');
+  
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  
+  // Hooks must be called unconditionally
+  let authContext;
+  try {
+    authContext = useAuth();
+    console.log('[DEBUG] Login.jsx: useAuth hook called successfully');
+  } catch (error) {
+    console.error('[ERROR] Login.jsx: useAuth hook failed - component not within AuthProvider', error);
+    // This will be caught by ErrorBoundary, but we need to handle it gracefully
+    throw error; // Re-throw to be caught by ErrorBoundary
+  }
+  
+  const { login } = authContext;
   const navigate = useNavigate();
+  console.log('[DEBUG] Login.jsx: All hooks initialized successfully');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -45,6 +60,8 @@ const Login = () => {
     }
   };
 
+  console.log('[DEBUG] Login.jsx: Rendering login form');
+  
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">

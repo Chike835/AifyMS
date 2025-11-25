@@ -48,3 +48,7 @@ const DeliveryNoteTemplate = sequelize.define('DeliveryNoteTemplate', {
 export default DeliveryNoteTemplate;
 
 
+
+
+
+

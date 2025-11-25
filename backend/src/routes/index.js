@@ -27,6 +27,10 @@ import discountRoutes from './discountRoutes.js';
 import deliveryNoteRoutes from './deliveryNoteRoutes.js';
 import printRoutes from './printRoutes.js';
 import printerRoutes from './printerRoutes.js';
+import variationRoutes from './variationRoutes.js';
+import unitRoutes from './unitRoutes.js';
+import categoryRoutes from './categoryRoutes.js';
+import warrantyRoutes from './warrantyRoutes.js';
 
 const router = express.Router();
 
@@ -58,6 +62,10 @@ router.use('/discounts', discountRoutes);
 router.use('/delivery-notes', deliveryNoteRoutes);
 router.use('/print', printRoutes);
 router.use('/receipt-printers', printerRoutes);
+router.use('/variations', variationRoutes);
+router.use('/units', unitRoutes);
+router.use('/categories', categoryRoutes);
+router.use('/warranties', warrantyRoutes);
 router.use('/', importExportRoutes);
 
 export default router;

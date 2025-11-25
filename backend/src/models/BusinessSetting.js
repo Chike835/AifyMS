@@ -44,3 +44,7 @@ const BusinessSetting = sequelize.define('BusinessSetting', {
 export default BusinessSetting;
 
 
+
+
+
+

@@ -68,3 +68,7 @@ const AccountTransaction = sequelize.define('AccountTransaction', {
 export default AccountTransaction;
 
 
+
+
+
+

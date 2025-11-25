@@ -60,3 +60,7 @@ const ReceiptPrinter = sequelize.define('ReceiptPrinter', {
 export default ReceiptPrinter;
 
 
+
+
+
+

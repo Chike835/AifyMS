@@ -168,6 +168,173 @@ const Reports = () => {
     enabled: activeTab === 'cash-flow' && hasPermission('report_view_financial')
   });
 
+  // Stock Adjustment Report
+  const { data: stockAdjustmentData, isLoading: stockAdjustmentLoading } = useQuery({
+    queryKey: ['stockAdjustmentReport', startDate, endDate, selectedBranch],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
+      if (selectedBranch) params.append('branch_id', selectedBranch);
+      const response = await api.get(`/reports/stock-adjustment?${params.toString()}`);
+      return response.data;
+    },
+    enabled: activeTab === 'stock-adjustment' && hasPermission('report_view_stock_value')
+  });
+
+  // Trending Products Report
+  const { data: trendingProductsData, isLoading: trendingProductsLoading } = useQuery({
+    queryKey: ['trendingProductsReport', startDate, endDate, selectedBranch],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
+      if (selectedBranch) params.append('branch_id', selectedBranch);
+      const response = await api.get(`/reports/trending-products?${params.toString()}`);
+      return response.data;
+    },
+    enabled: activeTab === 'trending-products' && hasPermission('report_view_sales')
+  });
+
+  // Items Report
+  const { data: itemsData, isLoading: itemsLoading } = useQuery({
+    queryKey: ['itemsReport', startDate, endDate, selectedBranch],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
+      if (selectedBranch) params.append('branch_id', selectedBranch);
+      const response = await api.get(`/reports/items?${params.toString()}`);
+      return response.data;
+    },
+    enabled: activeTab === 'items' && hasPermission('report_view_sales')
+  });
+
+  // Product Purchase Report
+  const { data: productPurchaseData, isLoading: productPurchaseLoading } = useQuery({
+    queryKey: ['productPurchaseReport', startDate, endDate, selectedBranch],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
+      if (selectedBranch) params.append('branch_id', selectedBranch);
+      const response = await api.get(`/reports/product-purchase?${params.toString()}`);
+      return response.data;
+    },
+    enabled: activeTab === 'product-purchase' && hasPermission('report_view_sales')
+  });
+
+  // Product Sell Report
+  const { data: productSellData, isLoading: productSellLoading } = useQuery({
+    queryKey: ['productSellReport', startDate, endDate, selectedBranch],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
+      if (selectedBranch) params.append('branch_id', selectedBranch);
+      const response = await api.get(`/reports/product-sell?${params.toString()}`);
+      return response.data;
+    },
+    enabled: activeTab === 'product-sell' && hasPermission('report_view_sales')
+  });
+
+  // Purchase Payment Report
+  const { data: purchasePaymentData, isLoading: purchasePaymentLoading } = useQuery({
+    queryKey: ['purchasePaymentReport', startDate, endDate, selectedBranch],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
+      if (selectedBranch) params.append('branch_id', selectedBranch);
+      const response = await api.get(`/reports/purchase-payment?${params.toString()}`);
+      return response.data;
+    },
+    enabled: activeTab === 'purchase-payment' && hasPermission('report_view_financial')
+  });
+
+  // Sell Payment Report
+  const { data: sellPaymentData, isLoading: sellPaymentLoading } = useQuery({
+    queryKey: ['sellPaymentReport', startDate, endDate, selectedBranch],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
+      if (selectedBranch) params.append('branch_id', selectedBranch);
+      const response = await api.get(`/reports/sell-payment?${params.toString()}`);
+      return response.data;
+    },
+    enabled: activeTab === 'sell-payment' && hasPermission('report_view_financial')
+  });
+
+  // Tax Report
+  const { data: taxData, isLoading: taxLoading } = useQuery({
+    queryKey: ['taxReport', startDate, endDate, selectedBranch],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
+      if (selectedBranch) params.append('branch_id', selectedBranch);
+      const response = await api.get(`/reports/tax?${params.toString()}`);
+      return response.data;
+    },
+    enabled: activeTab === 'tax' && hasPermission('report_view_financial')
+  });
+
+  // Sales Representative Report
+  const { data: salesRepresentativeData, isLoading: salesRepresentativeLoading } = useQuery({
+    queryKey: ['salesRepresentativeReport', startDate, endDate, selectedBranch],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
+      if (selectedBranch) params.append('branch_id', selectedBranch);
+      const response = await api.get(`/reports/sales-representative?${params.toString()}`);
+      return response.data;
+    },
+    enabled: activeTab === 'sales-representative' && hasPermission('report_view_sales')
+  });
+
+  // Customer Groups Report
+  const { data: customerGroupsData, isLoading: customerGroupsLoading } = useQuery({
+    queryKey: ['customerGroupsReport', startDate, endDate, selectedBranch],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
+      if (selectedBranch) params.append('branch_id', selectedBranch);
+      const response = await api.get(`/reports/customer-groups?${params.toString()}`);
+      return response.data;
+    },
+    enabled: activeTab === 'customer-groups' && hasPermission('report_view_sales')
+  });
+
+  // Register Report
+  const { data: registerData, isLoading: registerLoading } = useQuery({
+    queryKey: ['registerReport', startDate, endDate, selectedBranch],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
+      const response = await api.get(`/reports/register?${params.toString()}`);
+      return response.data;
+    },
+    enabled: activeTab === 'register' && hasPermission('report_view_register')
+  });
+
+  // Activity Log Report
+  const { data: activityLogData, isLoading: activityLogLoading } = useQuery({
+    queryKey: ['activityLogReport', startDate, endDate, selectedBranch],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
+      if (selectedBranch) params.append('branch_id', selectedBranch);
+      const response = await api.get(`/reports/activity-log?${params.toString()}`);
+      return response.data;
+    },
+    enabled: activeTab === 'activity-log' && hasPermission('report_view_sales')
+  });
+
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
@@ -194,7 +361,20 @@ const Reports = () => {
     { id: 'profit-loss', name: 'Profit & Loss', icon: BarChart3, permission: 'report_view_financial' },
     { id: 'balance-sheet', name: 'Balance Sheet', icon: FileText, permission: 'report_view_financial' },
     { id: 'trial-balance', name: 'Trial Balance', icon: FileText, permission: 'report_view_financial' },
-    { id: 'cash-flow', name: 'Cash Flow', icon: FileText, permission: 'report_view_financial' }
+    { id: 'cash-flow', name: 'Cash Flow', icon: FileText, permission: 'report_view_financial' },
+    { id: 'tax', name: 'Tax Report', icon: FileText, permission: 'report_view_financial' },
+    { id: 'supplier-customer', name: 'Supplier & Customer', icon: Users, permission: 'report_view_sales' },
+    { id: 'customer-groups', name: 'Customer Groups', icon: Users, permission: 'report_view_sales' },
+    { id: 'stock-adjustment', name: 'Stock Adjustment', icon: Package, permission: 'report_view_stock_value' },
+    { id: 'trending-products', name: 'Trending Products', icon: TrendingUp, permission: 'report_view_sales' },
+    { id: 'items', name: 'Items Report', icon: Package, permission: 'report_view_sales' },
+    { id: 'product-purchase', name: 'Product Purchase', icon: ShoppingBag, permission: 'report_view_sales' },
+    { id: 'product-sell', name: 'Product Sell', icon: TrendingUp, permission: 'report_view_sales' },
+    { id: 'purchase-payment', name: 'Purchase Payment', icon: DollarSign, permission: 'report_view_financial' },
+    { id: 'sell-payment', name: 'Sell Payment', icon: DollarSign, permission: 'report_view_financial' },
+    { id: 'register', name: 'Register Report', icon: FileText, permission: 'report_view_register' },
+    { id: 'sales-representative', name: 'Sales Representative', icon: Users, permission: 'report_view_sales' },
+    { id: 'activity-log', name: 'Activity Log', icon: FileText, permission: 'report_view_sales' }
   ];
 
   const visibleTabs = tabs.filter(tab => !tab.permission || hasPermission(tab.permission));
@@ -901,6 +1081,635 @@ const Reports = () => {
     );
   };
 
+  // Render functions for new report types
+  const renderTaxReport = () => {
+    if (taxLoading) return <div className="text-center py-12">Loading tax report...</div>;
+    if (!taxData) return <div className="text-center py-12 text-gray-500">No data available</div>;
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-bold mb-4">Tax Report</h2>
+        <div className="mb-4">
+          <p className="text-sm text-gray-600">Total Sales: {formatCurrency(taxData.summary?.total_sales)}</p>
+          <p className="text-sm text-gray-600">Total Tax: {formatCurrency(taxData.summary?.total_tax)}</p>
+          <p className="text-sm text-gray-600">Tax Percentage: {taxData.summary?.tax_percentage?.toFixed(2)}%</p>
+        </div>
+        {taxData.by_branch && taxData.by_branch.length > 0 && (
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Branch</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Sales</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Tax</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Count</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {taxData.by_branch.map((item, idx) => (
+                <tr key={idx}>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{item.branch}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{formatCurrency(item.sales)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{formatCurrency(item.tax)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{item.count}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    );
+  };
+
+  const renderSupplierCustomerReport = () => {
+    // Use existing customer and purchase reports
+    return (
+      <div className="space-y-6">
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-bold mb-4">Customer Summary</h2>
+          {customerLoading ? (
+            <div className="text-center py-12">Loading...</div>
+          ) : customerData ? (
+            <div>
+              <p className="text-sm text-gray-600 mb-4">Total Outstanding: {formatCurrency(customerData.outstanding?.total)}</p>
+              {customerData.top_customers && customerData.top_customers.length > 0 && (
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Revenue</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Orders</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {customerData.top_customers.slice(0, 10).map((item, idx) => (
+                      <tr key={idx}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">{item.customer?.name}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{formatCurrency(item.total_revenue)}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{item.order_count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-12 text-gray-500">No data available</div>
+          )}
+        </div>
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-bold mb-4">Supplier Summary</h2>
+          {purchaseLoading ? (
+            <div className="text-center py-12">Loading...</div>
+          ) : purchaseData ? (
+            <div>
+              {purchaseData.top_suppliers && purchaseData.top_suppliers.length > 0 && (
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total Purchases</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Orders</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {purchaseData.top_suppliers.slice(0, 10).map((item, idx) => (
+                      <tr key={idx}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">{item.supplier?.name}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{formatCurrency(item.total_amount)}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{item.order_count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-12 text-gray-500">No data available</div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderCustomerGroupsReport = () => {
+    if (customerGroupsLoading) return <div className="text-center py-12">Loading customer groups...</div>;
+    if (!customerGroupsData) return <div className="text-center py-12 text-gray-500">No data available</div>;
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-bold mb-4">Customer Groups Report</h2>
+        {customerGroupsData.groups && customerGroupsData.groups.map((group, idx) => (
+          <div key={idx} className="mb-6 border-b border-gray-200 pb-4">
+            <h3 className="text-lg font-semibold mb-2">{group.group_name}</h3>
+            <p className="text-sm text-gray-600 mb-2">Customers: {group.customer_count} | Total Revenue: {formatCurrency(group.total_revenue)}</p>
+            {group.customers && group.customers.length > 0 && (
+              <table className="min-w-full divide-y divide-gray-200 mt-4">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Revenue</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Orders</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {group.customers.slice(0, 10).map((customer, cIdx) => (
+                    <tr key={cIdx}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">{customer.customer?.name}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{formatCurrency(customer.total_revenue)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{customer.order_count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderStockAdjustmentReport = () => {
+    if (stockAdjustmentLoading) return <div className="text-center py-12">Loading stock adjustment report...</div>;
+    if (!stockAdjustmentData) return <div className="text-center py-12 text-gray-500">No data available</div>;
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-bold mb-4">Stock Adjustment Report</h2>
+        <div className="mb-4 grid grid-cols-4 gap-4">
+          <div>
+            <p className="text-sm text-gray-600">Total Adjustments</p>
+            <p className="text-lg font-semibold">{stockAdjustmentData.summary?.total_adjustments}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Total Increase</p>
+            <p className="text-lg font-semibold text-green-600">{stockAdjustmentData.summary?.total_increase?.toFixed(3)}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Total Decrease</p>
+            <p className="text-lg font-semibold text-red-600">{stockAdjustmentData.summary?.total_decrease?.toFixed(3)}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Net Change</p>
+            <p className={`text-lg font-semibold ${stockAdjustmentData.summary?.net_change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {stockAdjustmentData.summary?.net_change?.toFixed(3)}
+            </p>
+          </div>
+        </div>
+        {stockAdjustmentData.adjustments && stockAdjustmentData.adjustments.length > 0 && (
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Instance</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Old Qty</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">New Qty</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Change</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reason</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {stockAdjustmentData.adjustments.slice(0, 100).map((adj) => (
+                <tr key={adj.id}>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{adj.product?.name}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{adj.instance_code}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{adj.old_quantity?.toFixed(3)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{adj.new_quantity?.toFixed(3)}</td>
+                  <td className={`px-6 py-4 whitespace-nowrap text-sm text-right ${adj.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {adj.change >= 0 ? '+' : ''}{adj.change?.toFixed(3)}
+                  </td>
+                  <td className="px-6 py-4 text-sm">{adj.reason}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{adj.user?.full_name}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{formatDate(adj.adjustment_date)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    );
+  };
+
+  const renderTrendingProductsReport = () => {
+    if (trendingProductsLoading) return <div className="text-center py-12">Loading trending products...</div>;
+    if (!trendingProductsData) return <div className="text-center py-12 text-gray-500">No data available</div>;
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-bold mb-4">Trending Products</h2>
+        {trendingProductsData.products && trendingProductsData.products.length > 0 ? (
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Quantity Sold</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total Revenue</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Orders</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {trendingProductsData.products.map((item, idx) => (
+                <tr key={idx}>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{item.product?.name} ({item.product?.sku})</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{item.total_quantity?.toFixed(3)} {item.product?.base_unit}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium">{formatCurrency(item.total_revenue)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{item.order_count}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div className="text-center py-12 text-gray-500">No products found</div>
+        )}
+      </div>
+    );
+  };
+
+  const renderItemsReport = () => {
+    if (itemsLoading) return <div className="text-center py-12">Loading items report...</div>;
+    if (!itemsData) return <div className="text-center py-12 text-gray-500">No data available</div>;
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-bold mb-4">Items Report</h2>
+        {itemsData.items && itemsData.items.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Invoice</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Quantity</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Unit Price</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Subtotal</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {itemsData.items.slice(0, 200).map((item) => (
+                  <tr key={item.id}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">{item.product?.name}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">{item.order?.invoice_number}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">{item.order?.customer?.name || 'Walk-in'}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{item.quantity?.toFixed(3)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{formatCurrency(item.unit_price)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium">{formatCurrency(item.subtotal)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">{formatDate(item.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-center py-12 text-gray-500">No items found</div>
+        )}
+      </div>
+    );
+  };
+
+  const renderProductPurchaseReport = () => {
+    if (productPurchaseLoading) return <div className="text-center py-12">Loading product purchase report...</div>;
+    if (!productPurchaseData) return <div className="text-center py-12 text-gray-500">No data available</div>;
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-bold mb-4">Product Purchase Report</h2>
+        {productPurchaseData.items && productPurchaseData.items.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Purchase #</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Quantity</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Unit Cost</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Subtotal</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {productPurchaseData.items.slice(0, 200).map((item) => (
+                  <tr key={item.id}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">{item.product?.name}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">{item.purchase?.purchase_number}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">{item.purchase?.supplier?.name || 'Unknown'}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{item.quantity?.toFixed(3)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{formatCurrency(item.unit_cost)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium">{formatCurrency(item.subtotal)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">{formatDate(item.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-center py-12 text-gray-500">No purchases found</div>
+        )}
+      </div>
+    );
+  };
+
+  const renderProductSellReport = () => {
+    if (productSellLoading) return <div className="text-center py-12">Loading product sell report...</div>;
+    if (!productSellData) return <div className="text-center py-12 text-gray-500">No data available</div>;
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-bold mb-4">Product Sell Report</h2>
+        {productSellData.products && productSellData.products.length > 0 ? (
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Quantity Sold</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total Revenue</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Avg Price</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Sales Count</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {productSellData.products.map((item, idx) => (
+                <tr key={idx}>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{item.product?.name} ({item.product?.sku})</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{item.total_quantity?.toFixed(3)} {item.product?.base_unit}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium">{formatCurrency(item.total_revenue)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{formatCurrency(item.avg_price)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{item.sale_count}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div className="text-center py-12 text-gray-500">No products found</div>
+        )}
+      </div>
+    );
+  };
+
+  const renderPurchasePaymentReport = () => {
+    if (purchasePaymentLoading) return <div className="text-center py-12">Loading purchase payment report...</div>;
+    if (!purchasePaymentData) return <div className="text-center py-12 text-gray-500">No data available</div>;
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-bold mb-4">Purchase Payment Report</h2>
+        <div className="mb-4 grid grid-cols-4 gap-4">
+          <div>
+            <p className="text-sm text-gray-600">Total Purchases</p>
+            <p className="text-lg font-semibold">{formatCurrency(purchasePaymentData.summary?.total_purchases)}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Paid</p>
+            <p className="text-lg font-semibold text-green-600">{formatCurrency(purchasePaymentData.summary?.paid)}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Unpaid</p>
+            <p className="text-lg font-semibold text-red-600">{formatCurrency(purchasePaymentData.summary?.unpaid)}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Count</p>
+            <p className="text-lg font-semibold">{purchasePaymentData.summary?.purchase_count}</p>
+          </div>
+        </div>
+        {purchasePaymentData.purchases && purchasePaymentData.purchases.length > 0 && (
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Purchase #</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {purchasePaymentData.purchases.slice(0, 100).map((purchase) => (
+                <tr key={purchase.id}>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{purchase.purchase_number}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{purchase.supplier?.name || 'Unknown'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{formatCurrency(purchase.total_amount)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                      purchase.payment_status === 'paid' ? 'bg-green-100 text-green-800' :
+                      purchase.payment_status === 'partial' ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-red-100 text-red-800'
+                    }`}>
+                      {purchase.payment_status}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{formatDate(purchase.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    );
+  };
+
+  const renderSellPaymentReport = () => {
+    if (sellPaymentLoading) return <div className="text-center py-12">Loading sell payment report...</div>;
+    if (!sellPaymentData) return <div className="text-center py-12 text-gray-500">No data available</div>;
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-bold mb-4">Sell Payment Report</h2>
+        <div className="mb-4 grid grid-cols-5 gap-4">
+          <div>
+            <p className="text-sm text-gray-600">Total Sales</p>
+            <p className="text-lg font-semibold">{formatCurrency(sellPaymentData.summary?.total_sales)}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Paid</p>
+            <p className="text-lg font-semibold text-green-600">{formatCurrency(sellPaymentData.summary?.paid)}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Unpaid</p>
+            <p className="text-lg font-semibold text-red-600">{formatCurrency(sellPaymentData.summary?.unpaid)}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Partial</p>
+            <p className="text-lg font-semibold text-yellow-600">{formatCurrency(sellPaymentData.summary?.partial)}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Count</p>
+            <p className="text-lg font-semibold">{sellPaymentData.summary?.sales_count}</p>
+          </div>
+        </div>
+        {sellPaymentData.sales && sellPaymentData.sales.length > 0 && (
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Invoice #</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {sellPaymentData.sales.slice(0, 100).map((sale) => (
+                <tr key={sale.id}>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{sale.invoice_number}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{sale.customer?.name || 'Walk-in'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{formatCurrency(sale.total_amount)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                      sale.payment_status === 'paid' ? 'bg-green-100 text-green-800' :
+                      sale.payment_status === 'partial' ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-red-100 text-red-800'
+                    }`}>
+                      {sale.payment_status}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{formatDate(sale.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    );
+  };
+
+  const renderRegisterReport = () => {
+    if (registerLoading) return <div className="text-center py-12">Loading register report...</div>;
+    if (!registerData) return <div className="text-center py-12 text-gray-500">No data available</div>;
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-bold mb-4">Register Report</h2>
+        {registerData.daily_totals && registerData.daily_totals.length > 0 && (
+          <table className="min-w-full divide-y divide-gray-200 mb-6">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total Amount</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Transactions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {registerData.daily_totals.map((day, idx) => (
+                <tr key={idx}>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{formatDate(day.date)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium">{formatCurrency(day.total_amount)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{day.transaction_count}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {registerData.by_method && registerData.by_method.length > 0 && (
+          <div>
+            <h3 className="text-lg font-semibold mb-2">By Payment Method</h3>
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Method</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Count</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {registerData.by_method.map((item, idx) => (
+                  <tr key={idx}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">{formatDate(item.date)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm capitalize">{item.method}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium">{formatCurrency(item.total_amount)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{item.transaction_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderSalesRepresentativeReport = () => {
+    if (salesRepresentativeLoading) return <div className="text-center py-12">Loading sales representative report...</div>;
+    if (!salesRepresentativeData) return <div className="text-center py-12 text-gray-500">No data available</div>;
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-bold mb-4">Sales Representative Report</h2>
+        <div className="mb-4 grid grid-cols-3 gap-4">
+          <div>
+            <p className="text-sm text-gray-600">Total Sales</p>
+            <p className="text-lg font-semibold">{formatCurrency(salesRepresentativeData.summary?.total_sales)}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Total Commission</p>
+            <p className="text-lg font-semibold text-green-600">{formatCurrency(salesRepresentativeData.summary?.total_commission)}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Agents</p>
+            <p className="text-lg font-semibold">{salesRepresentativeData.summary?.agent_count}</p>
+          </div>
+        </div>
+        {salesRepresentativeData.by_agent && salesRepresentativeData.by_agent.length > 0 && (
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Agent</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total Sales</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Commission</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Sales Count</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {salesRepresentativeData.by_agent.map((agent, idx) => (
+                <tr key={idx}>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{agent.agent?.name}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium">{formatCurrency(agent.total_sales)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-green-600">{formatCurrency(agent.total_commission)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{agent.sales_count}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    );
+  };
+
+  const renderActivityLogReport = () => {
+    if (activityLogLoading) return <div className="text-center py-12">Loading activity log...</div>;
+    if (!activityLogData) return <div className="text-center py-12 text-gray-500">No data available</div>;
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-bold mb-4">Activity Log</h2>
+        <p className="text-sm text-gray-600 mb-4">Total Activities: {activityLogData.total_count}</p>
+        {activityLogData.activities && activityLogData.activities.length > 0 ? (
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Branch</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {activityLogData.activities.map((activity, idx) => (
+                <tr key={idx}>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800 capitalize">
+                      {activity.type}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-sm">{activity.description}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium">{formatCurrency(activity.amount)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{activity.user?.full_name || '—'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{activity.branch?.name || '—'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{formatDate(activity.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div className="text-center py-12 text-gray-500">No activities found</div>
+        )}
+      </div>
+    );
+  };
+
   const renderActiveTab = () => {
     switch (activeTab) {
       case 'sales':
@@ -923,6 +1732,32 @@ const Reports = () => {
         return renderTrialBalance();
       case 'cash-flow':
         return renderCashFlow();
+      case 'tax':
+        return renderTaxReport();
+      case 'supplier-customer':
+        return renderSupplierCustomerReport();
+      case 'customer-groups':
+        return renderCustomerGroupsReport();
+      case 'stock-adjustment':
+        return renderStockAdjustmentReport();
+      case 'trending-products':
+        return renderTrendingProductsReport();
+      case 'items':
+        return renderItemsReport();
+      case 'product-purchase':
+        return renderProductPurchaseReport();
+      case 'product-sell':
+        return renderProductSellReport();
+      case 'purchase-payment':
+        return renderPurchasePaymentReport();
+      case 'sell-payment':
+        return renderSellPaymentReport();
+      case 'register':
+        return renderRegisterReport();
+      case 'sales-representative':
+        return renderSalesRepresentativeReport();
+      case 'activity-log':
+        return renderActivityLogReport();
       default:
         return <div className="text-center py-12 text-gray-500">Select a report type</div>;
     }

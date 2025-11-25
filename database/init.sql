@@ -103,6 +103,64 @@ CREATE TABLE products (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Product Variations table
+CREATE TABLE product_variations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(200) NOT NULL,
+    description TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Product Variation Values table
+CREATE TABLE product_variation_values (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    variation_id UUID NOT NULL REFERENCES product_variations(id) ON DELETE CASCADE,
+    value VARCHAR(200) NOT NULL,
+    display_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_variation_values_variation_id ON product_variation_values(variation_id);
+
+-- Units table
+CREATE TABLE units (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(50) NOT NULL UNIQUE,
+    abbreviation VARCHAR(10) NOT NULL UNIQUE,
+    base_unit_id UUID REFERENCES units(id),
+    conversion_factor DECIMAL(15, 6) DEFAULT 1,
+    is_base_unit BOOLEAN DEFAULT false,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_units_base_unit_id ON units(base_unit_id);
+
+-- Categories table
+CREATE TABLE categories (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(200) NOT NULL,
+    parent_id UUID REFERENCES categories(id),
+    description TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_categories_parent_id ON categories(parent_id);
+
+-- Warranties table
+CREATE TABLE warranties (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(200) NOT NULL,
+    duration_months INTEGER NOT NULL,
+    description TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Add warranty_id to products table
+ALTER TABLE products ADD COLUMN IF NOT EXISTS warranty_id UUID REFERENCES warranties(id);
+CREATE INDEX idx_products_warranty_id ON products(warranty_id);
+
 -- Inventory Instances table (Tracks physical coils/pallets individually)
 CREATE TABLE inventory_instances (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

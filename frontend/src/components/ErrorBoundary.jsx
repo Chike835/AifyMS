@@ -14,7 +14,9 @@ class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, errorInfo) {
     // Log error details to console
-    console.error('ErrorBoundary caught an error:', error, errorInfo);
+    console.error('[ERROR] ErrorBoundary: Caught an error:', error);
+    console.error('[ERROR] ErrorBoundary: Error info:', errorInfo);
+    console.error('[ERROR] ErrorBoundary: Component stack:', errorInfo?.componentStack);
     this.setState({
       error: error,
       errorInfo: errorInfo
@@ -30,6 +32,7 @@ class ErrorBoundary extends React.Component {
 
   render() {
     if (this.state.hasError) {
+      console.log('[DEBUG] ErrorBoundary: Rendering error UI');
       return (
         <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
           <div className="max-w-2xl w-full">

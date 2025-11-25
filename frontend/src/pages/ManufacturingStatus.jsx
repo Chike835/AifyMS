@@ -272,7 +272,7 @@ const ManufacturingStatus = () => {
       }`}
       draggable={hasPermission('production_update_status')}
       onDragStart={(e) => handleDragStart(e, order)}
-      onClick={() => {
+      onClick={(e) => {
         if (!e?.target.closest('.checkbox-container, .action-button')) {
           setSelectedOrder(order);
           setShowDetailModal(true);

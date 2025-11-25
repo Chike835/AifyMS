@@ -45,6 +45,14 @@ import BarcodeSettings from './pages/BarcodeSettings';
 import ReceiptPrinters from './pages/ReceiptPrinters';
 import POSList from './pages/POSList';
 import BusinessLocations from './pages/BusinessLocations';
+import Variations from './pages/Variations';
+import Units from './pages/Units';
+import Categories from './pages/Categories';
+import Warranties from './pages/Warranties';
+import BalanceSheet from './pages/BalanceSheet';
+import TrialBalance from './pages/TrialBalance';
+import CashFlow from './pages/CashFlow';
+import PaymentAccountReport from './pages/PaymentAccountReport';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -56,6 +64,8 @@ const queryClient = new QueryClient({
 });
 
 function App() {
+  console.log('[DEBUG] App.jsx: Component rendering');
+  
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
@@ -405,16 +415,6 @@ function App() {
               }
             />
             <Route
-              path="/import/contacts"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <ImportContacts />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
               path="/discounts"
               element={
                 <ProtectedRoute>
@@ -460,6 +460,96 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <BusinessLocations />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/inventory/settings/variations"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Variations />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/inventory/settings/units"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Units />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/inventory/settings/categories"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Categories />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/inventory/settings/warranties"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Warranties />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/import-contacts"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <ImportContacts />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/accounts/payment-accounts/balance-sheet"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <BalanceSheet />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/accounts/payment-accounts/trial-balance"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <TrialBalance />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/accounts/payment-accounts/cash-flow"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <CashFlow />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/accounts/payment-accounts/report/:accountId"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <PaymentAccountReport />
                   </Layout>
                 </ProtectedRoute>
               }

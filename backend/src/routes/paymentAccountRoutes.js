@@ -9,7 +9,8 @@ import {
   getAccountTransactions,
   recordDeposit,
   recordWithdrawal,
-  transferBetweenAccounts
+  transferBetweenAccounts,
+  getAccountReport
 } from '../controllers/paymentAccountController.js';
 
 const router = express.Router();
@@ -20,26 +21,29 @@ router.use(authenticate);
 // List all payment accounts
 router.get('/', requirePermission('payment_account_view'), getPaymentAccounts);
 
-// Get single payment account
-router.get('/:id', requirePermission('payment_account_view'), getPaymentAccountById);
-
 // Create new payment account
 router.post('/', requirePermission('payment_account_manage'), createPaymentAccount);
 
-// Update payment account
-router.put('/:id', requirePermission('payment_account_manage'), updatePaymentAccount);
+// Transfer between accounts (must come before /:id routes)
+router.post('/transfer', requirePermission('payment_account_manage'), transferBetweenAccounts);
 
-// Get account transactions
+// Get account transactions (must come before /:id route)
 router.get('/:id/transactions', requirePermission('payment_account_view'), getAccountTransactions);
 
-// Record deposit
+// Record deposit (must come before /:id route)
 router.post('/:id/deposit', requirePermission('payment_account_manage'), recordDeposit);
 
-// Record withdrawal
+// Record withdrawal (must come before /:id route)
 router.post('/:id/withdrawal', requirePermission('payment_account_manage'), recordWithdrawal);
 
-// Transfer between accounts
-router.post('/transfer', requirePermission('payment_account_manage'), transferBetweenAccounts);
+// Get account report (must come before /:id route)
+router.get('/:id/report', requirePermission('payment_account_view'), getAccountReport);
+
+// Get single payment account (must be last to avoid matching nested routes)
+router.get('/:id', requirePermission('payment_account_view'), getPaymentAccountById);
+
+// Update payment account
+router.put('/:id', requirePermission('payment_account_manage'), updatePaymentAccount);
 
 export default router;
 

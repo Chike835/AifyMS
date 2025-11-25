@@ -11,7 +11,19 @@ import {
   getProfitLoss,
   getBalanceSheet,
   getTrialBalance,
-  getCashFlowStatement
+  getCashFlowStatement,
+  getStockAdjustmentReport,
+  getTrendingProducts,
+  getItemsReport,
+  getProductPurchaseReport,
+  getProductSellReport,
+  getPurchasePaymentReport,
+  getSellPaymentReport,
+  getTaxReport,
+  getSalesRepresentativeReport,
+  getCustomerGroupsReport,
+  getRegisterReport,
+  getActivityLogReport
 } from '../controllers/reportController.js';
 
 const router = express.Router();
@@ -44,6 +56,20 @@ router.get('/profit-loss', requirePermission('report_view_financial'), getProfit
 router.get('/balance-sheet', requirePermission('report_view_financial'), getBalanceSheet);
 router.get('/trial-balance', requirePermission('report_view_financial'), getTrialBalance);
 router.get('/cash-flow', requirePermission('report_view_financial'), getCashFlowStatement);
+
+// Additional Reports
+router.get('/stock-adjustment', requirePermission('report_view_stock_value'), getStockAdjustmentReport);
+router.get('/trending-products', requirePermission('report_view_sales'), getTrendingProducts);
+router.get('/items', requirePermission('report_view_sales'), getItemsReport);
+router.get('/product-purchase', requirePermission('report_view_sales'), getProductPurchaseReport);
+router.get('/product-sell', requirePermission('report_view_sales'), getProductSellReport);
+router.get('/purchase-payment', requirePermission('report_view_financial'), getPurchasePaymentReport);
+router.get('/sell-payment', requirePermission('report_view_financial'), getSellPaymentReport);
+router.get('/tax', requirePermission('report_view_financial'), getTaxReport);
+router.get('/sales-representative', requirePermission('report_view_sales'), getSalesRepresentativeReport);
+router.get('/customer-groups', requirePermission('report_view_sales'), getCustomerGroupsReport);
+router.get('/register', requirePermission('report_view_register'), getRegisterReport);
+router.get('/activity-log', requirePermission('report_view_sales'), getActivityLogReport);
 
 export default router;
 

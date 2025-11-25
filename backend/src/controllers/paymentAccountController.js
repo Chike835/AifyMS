@@ -1,5 +1,5 @@
 import sequelize from '../config/db.js';
-import { Op } from 'sequelize';
+import { Op, fn, col, literal } from 'sequelize';
 import { PaymentAccount, AccountTransaction, Branch, User } from '../models/index.js';
 
 /**
@@ -489,5 +489,171 @@ export const transferBetweenAccounts = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * GET /api/payment-accounts/:id/report
+ * Get comprehensive account report with summary statistics
+ */
+export const getAccountReport = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { start_date, end_date } = req.query;
+
+    // Verify account exists and check access
+    const account = await PaymentAccount.findByPk(id, {
+      include: [
+        { model: Branch, as: 'branch', attributes: ['id', 'name', 'code'] }
+      ]
+    });
+
+    if (!account) {
+      return res.status(404).json({ error: 'Payment account not found' });
+    }
+
+    // Branch access check
+    if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      if (account.branch_id !== req.user.branch_id) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    }
+
+    // Build date filter for report period
+    const reportWhere = { account_id: id };
+    if (start_date && end_date) {
+      reportWhere.created_at = {
+        [Op.between]: [new Date(start_date), new Date(end_date + 'T23:59:59')]
+      };
+    }
+
+    // Calculate opening balance (balance before start_date)
+    let openingBalance = parseFloat(account.opening_balance || 0);
+    if (start_date) {
+      const transactionsBeforeStart = await AccountTransaction.findAll({
+        where: {
+          account_id: id,
+          created_at: {
+            [Op.lt]: new Date(start_date)
+          }
+        },
+        attributes: [
+          'transaction_type',
+          [fn('SUM', col('amount')), 'total']
+        ],
+        group: ['transaction_type'],
+        raw: true
+      });
+
+      transactionsBeforeStart.forEach(tx => {
+        const amount = parseFloat(tx.total || 0);
+        if (tx.transaction_type === 'deposit' || tx.transaction_type === 'payment_received') {
+          openingBalance += amount;
+        } else if (tx.transaction_type === 'withdrawal' || tx.transaction_type === 'payment_made') {
+          openingBalance -= amount;
+        } else if (tx.transaction_type === 'transfer') {
+          // Transfer type needs to be handled based on account context
+          // For now, we'll need to check if it's incoming or outgoing
+          // Since transfers create separate deposit/withdrawal transactions, this may not be used
+          // But we'll treat it as neutral for now
+        }
+      });
+    }
+
+    // Calculate summary statistics for the report period
+    const totalDeposits = await AccountTransaction.sum('amount', {
+      where: {
+        ...reportWhere,
+        transaction_type: {
+          [Op.in]: ['deposit', 'payment_received']
+        }
+      }
+    }) || 0;
+
+    const totalWithdrawals = await AccountTransaction.sum('amount', {
+      where: {
+        ...reportWhere,
+        transaction_type: {
+          [Op.in]: ['withdrawal', 'payment_made']
+        }
+      }
+    }) || 0;
+
+    const transactionCount = await AccountTransaction.count({
+      where: reportWhere
+    });
+
+    const netChange = parseFloat(totalDeposits) - parseFloat(totalWithdrawals);
+
+    // Calculate ending balance (opening balance + net change for the period)
+    // If no date range, use current balance; otherwise calculate from opening + net change
+    const endingBalance = start_date && end_date 
+      ? openingBalance + netChange 
+      : parseFloat(account.current_balance || 0);
+
+    // Group transactions by type
+    const transactionsByType = await AccountTransaction.findAll({
+      attributes: [
+        'transaction_type',
+        [fn('SUM', col('amount')), 'total'],
+        [fn('COUNT', col('id')), 'count']
+      ],
+      where: reportWhere,
+      group: ['transaction_type'],
+      raw: true
+    });
+
+    const byType = {};
+    transactionsByType.forEach(tx => {
+      byType[tx.transaction_type] = {
+        total: parseFloat(tx.total || 0),
+        count: parseInt(tx.count || 0)
+      };
+    });
+
+    // Get recent transactions with user details
+    const transactions = await AccountTransaction.findAll({
+      where: reportWhere,
+      include: [
+        { model: User, as: 'user', attributes: ['id', 'full_name', 'email'] }
+      ],
+      order: [['created_at', 'DESC']],
+      limit: 100
+    });
+
+    res.json({
+      account: {
+        id: account.id,
+        name: account.name,
+        account_type: account.account_type,
+        account_number: account.account_number,
+        bank_name: account.bank_name,
+        branch: account.branch
+      },
+      summary: {
+        opening_balance: openingBalance,
+        current_balance: endingBalance,
+        total_deposits: parseFloat(totalDeposits),
+        total_withdrawals: parseFloat(totalWithdrawals),
+        net_change: netChange,
+        transaction_count: transactionCount
+      },
+      by_type: byType,
+      transactions: transactions.map(tx => ({
+        id: tx.id,
+        created_at: tx.created_at,
+        transaction_type: tx.transaction_type,
+        amount: parseFloat(tx.amount),
+        notes: tx.notes,
+        user: tx.user ? {
+          id: tx.user.id,
+          full_name: tx.user.full_name,
+          email: tx.user.email
+        } : null
+      }))
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 
 

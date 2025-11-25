@@ -9,6 +9,18 @@ Bespoke ERP system for a Nigerian Aluminum & Building Materials company with 4 b
 - **Database**: PostgreSQL 15+
 - **Containerization**: Docker & Docker Compose
 
+## 📚 Documentation
+
+**Quick Start:**
+- 📖 [Quick Reference Card](QUICK_REFERENCE.md) - Essential commands and info
+- ✅ [Project Summary](PROJECT_SUMMARY.md) - Complete overview
+
+**Detailed Guides:**
+- 🎯 [Implementation Status](IMPLEMENTATION_STATUS.md) - All 95 features documented
+- 🧪 [Testing Guide](TESTING_GUIDE.md) - 53 test cases
+- 🚀 [Deployment Guide](DEPLOYMENT_GUIDE.md) - Production deployment
+- 📋 [Features Status](FeaturesStatus.md) - Feature checklist
+
 ## Prerequisites
 
 - Docker Desktop (or Docker Engine + Docker Compose)
