@@ -1,6 +1,56 @@
 import { BusinessSetting } from '../models/index.js';
 
 /**
+ * Validate critical settings
+ * @param {object} settings - Object with setting keys and values
+ * @returns {object} - { valid: boolean, errors: array }
+ */
+const validateSettings = (settings) => {
+  const errors = [];
+  const criticalSettings = {
+    currency: { required: true, type: 'string', validate: (val) => {
+      // Basic ISO currency code validation (3 uppercase letters)
+      return typeof val === 'string' && val.length === 3 && /^[A-Z]{3}$/.test(val);
+    }},
+    tax_rate: { required: true, type: 'number', validate: (val) => {
+      const num = parseFloat(val);
+      return !isNaN(num) && num >= 0 && num <= 100;
+    }}
+  };
+
+  for (const [key, config] of Object.entries(criticalSettings)) {
+    const value = settings[key];
+    
+    if (config.required && (value === null || value === undefined || value === '')) {
+      errors.push(`${key} is required and cannot be null`);
+      continue;
+    }
+
+    if (value !== null && value !== undefined && value !== '') {
+      if (config.type === 'number' && isNaN(parseFloat(value))) {
+        errors.push(`${key} must be a valid number`);
+        continue;
+      }
+
+      if (config.validate && !config.validate(value)) {
+        if (key === 'currency') {
+          errors.push(`${key} must be a valid 3-letter ISO currency code (e.g., NGN, USD)`);
+        } else if (key === 'tax_rate') {
+          errors.push(`${key} must be a number between 0 and 100`);
+        } else {
+          errors.push(`${key} validation failed`);
+        }
+      }
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+};
+
+/**
  * GET /api/settings
  * Get all settings or by category
  */
@@ -70,6 +120,17 @@ export const updateSetting = async (req, res, next) => {
       return res.status(404).json({ error: 'Setting not found' });
     }
 
+    // Validate critical settings before saving
+    if (['currency', 'tax_rate'].includes(key)) {
+      const validation = validateSettings({ [key]: value });
+      if (!validation.valid) {
+        return res.status(400).json({ 
+          error: 'Validation failed', 
+          errors: validation.errors 
+        });
+      }
+    }
+
     // Convert value to string based on type
     let stringValue = value;
     if (setting.setting_type === 'number') {
@@ -126,6 +187,24 @@ export const bulkUpdateSettings = async (req, res, next) => {
     const updates = [];
     const errors = [];
 
+    // Validate critical settings before processing
+    const criticalSettingsToValidate = {};
+    for (const [key, value] of Object.entries(settings)) {
+      if (['currency', 'tax_rate'].includes(key)) {
+        criticalSettingsToValidate[key] = value;
+      }
+    }
+
+    if (Object.keys(criticalSettingsToValidate).length > 0) {
+      const validation = validateSettings(criticalSettingsToValidate);
+      if (!validation.valid) {
+        return res.status(400).json({ 
+          error: 'Validation failed', 
+          errors: validation.errors 
+        });
+      }
+    }
+
     for (const [key, value] of Object.entries(settings)) {
       try {
         const setting = await BusinessSetting.findOne({
@@ -163,6 +242,63 @@ export const bulkUpdateSettings = async (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  }
+};
+
+/**
+ * POST /api/settings/test-print
+ * Test receipt printer connection
+ */
+export const testPrint = async (req, res, next) => {
+  try {
+    // Get receipt printer configuration from settings
+    const printerSetting = await BusinessSetting.findOne({
+      where: { setting_key: 'receipt_printer_connection' }
+    });
+
+    if (!printerSetting || !printerSetting.setting_value) {
+      return res.status(400).json({ 
+        error: 'Receipt printer not configured. Please set receipt_printer_connection in settings.' 
+      });
+    }
+
+    // Create a test receipt order data
+    const testOrderData = {
+      invoice_number: 'TEST-001',
+      created_at: new Date(),
+      customer: {
+        name: 'Test Customer',
+        address: 'Test Address'
+      },
+      branch: {
+        name: 'Test Branch'
+      },
+      items: [
+        {
+          product: { name: 'Test Product' },
+          quantity: 1,
+          unit_price: 1000,
+          subtotal: 1000
+        }
+      ],
+      total_amount: 1000
+    };
+
+    // Generate test receipt HTML
+    const { buildReceiptHTML } = await import('../services/pdfService.js');
+    const receiptHTML = buildReceiptHTML(testOrderData, 58); // 58mm width
+
+    // In a real implementation, you would send this to the printer
+    // For now, we'll return the HTML for preview
+    res.json({
+      message: 'Test print generated successfully',
+      printer_connection: printerSetting.setting_value,
+      receipt_html: receiptHTML,
+      note: 'In production, this would be sent directly to the configured printer'
+    });
+  } catch (error) {
+    console.error('Test print error:', error);
+    res.status(500).json({ error: error.message || 'Failed to generate test print' });
   }
 };
 

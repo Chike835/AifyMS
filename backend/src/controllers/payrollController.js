@@ -1,4 +1,4 @@
-import { PayrollRecord, Branch, User } from '../models/index.js';
+import { PayrollRecord, Branch, User, Agent, AgentCommission } from '../models/index.js';
 import { Op } from 'sequelize';
 
 /**
@@ -299,6 +299,199 @@ export const getEmployeesForPayroll = async (req, res) => {
   } catch (error) {
     console.error('Error fetching employees:', error);
     res.status(500).json({ error: error.message || 'Failed to fetch employees' });
+  }
+};
+
+/**
+ * POST /payroll/calculate
+ * Auto-calculate payroll for employee(s) based on base salary and commissions
+ * Permission: payroll_manage
+ */
+export const calculatePayroll = async (req, res, next) => {
+  try {
+    const { user_id, month, year } = req.body;
+    const { branch_id: creatorBranchId, role_name } = req.user;
+
+    // Validate month/year
+    if (!month || month < 1 || month > 12) {
+      return res.status(400).json({ error: 'Valid month (1-12) is required' });
+    }
+    if (!year || year < 2000) {
+      return res.status(400).json({ error: 'Valid year is required' });
+    }
+
+    const monthNum = parseInt(month);
+    const yearNum = parseInt(year);
+
+    // Determine which users to calculate for
+    let usersToProcess = [];
+    if (user_id) {
+      // Calculate for specific user
+      const user = await User.findByPk(user_id, {
+        include: [{ model: Branch, as: 'branch', attributes: ['id', 'name'] }]
+      });
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      usersToProcess = [user];
+    } else {
+      // Calculate for all active users in branch
+      let whereClause = { is_active: true };
+      if (role_name !== 'Super Admin') {
+        whereClause.branch_id = creatorBranchId;
+      }
+      usersToProcess = await User.findAll({
+        where: whereClause,
+        include: [{ model: Branch, as: 'branch', attributes: ['id', 'name'] }]
+      });
+    }
+
+    if (usersToProcess.length === 0) {
+      return res.status(404).json({ error: 'No users found to calculate payroll for' });
+    }
+
+    const results = [];
+    const errors = [];
+
+    for (const user of usersToProcess) {
+      try {
+        // Determine branch_id for payroll record
+        let targetBranchId = user.branch_id;
+        if (role_name === 'Super Admin' && req.body.branch_id) {
+          targetBranchId = req.body.branch_id;
+        }
+
+        if (!targetBranchId) {
+          errors.push({ user_id: user.id, error: 'Branch ID is required for payroll record' });
+          continue;
+        }
+
+        // Non-Super Admin can only create payroll for their branch
+        if (role_name !== 'Super Admin' && targetBranchId !== creatorBranchId) {
+          errors.push({ user_id: user.id, error: 'Cannot create payroll for employees in other branches' });
+          continue;
+        }
+
+        // Get base salary (default to 0 if not in settings)
+        // In a real system, this would come from User model or settings
+        const baseSalary = 0; // TODO: Get from user settings or User model if base_salary field is added
+
+        // Find Agent linked to this user (by email or name matching)
+        let agent = null;
+        let totalCommissions = 0;
+
+        try {
+          agent = await Agent.findOne({
+            where: {
+              [Op.or]: [
+                { email: user.email },
+                { name: user.full_name }
+              ],
+              is_active: true
+            }
+          });
+
+          if (agent) {
+            // Calculate date range for the month
+            const startDate = new Date(yearNum, monthNum - 1, 1);
+            const endDate = new Date(yearNum, monthNum, 0, 23, 59, 59);
+
+            // Sum paid commissions for this agent in the given month/year
+            const commissions = await AgentCommission.findAll({
+              where: {
+                agent_id: agent.id,
+                status: 'paid',
+                paid_at: {
+                  [Op.between]: [startDate, endDate]
+                }
+              }
+            });
+
+            totalCommissions = commissions.reduce((sum, comm) => {
+              return sum + parseFloat(comm.commission_amount || 0);
+            }, 0);
+          }
+        } catch (agentError) {
+          // Agent not found or error - continue with base salary only
+          console.log(`No agent found for user ${user.id}, using base salary only`);
+        }
+
+        // Calculate gross pay
+        const grossPay = baseSalary + totalCommissions;
+
+        // Check for existing payroll record
+        const existingRecord = await PayrollRecord.findOne({
+          where: {
+            user_id: user.id,
+            month: monthNum,
+            year: yearNum
+          }
+        });
+
+        let payrollRecord;
+        if (existingRecord) {
+          // Update existing record
+          const deductionsAmount = parseFloat(existingRecord.deductions || 0);
+          const netPayAmount = grossPay - deductionsAmount;
+
+          await existingRecord.update({
+            gross_pay: grossPay,
+            net_pay: netPayAmount >= 0 ? netPayAmount : 0
+          });
+
+          payrollRecord = await PayrollRecord.findByPk(existingRecord.id, {
+            include: [
+              { model: Branch, as: 'branch', attributes: ['id', 'name', 'code'] },
+              { model: User, as: 'employee', attributes: ['id', 'full_name', 'email'] }
+            ]
+          });
+        } else {
+          // Create new record
+          payrollRecord = await PayrollRecord.create({
+            user_id: user.id,
+            branch_id: targetBranchId,
+            month: monthNum,
+            year: yearNum,
+            gross_pay: grossPay,
+            deductions: 0,
+            net_pay: grossPay,
+            notes: `Auto-calculated: Base salary (${baseSalary}) + Commissions (${totalCommissions})`
+          });
+
+          // Fetch with associations
+          payrollRecord = await PayrollRecord.findByPk(payrollRecord.id, {
+            include: [
+              { model: Branch, as: 'branch', attributes: ['id', 'name', 'code'] },
+              { model: User, as: 'employee', attributes: ['id', 'full_name', 'email'] }
+            ]
+          });
+        }
+
+        results.push({
+          user_id: user.id,
+          user_name: user.full_name,
+          payroll_record: payrollRecord,
+          base_salary: baseSalary,
+          commissions: totalCommissions,
+          gross_pay: grossPay
+        });
+      } catch (userError) {
+        errors.push({
+          user_id: user.id,
+          user_name: user.full_name,
+          error: userError.message || 'Failed to calculate payroll for this user'
+        });
+      }
+    }
+
+    res.status(200).json({
+      message: `Payroll calculated for ${results.length} employee(s)`,
+      results,
+      errors: errors.length > 0 ? errors : undefined
+    });
+  } catch (error) {
+    console.error('Error calculating payroll:', error);
+    res.status(500).json({ error: error.message || 'Failed to calculate payroll' });
   }
 };
 

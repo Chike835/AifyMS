@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
-import { Building2, Save, Upload, X, CheckCircle, AlertCircle } from 'lucide-react';
+import { Building2, Save, Upload, X, CheckCircle, AlertCircle, Printer } from 'lucide-react';
 
 const BusinessSettings = () => {
   const { hasPermission } = useAuth();
@@ -22,6 +22,7 @@ const BusinessSettings = () => {
   const [logoPreview, setLogoPreview] = useState('');
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
+  const [testPrintLoading, setTestPrintLoading] = useState(false);
 
   // Fetch settings
   const { data, isLoading } = useQuery({
@@ -142,6 +143,30 @@ const BusinessSettings = () => {
     };
 
     updateSettingsMutation.mutate(settings);
+  };
+
+  const handleTestPrint = async () => {
+    setTestPrintLoading(true);
+    setFormError('');
+    try {
+      const response = await api.post('/settings/test-print');
+      setFormSuccess(`Test print generated successfully! ${response.data.note || ''}`);
+      setTimeout(() => setFormSuccess(''), 5000);
+      
+      // Optionally open the receipt HTML in a new window for preview
+      if (response.data.receipt_html) {
+        const newWindow = window.open();
+        if (newWindow) {
+          newWindow.document.write(response.data.receipt_html);
+          newWindow.document.close();
+        }
+      }
+    } catch (error) {
+      setFormError(error.response?.data?.error || 'Failed to test print');
+      setTimeout(() => setFormError(''), 5000);
+    } finally {
+      setTestPrintLoading(false);
+    }
   };
 
   if (isLoading) {
@@ -353,6 +378,29 @@ const BusinessSettings = () => {
                 Format: MM-DD (e.g., 01-01 for January 1st)
               </p>
             </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Printer Configuration</h2>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600 mb-1">
+                Test your receipt printer configuration
+              </p>
+              <p className="text-xs text-gray-500">
+                This will generate a test receipt to verify printer connection
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleTestPrint}
+              disabled={testPrintLoading}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Printer className="h-5 w-5" />
+              <span>{testPrintLoading ? 'Testing...' : 'Test Print'}</span>
+            </button>
           </div>
         </div>
 

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
-import { Wallet, Plus, Edit, Trash2, Search, X, Calendar, Users } from 'lucide-react';
+import { Wallet, Plus, Edit, Trash2, Search, X, Calendar, Users, Calculator } from 'lucide-react';
 
 const MONTHS = [
   { value: 1, label: 'January' },
@@ -38,6 +38,13 @@ const Payroll = () => {
     notes: ''
   });
   const [formError, setFormError] = useState('');
+  const [showCalculateModal, setShowCalculateModal] = useState(false);
+  const [calculateData, setCalculateData] = useState({
+    month: new Date().getMonth() + 1,
+    year: currentYear,
+    user_id: ''
+  });
+  const [calculateError, setCalculateError] = useState('');
 
   // Fetch payroll records
   const { data, isLoading, error } = useQuery({
@@ -101,6 +108,29 @@ const Payroll = () => {
     },
     onError: (error) => {
       alert(error.response?.data?.error || 'Failed to delete payroll record');
+    }
+  });
+
+  // Calculate payroll mutation
+  const calculateMutation = useMutation({
+    mutationFn: async (data) => {
+      const response = await api.post('/payroll/calculate', data);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['payroll'] });
+      setShowCalculateModal(false);
+      setCalculateData({ month: new Date().getMonth() + 1, year: currentYear, user_id: '' });
+      setCalculateError('');
+      
+      // Show success message with details
+      const successMsg = data.errors && data.errors.length > 0
+        ? `Calculated for ${data.results.length} employee(s). ${data.errors.length} error(s) occurred.`
+        : `Successfully calculated payroll for ${data.results.length} employee(s).`;
+      alert(successMsg);
+    },
+    onError: (error) => {
+      setCalculateError(error.response?.data?.error || 'Failed to calculate payroll');
     }
   });
 
@@ -233,13 +263,30 @@ const Payroll = () => {
           <p className="text-gray-600 mt-2">Manage employee payroll records</p>
         </div>
         {hasPermission('payroll_manage') && (
-          <button
-            onClick={openCreateModal}
-            className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-          >
-            <Plus className="h-5 w-5" />
-            <span>Add Payroll</span>
-          </button>
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={() => {
+                setShowCalculateModal(true);
+                setCalculateError('');
+                setCalculateData({
+                  month: new Date().getMonth() + 1,
+                  year: currentYear,
+                  user_id: ''
+                });
+              }}
+              className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              <Calculator className="h-5 w-5" />
+              <span>Auto-Calculate</span>
+            </button>
+            <button
+              onClick={openCreateModal}
+              className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+            >
+              <Plus className="h-5 w-5" />
+              <span>Add Payroll</span>
+            </button>
+          </div>
         )}
       </div>
 
@@ -557,6 +604,135 @@ const Payroll = () => {
                     : selectedRecord
                     ? 'Update'
                     : 'Create'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Calculate Payroll Modal */}
+      {showCalculateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">
+                Auto-Calculate Payroll
+              </h2>
+              <button 
+                onClick={() => {
+                  setShowCalculateModal(false);
+                  setCalculateError('');
+                  setCalculateData({ month: new Date().getMonth() + 1, year: currentYear, user_id: '' });
+                }} 
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+
+            {calculateError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                {calculateError}
+              </div>
+            )}
+
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              setCalculateError('');
+              
+              const submitData = {
+                month: parseInt(calculateData.month),
+                year: parseInt(calculateData.year)
+              };
+              
+              if (calculateData.user_id) {
+                submitData.user_id = calculateData.user_id;
+              }
+              
+              calculateMutation.mutate(submitData);
+            }} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Employee (Optional)
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Leave empty to calculate for all employees
+                </p>
+                <select
+                  value={calculateData.user_id}
+                  onChange={(e) => setCalculateData({ ...calculateData, user_id: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="">All Employees</option>
+                  {employees.map((emp) => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.full_name} {emp.branch ? `(${emp.branch.name})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Month *
+                  </label>
+                  <select
+                    required
+                    value={calculateData.month}
+                    onChange={(e) => setCalculateData({ ...calculateData, month: parseInt(e.target.value) })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    {MONTHS.map((month) => (
+                      <option key={month.value} value={month.value}>{month.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Year *
+                  </label>
+                  <select
+                    required
+                    value={calculateData.year}
+                    onChange={(e) => setCalculateData({ ...calculateData, year: parseInt(e.target.value) })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    {YEARS.map((year) => (
+                      <option key={year} value={year}>{year}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+                <p className="font-medium mb-1">How it works:</p>
+                <ul className="list-disc list-inside space-y-1 text-xs">
+                  <li>Base salary (currently defaults to 0)</li>
+                  <li>+ Paid agent commissions for the selected month/year</li>
+                  <li>= Gross pay (auto-updates existing records or creates new ones)</li>
+                </ul>
+              </div>
+
+              <div className="flex space-x-4 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCalculateModal(false);
+                    setCalculateError('');
+                    setCalculateData({ month: new Date().getMonth() + 1, year: currentYear, user_id: '' });
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={calculateMutation.isPending}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {calculateMutation.isPending ? 'Calculating...' : 'Calculate'}
                 </button>
               </div>
             </form>

@@ -20,6 +20,7 @@ const Reports = () => {
   const [activeTab, setActiveTab] = useState('sales');
   const [startDate, setStartDate] = useState(new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedBranch, setSelectedBranch] = useState('');
 
   // Fetch branches for Super Admin
@@ -127,6 +128,46 @@ const Reports = () => {
     enabled: activeTab === 'profit-loss' && hasPermission('report_view_financial')
   });
 
+  // Balance Sheet Report
+  const { data: balanceSheetData, isLoading: balanceSheetLoading } = useQuery({
+    queryKey: ['balanceSheetReport', asOfDate, selectedBranch],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (asOfDate) params.append('as_of_date', asOfDate);
+      if (selectedBranch) params.append('branch_id', selectedBranch);
+      const response = await api.get(`/reports/balance-sheet?${params.toString()}`);
+      return response.data;
+    },
+    enabled: activeTab === 'balance-sheet' && hasPermission('report_view_financial')
+  });
+
+  // Trial Balance Report
+  const { data: trialBalanceData, isLoading: trialBalanceLoading } = useQuery({
+    queryKey: ['trialBalanceReport', asOfDate, selectedBranch],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (asOfDate) params.append('as_of_date', asOfDate);
+      if (selectedBranch) params.append('branch_id', selectedBranch);
+      const response = await api.get(`/reports/trial-balance?${params.toString()}`);
+      return response.data;
+    },
+    enabled: activeTab === 'trial-balance' && hasPermission('report_view_financial')
+  });
+
+  // Cash Flow Report
+  const { data: cashFlowData, isLoading: cashFlowLoading } = useQuery({
+    queryKey: ['cashFlowReport', startDate, endDate, selectedBranch],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
+      if (selectedBranch) params.append('branch_id', selectedBranch);
+      const response = await api.get(`/reports/cash-flow?${params.toString()}`);
+      return response.data;
+    },
+    enabled: activeTab === 'cash-flow' && hasPermission('report_view_financial')
+  });
+
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
@@ -150,7 +191,10 @@ const Reports = () => {
     { id: 'expenses', name: 'Expenses', icon: DollarSign, permission: 'report_view_financial' },
     { id: 'customers', name: 'Customers', icon: Users, permission: 'report_view_sales' },
     { id: 'payments', name: 'Payments', icon: DollarSign, permission: 'report_view_financial' },
-    { id: 'profit-loss', name: 'Profit & Loss', icon: BarChart3, permission: 'report_view_financial' }
+    { id: 'profit-loss', name: 'Profit & Loss', icon: BarChart3, permission: 'report_view_financial' },
+    { id: 'balance-sheet', name: 'Balance Sheet', icon: FileText, permission: 'report_view_financial' },
+    { id: 'trial-balance', name: 'Trial Balance', icon: FileText, permission: 'report_view_financial' },
+    { id: 'cash-flow', name: 'Cash Flow', icon: FileText, permission: 'report_view_financial' }
   ];
 
   const visibleTabs = tabs.filter(tab => !tab.permission || hasPermission(tab.permission));
@@ -612,6 +656,251 @@ const Reports = () => {
     );
   };
 
+  const renderBalanceSheet = () => {
+    if (balanceSheetLoading) return <div className="text-center py-12">Loading balance sheet...</div>;
+    if (!balanceSheetData) return <div className="text-center py-12 text-gray-500">No data available</div>;
+
+    const { assets, liabilities, equity, total_liabilities_and_equity } = balanceSheetData;
+
+    return (
+      <div className="space-y-6">
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold">Balance Sheet</h3>
+            <p className="text-sm text-gray-600">As of {formatDate(balanceSheetData.as_of_date)}</p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Assets */}
+            <div>
+              <h4 className="font-semibold text-gray-900 mb-3">ASSETS</h4>
+              <div className="space-y-2">
+                <div className="pl-4">
+                  <div className="font-medium text-gray-700 mb-2">Current Assets</div>
+                  <div className="pl-4 space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span>Cash</span>
+                      <span>{formatCurrency(assets.current_assets.cash)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Bank</span>
+                      <span>{formatCurrency(assets.current_assets.bank)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Accounts Receivable</span>
+                      <span>{formatCurrency(assets.current_assets.accounts_receivable)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Inventory</span>
+                      <span>{formatCurrency(assets.current_assets.inventory)}</span>
+                    </div>
+                    <div className="flex justify-between font-semibold border-t pt-1 mt-1">
+                      <span>Total Current Assets</span>
+                      <span>{formatCurrency(assets.current_assets.total)}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="pl-4">
+                  <div className="flex justify-between font-medium">
+                    <span>Fixed Assets</span>
+                    <span>{formatCurrency(assets.fixed_assets)}</span>
+                  </div>
+                </div>
+                <div className="flex justify-between font-bold text-lg border-t pt-2 mt-2">
+                  <span>Total Assets</span>
+                  <span>{formatCurrency(assets.total)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Liabilities & Equity */}
+            <div>
+              <h4 className="font-semibold text-gray-900 mb-3">LIABILITIES & EQUITY</h4>
+              <div className="space-y-2">
+                <div className="pl-4">
+                  <div className="font-medium text-gray-700 mb-2">Current Liabilities</div>
+                  <div className="pl-4 space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span>Accounts Payable</span>
+                      <span>{formatCurrency(liabilities.current_liabilities.accounts_payable)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Supplier Balances</span>
+                      <span>{formatCurrency(liabilities.current_liabilities.supplier_balances)}</span>
+                    </div>
+                    <div className="flex justify-between font-semibold border-t pt-1 mt-1">
+                      <span>Total Liabilities</span>
+                      <span>{formatCurrency(liabilities.total)}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="pl-4">
+                  <div className="font-medium text-gray-700 mb-2">Equity</div>
+                  <div className="pl-4 space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span>Retained Earnings</span>
+                      <span>{formatCurrency(equity.retained_earnings)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Capital</span>
+                      <span>{formatCurrency(equity.capital)}</span>
+                    </div>
+                    <div className="flex justify-between font-semibold border-t pt-1 mt-1">
+                      <span>Total Equity</span>
+                      <span>{formatCurrency(equity.total)}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-between font-bold text-lg border-t pt-2 mt-2">
+                  <span>Total Liabilities & Equity</span>
+                  <span>{formatCurrency(total_liabilities_and_equity)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderTrialBalance = () => {
+    if (trialBalanceLoading) return <div className="text-center py-12">Loading trial balance...</div>;
+    if (!trialBalanceData) return <div className="text-center py-12 text-gray-500">No data available</div>;
+
+    const { debits, credits, total_debits, total_credits, difference } = trialBalanceData;
+
+    return (
+      <div className="space-y-6">
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold">Trial Balance</h3>
+            <p className="text-sm text-gray-600">As of {formatDate(trialBalanceData.as_of_date)}</p>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Account</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Debit</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Credit</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {debits.map((item, idx) => (
+                  <tr key={`debit-${idx}`} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-sm">{item.account}</td>
+                    <td className="px-4 py-3 text-sm text-right font-medium">{formatCurrency(item.amount)}</td>
+                    <td className="px-4 py-3 text-sm text-right">—</td>
+                  </tr>
+                ))}
+                {credits.map((item, idx) => (
+                  <tr key={`credit-${idx}`} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-sm">{item.account}</td>
+                    <td className="px-4 py-3 text-sm text-right">—</td>
+                    <td className="px-4 py-3 text-sm text-right font-medium">{formatCurrency(item.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="bg-gray-50">
+                <tr className="font-semibold">
+                  <td className="px-4 py-3 text-sm">Total</td>
+                  <td className="px-4 py-3 text-sm text-right">{formatCurrency(total_debits)}</td>
+                  <td className="px-4 py-3 text-sm text-right">{formatCurrency(total_credits)}</td>
+                </tr>
+                {Math.abs(difference) > 0.01 && (
+                  <tr className="bg-yellow-50">
+                    <td className="px-4 py-3 text-sm font-medium text-yellow-800">Difference</td>
+                    <td colSpan="2" className="px-4 py-3 text-sm text-right font-medium text-yellow-800">
+                      {formatCurrency(difference)}
+                    </td>
+                  </tr>
+                )}
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderCashFlow = () => {
+    if (cashFlowLoading) return <div className="text-center py-12">Loading cash flow statement...</div>;
+    if (!cashFlowData) return <div className="text-center py-12 text-gray-500">No data available</div>;
+
+    const { operating_activities, investing_activities, financing_activities, net_increase_in_cash } = cashFlowData;
+
+    return (
+      <div className="space-y-6">
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold">Cash Flow Statement</h3>
+            <p className="text-sm text-gray-600">
+              {formatDate(startDate)} to {formatDate(endDate)}
+            </p>
+          </div>
+          
+          <div className="space-y-6">
+            {/* Operating Activities */}
+            <div>
+              <h4 className="font-semibold text-gray-900 mb-3">Operating Activities</h4>
+              <div className="pl-4 space-y-2">
+                <div className="flex justify-between">
+                  <span>Cash from Sales</span>
+                  <span>{formatCurrency(operating_activities?.cash_from_sales || 0)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Cash from Transfers</span>
+                  <span>{formatCurrency(operating_activities?.cash_from_transfers || 0)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Cash Paid for Purchases</span>
+                  <span className="text-red-600">({formatCurrency(Math.abs(operating_activities?.cash_paid_purchases || 0))})</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Cash Paid for Expenses</span>
+                  <span className="text-red-600">({formatCurrency(Math.abs(operating_activities?.cash_paid_expenses || 0))})</span>
+                </div>
+                <div className="flex justify-between font-semibold border-t pt-2 mt-2">
+                  <span>Net Cash from Operating</span>
+                  <span>{formatCurrency(operating_activities?.net_cash_flow || 0)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Investing Activities */}
+            <div>
+              <h4 className="font-semibold text-gray-900 mb-3">Investing Activities</h4>
+              <div className="pl-4 space-y-2">
+                <div className="flex justify-between">
+                  <span>Net Cash from Investing</span>
+                  <span>{formatCurrency(investing_activities?.net_cash_flow || 0)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Financing Activities */}
+            <div>
+              <h4 className="font-semibold text-gray-900 mb-3">Financing Activities</h4>
+              <div className="pl-4 space-y-2">
+                <div className="flex justify-between">
+                  <span>Net Cash from Financing</span>
+                  <span>{formatCurrency(financing_activities?.net_cash_flow || 0)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Net Cash Flow */}
+            <div className="flex justify-between font-bold text-lg border-t-2 pt-4 mt-4">
+              <span>Net Increase (Decrease) in Cash</span>
+              <span>{formatCurrency(net_increase_in_cash || 0)}</span>
+                </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderActiveTab = () => {
     switch (activeTab) {
       case 'sales':
@@ -628,6 +917,12 @@ const Reports = () => {
         return renderPaymentReport();
       case 'profit-loss':
         return renderProfitLossReport();
+      case 'balance-sheet':
+        return renderBalanceSheet();
+      case 'trial-balance':
+        return renderTrialBalance();
+      case 'cash-flow':
+        return renderCashFlow();
       default:
         return <div className="text-center py-12 text-gray-500">Select a report type</div>;
     }
@@ -643,30 +938,47 @@ const Reports = () => {
       {/* Filters */}
       <div className="bg-white rounded-lg shadow p-4 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-            <div className="relative">
-              <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="pl-10 w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
+          {(activeTab === 'balance-sheet' || activeTab === 'trial-balance') ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">As Of Date</label>
+              <div className="relative">
+                <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="date"
+                  value={asOfDate}
+                  onChange={(e) => setAsOfDate(e.target.value)}
+                  className="pl-10 w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+              </div>
             </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-            <div className="relative">
-              <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="pl-10 w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
-            </div>
-          </div>
+          ) : (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="pl-10 w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="pl-10 w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+            </>
+          )}
           {user?.role_name === 'Super Admin' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Branch</label>

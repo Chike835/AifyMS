@@ -1,4 +1,5 @@
-import { SalesOrder, DeliveryNoteTemplate, Customer, SalesItem, Product } from '../models/index.js';
+import { SalesOrder, DeliveryNoteTemplate, Customer, SalesItem, Product, InventoryInstance, Branch } from '../models/index.js';
+import { Op } from 'sequelize';
 import * as pdfService from '../services/pdfService.js';
 
 /**
@@ -245,5 +246,79 @@ Thank you for your business!`;
     </body>
     </html>
   `;
+};
+
+/**
+ * POST /api/print/labels
+ * Generate and return labels PDF for inventory instances
+ */
+export const printLabels = async (req, res, next) => {
+  try {
+    const { instance_ids, format = 'a4', columns = 3, show_barcode = true } = req.body;
+
+    if (!instance_ids || !Array.isArray(instance_ids) || instance_ids.length === 0) {
+      return res.status(400).json({ 
+        error: 'instance_ids array is required and must not be empty' 
+      });
+    }
+
+    // Fetch instances with product and branch info
+    const instances = await InventoryInstance.findAll({
+      where: {
+        id: { [Op.in]: instance_ids }
+      },
+      include: [
+        { model: Product, as: 'product', attributes: ['id', 'name', 'sku', 'type'] },
+        { model: Branch, as: 'branch', attributes: ['id', 'name', 'label_template'] }
+      ]
+    });
+
+    if (instances.length === 0) {
+      return res.status(404).json({ error: 'No instances found' });
+    }
+
+    // Branch access check
+    if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      const invalidInstances = instances.filter(inst => inst.branch_id !== req.user.branch_id);
+      if (invalidInstances.length > 0) {
+        return res.status(403).json({ 
+          error: 'You do not have permission to print labels for instances from other branches' 
+        });
+      }
+    }
+
+    // Generate label data
+    const labels = instances.map(instance => ({
+      instance_id: instance.id,
+      instance_code: instance.instance_code,
+      product_name: instance.product?.name || 'N/A',
+      product_sku: instance.product?.sku || 'N/A',
+      remaining_quantity: parseFloat(instance.remaining_quantity),
+      branch_name: instance.branch?.name || 'N/A',
+      label_template: instance.branch?.label_template || null
+    }));
+
+    // Build label HTML
+    const labelHTML = pdfService.buildLabelHTML(labels, {
+      format,
+      columns: parseInt(columns) || 3,
+      showBarcode: show_barcode !== false
+    });
+
+    // Generate PDF
+    const pdfBuffer = await pdfService.generatePDFFromHTML(labelHTML, {
+      format: 'A4',
+      margin: { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' }
+    });
+
+    // Set response headers
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="labels-${Date.now()}.pdf"`);
+    
+    // Send PDF
+    res.send(pdfBuffer);
+  } catch (error) {
+    next(error);
+  }
 };
 

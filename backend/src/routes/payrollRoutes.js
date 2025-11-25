@@ -7,7 +7,8 @@ import {
   createPayrollRecord,
   updatePayrollRecord,
   deletePayrollRecord,
-  getEmployeesForPayroll
+  getEmployeesForPayroll,
+  calculatePayroll
 } from '../controllers/payrollController.js';
 
 const router = express.Router();
@@ -33,6 +34,9 @@ router.put('/:id', authenticate, requirePermission('payroll_manage'), updatePayr
 
 // DELETE /payroll/:id - Delete a payroll record
 router.delete('/:id', authenticate, requirePermission('payroll_manage'), deletePayrollRecord);
+
+// POST /payroll/calculate - Auto-calculate payroll
+router.post('/calculate', authenticate, requirePermission('payroll_manage'), calculatePayroll);
 
 export default router;
 

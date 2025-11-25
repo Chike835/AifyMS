@@ -16,6 +16,7 @@ import {
   Clock,
   CheckCircle
 } from 'lucide-react';
+import { LineChart, Line, BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 const Dashboard = () => {
   const { user, loading, hasPermission } = useAuth();
@@ -103,6 +104,23 @@ const Dashboard = () => {
     }
   });
 
+  // Fetch expense data for revenue vs expenses chart
+  const { data: expenseChartData, isLoading: expenseChartLoading } = useQuery({
+    queryKey: ['dashboardExpenseChart', chartDays],
+    queryFn: async () => {
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - chartDays);
+      
+      const params = new URLSearchParams();
+      params.append('start_date', startDate.toISOString().split('T')[0]);
+      params.append('end_date', endDate.toISOString().split('T')[0]);
+      
+      const response = await api.get(`/reports/expenses?${params.toString()}`);
+      return response.data;
+    }
+  });
+
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
@@ -150,10 +168,35 @@ const Dashboard = () => {
     },
   ];
 
-  // Calculate max amount for chart scaling
-  const maxChartAmount = chartData?.daily_data?.length > 0
-    ? Math.max(...chartData.daily_data.map(d => d.amount))
-    : 1;
+  // Prepare chart data
+  const salesChartData = chartData?.daily_data?.map(day => ({
+    date: new Date(day.date).toLocaleDateString('en-NG', { month: 'short', day: 'numeric' }),
+    sales: parseFloat(day.amount || 0),
+    count: day.count || 0
+  })) || [];
+
+  const topProductsChartData = topProductsData?.products?.map(item => ({
+    name: item.product?.name || 'N/A',
+    revenue: parseFloat(item.total_revenue || 0),
+    quantity: parseFloat(item.total_quantity || 0)
+  })) || [];
+
+  // Prepare revenue vs expenses chart data
+  const revenueVsExpensesData = [];
+  if (chartData?.daily_data && expenseChartData?.daily_trend) {
+    const salesMap = new Map(chartData.daily_data.map(d => [d.date, d.amount]));
+    const expensesMap = new Map(expenseChartData.daily_trend.map(d => [d.date, d.amount]));
+    const allDates = new Set([...salesMap.keys(), ...expensesMap.keys()]);
+    
+    allDates.forEach(date => {
+      revenueVsExpensesData.push({
+        date: new Date(date).toLocaleDateString('en-NG', { month: 'short', day: 'numeric' }),
+        revenue: parseFloat(salesMap.get(date) || 0),
+        expenses: parseFloat(expensesMap.get(date) || 0)
+      });
+    });
+    revenueVsExpensesData.sort((a, b) => new Date(a.date) - new Date(b.date));
+  }
 
   return (
     <div className="p-6">
@@ -236,27 +279,27 @@ const Dashboard = () => {
             <div className="flex items-center justify-center py-12">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
             </div>
-          ) : chartData?.daily_data?.length > 0 ? (
-            <div className="space-y-3">
-              {chartData.daily_data.map((day, idx) => (
-                <div key={idx} className="flex items-center space-x-4">
-                  <div className="w-20 text-sm text-gray-600">
-                    {new Date(day.date).toLocaleDateString('en-NG', { month: 'short', day: 'numeric' })}
-                  </div>
-                  <div className="flex-1 bg-gray-200 rounded-full h-8 relative">
-                    <div
-                      className="bg-primary-600 h-8 rounded-full flex items-center justify-end pr-2"
-                      style={{ width: `${Math.min((day.amount / maxChartAmount) * 100, 100)}%` }}
-                    >
-                      <span className="text-xs text-white font-medium">{formatCurrency(day.amount)}</span>
-                    </div>
-                  </div>
-                  <div className="w-16 text-sm text-gray-600 text-right">
-                    {day.count} {day.count === 1 ? 'sale' : 'sales'}
-                  </div>
-                </div>
-              ))}
-            </div>
+          ) : salesChartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={salesChartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" />
+                <YAxis tickFormatter={(value) => `₦${(value / 1000).toFixed(0)}k`} />
+                <Tooltip 
+                  formatter={(value) => formatCurrency(value)}
+                  labelStyle={{ color: '#333' }}
+                />
+                <Legend />
+                <Line 
+                  type="monotone" 
+                  dataKey="sales" 
+                  stroke="#2563eb" 
+                  strokeWidth={2}
+                  name="Sales"
+                  dot={{ r: 4 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
           ) : (
             <div className="text-center py-12 text-gray-500">No sales data available</div>
           )}
@@ -269,20 +312,26 @@ const Dashboard = () => {
             <div className="flex items-center justify-center py-12">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
             </div>
-          ) : topProductsData?.products?.length > 0 ? (
-            <div className="space-y-3">
-              {topProductsData.products.map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div className="flex-1">
-                    <p className="font-medium text-gray-900">{item.product?.name || 'N/A'}</p>
-                    <p className="text-sm text-gray-500">Qty: {item.total_quantity?.toFixed(2) || 0}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-semibold text-primary-600">{formatCurrency(item.total_revenue)}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+          ) : topProductsChartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={topProductsChartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis 
+                  dataKey="name" 
+                  angle={-45}
+                  textAnchor="end"
+                  height={80}
+                  interval={0}
+                />
+                <YAxis tickFormatter={(value) => `₦${(value / 1000).toFixed(0)}k`} />
+                <Tooltip 
+                  formatter={(value) => formatCurrency(value)}
+                  labelStyle={{ color: '#333' }}
+                />
+                <Legend />
+                <Bar dataKey="revenue" fill="#2563eb" name="Revenue" />
+              </BarChart>
+            </ResponsiveContainer>
           ) : (
             <div className="text-center py-12 text-gray-500">No product data available</div>
           )}
@@ -290,6 +339,49 @@ const Dashboard = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        {/* Revenue vs Expenses Chart */}
+        <div className="bg-white rounded-lg shadow p-6 border border-gray-200">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Revenue vs Expenses</h2>
+          {expenseChartLoading || chartLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+            </div>
+          ) : revenueVsExpensesData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <AreaChart data={revenueVsExpensesData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" />
+                <YAxis tickFormatter={(value) => `₦${(value / 1000).toFixed(0)}k`} />
+                <Tooltip 
+                  formatter={(value) => formatCurrency(value)}
+                  labelStyle={{ color: '#333' }}
+                />
+                <Legend />
+                <Area 
+                  type="monotone" 
+                  dataKey="revenue" 
+                  stackId="1"
+                  stroke="#2563eb" 
+                  fill="#2563eb" 
+                  fillOpacity={0.6}
+                  name="Revenue"
+                />
+                <Area 
+                  type="monotone" 
+                  dataKey="expenses" 
+                  stackId="1"
+                  stroke="#ef4444" 
+                  fill="#ef4444" 
+                  fillOpacity={0.6}
+                  name="Expenses"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="text-center py-12 text-gray-500">No data available</div>
+          )}
+        </div>
+
         {/* Top Customers */}
         <div className="bg-white rounded-lg shadow p-6 border border-gray-200">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Top 5 Customers</h2>

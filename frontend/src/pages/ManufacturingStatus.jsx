@@ -28,6 +28,10 @@ const ManufacturingStatus = () => {
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [workerName, setWorkerName] = useState('');
   const [formError, setFormError] = useState('');
+  const [selectedOrders, setSelectedOrders] = useState(new Set());
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [batchWorkerName, setBatchWorkerName] = useState('');
+  const [draggedOrder, setDraggedOrder] = useState(null);
 
   // Fetch branches for Super Admin
   const { data: branchesData } = useQuery({
@@ -89,10 +93,42 @@ const ManufacturingStatus = () => {
       setSelectedOrder(null);
       setWorkerName('');
       setFormError('');
+      setSelectedOrders(new Set());
     },
     onError: (err) => {
       setFormError(err.response?.data?.error || 'Failed to update status');
       setTimeout(() => setFormError(''), 5000);
+    }
+  });
+
+  // Batch update production status mutation
+  const batchUpdateMutation = useMutation({
+    mutationFn: async ({ orderIds, status, workerName }) => {
+      // Update each order sequentially
+      const results = [];
+      for (const orderId of orderIds) {
+        try {
+          const response = await api.put(`/sales/${orderId}/production-status`, {
+            production_status: status,
+            worker_name: workerName || null
+          });
+          results.push({ orderId, success: true, data: response.data });
+        } catch (error) {
+          results.push({ orderId, success: false, error: error.response?.data?.error || 'Failed' });
+        }
+      }
+      return results;
+    },
+    onSuccess: (results) => {
+      queryClient.invalidateQueries(['manufacturingOrders']);
+      setShowBatchModal(false);
+      setBatchWorkerName('');
+      setSelectedOrders(new Set());
+      const successCount = results.filter(r => r.success).length;
+      alert(`Successfully updated ${successCount} of ${results.length} orders`);
+    },
+    onError: (err) => {
+      setFormError(err.response?.data?.error || 'Failed to batch update');
     }
   });
 
@@ -178,18 +214,86 @@ const ManufacturingStatus = () => {
     });
   };
 
-  const OrderCard = ({ order }) => (
+  const handleDragStart = (e, order) => {
+    setDraggedOrder(order);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = (e, targetStatus) => {
+    e.preventDefault();
+    if (!draggedOrder) return;
+
+    const currentStatus = draggedOrder.production_status;
+    
+    // Define allowed transitions
+    const allowedTransitions = {
+      'queue': ['produced'],
+      'produced': ['delivered']
+    };
+
+    if (allowedTransitions[currentStatus]?.includes(targetStatus)) {
+      if (targetStatus === 'produced') {
+        setSelectedOrder(draggedOrder);
+        setWorkerName('');
+        setShowStatusModal(true);
+      } else if (targetStatus === 'delivered') {
+        if (window.confirm(`Mark order ${draggedOrder.invoice_number} as delivered?`)) {
+          updateStatusMutation.mutate({
+            orderId: draggedOrder.id,
+            status: 'delivered',
+            workerName: null
+          });
+        }
+      }
+    }
+    setDraggedOrder(null);
+  };
+
+  const handleSelectOrder = (orderId, e) => {
+    e.stopPropagation();
+    const newSelected = new Set(selectedOrders);
+    if (newSelected.has(orderId)) {
+      newSelected.delete(orderId);
+    } else {
+      newSelected.add(orderId);
+    }
+    setSelectedOrders(newSelected);
+  };
+
+  const OrderCard = ({ order, columnStatus }) => (
     <div
-      className="bg-white rounded-lg shadow p-4 mb-3 cursor-pointer hover:shadow-lg transition-shadow border border-gray-200"
+      className={`bg-white rounded-lg shadow p-4 mb-3 cursor-pointer hover:shadow-lg transition-shadow border ${
+        selectedOrders.has(order.id) ? 'border-primary-500 bg-primary-50' : 'border-gray-200'
+      }`}
+      draggable={hasPermission('production_update_status')}
+      onDragStart={(e) => handleDragStart(e, order)}
       onClick={() => {
-        setSelectedOrder(order);
-        setShowDetailModal(true);
+        if (!e?.target.closest('.checkbox-container, .action-button')) {
+          setSelectedOrder(order);
+          setShowDetailModal(true);
+        }
       }}
     >
       <div className="flex justify-between items-start mb-2">
-        <div>
-          <h4 className="font-semibold text-gray-900">{order.invoice_number}</h4>
-          <p className="text-xs text-gray-500">{formatDate(order.created_at)}</p>
+        <div className="flex items-start space-x-2 flex-1">
+          {order.production_status === 'queue' && (
+            <input
+              type="checkbox"
+              checked={selectedOrders.has(order.id)}
+              onChange={(e) => handleSelectOrder(order.id, e)}
+              onClick={(e) => e.stopPropagation()}
+              className="checkbox-container mt-1 h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+            />
+          )}
+          <div className="flex-1">
+            <h4 className="font-semibold text-gray-900">{order.invoice_number}</h4>
+            <p className="text-xs text-gray-500">{formatDate(order.created_at)}</p>
+          </div>
         </div>
         <span className="text-sm font-medium text-primary-600">
           {formatCurrency(order.total_amount)}
@@ -215,7 +319,7 @@ const ManufacturingStatus = () => {
             setSelectedOrder(order);
             setShowDetailModal(true);
           }}
-          className="flex-1 px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 flex items-center justify-center space-x-1"
+          className="action-button flex-1 px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 flex items-center justify-center space-x-1"
         >
           <Eye className="h-3 w-3" />
           <span>View</span>
@@ -226,7 +330,7 @@ const ManufacturingStatus = () => {
               e.stopPropagation();
               handleMarkProduced(order);
             }}
-            className="flex-1 px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 flex items-center justify-center space-x-1"
+            className="action-button flex-1 px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 flex items-center justify-center space-x-1"
           >
             <CheckCircle className="h-3 w-3" />
             <span>Produced</span>
@@ -238,7 +342,7 @@ const ManufacturingStatus = () => {
               e.stopPropagation();
               handleMarkDelivered(order);
             }}
-            className="flex-1 px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center justify-center space-x-1"
+            className="action-button flex-1 px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center justify-center space-x-1"
           >
             <Truck className="h-3 w-3" />
             <span>Delivered</span>
@@ -386,16 +490,31 @@ const ManufacturingStatus = () => {
       {/* Kanban Board */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {/* Queue Column */}
-        <div className="bg-gray-50 rounded-lg p-4">
+        <div 
+          className="bg-gray-50 rounded-lg p-4"
+          onDragOver={handleDragOver}
+          onDrop={(e) => handleDrop(e, 'queue')}
+        >
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-gray-900 flex items-center space-x-2">
               <span className="w-3 h-3 bg-yellow-500 rounded-full"></span>
               <span>Queue ({stats.queue})</span>
             </h3>
+            {selectedOrders.size > 0 && hasPermission('production_update_status') && (
+              <button
+                onClick={() => {
+                  setShowBatchModal(true);
+                  setBatchWorkerName('');
+                }}
+                className="text-xs px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+              >
+                Batch ({selectedOrders.size})
+              </button>
+            )}
           </div>
           <div className="space-y-2 max-h-[600px] overflow-y-auto">
             {queueOrders.map((order) => (
-              <OrderCard key={order.id} order={order} />
+              <OrderCard key={order.id} order={order} columnStatus="queue" />
             ))}
             {queueOrders.length === 0 && (
               <div className="text-center py-8 text-gray-400 text-sm">No orders in queue</div>
@@ -404,7 +523,11 @@ const ManufacturingStatus = () => {
         </div>
 
         {/* In Production Column */}
-        <div className="bg-gray-50 rounded-lg p-4">
+        <div 
+          className="bg-gray-50 rounded-lg p-4"
+          onDragOver={handleDragOver}
+          onDrop={(e) => handleDrop(e, 'produced')}
+        >
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-gray-900 flex items-center space-x-2">
               <span className="w-3 h-3 bg-blue-500 rounded-full"></span>
@@ -413,7 +536,7 @@ const ManufacturingStatus = () => {
           </div>
           <div className="space-y-2 max-h-[600px] overflow-y-auto">
             {inProductionOrders.map((order) => (
-              <OrderCard key={order.id} order={order} />
+              <OrderCard key={order.id} order={order} columnStatus="produced" />
             ))}
             {inProductionOrders.length === 0 && (
               <div className="text-center py-8 text-gray-400 text-sm">No orders in production</div>
@@ -422,7 +545,11 @@ const ManufacturingStatus = () => {
         </div>
 
         {/* Produced Column */}
-        <div className="bg-gray-50 rounded-lg p-4">
+        <div 
+          className="bg-gray-50 rounded-lg p-4"
+          onDragOver={handleDragOver}
+          onDrop={(e) => handleDrop(e, 'delivered')}
+        >
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-gray-900 flex items-center space-x-2">
               <span className="w-3 h-3 bg-green-500 rounded-full"></span>
@@ -431,7 +558,7 @@ const ManufacturingStatus = () => {
           </div>
           <div className="space-y-2 max-h-[600px] overflow-y-auto">
             {producedOrders.map((order) => (
-              <OrderCard key={order.id} order={order} />
+              <OrderCard key={order.id} order={order} columnStatus="produced" />
             ))}
             {producedOrders.length === 0 && (
               <div className="text-center py-8 text-gray-400 text-sm">No orders produced</div>
@@ -440,7 +567,11 @@ const ManufacturingStatus = () => {
         </div>
 
         {/* Delivered Column */}
-        <div className="bg-gray-50 rounded-lg p-4">
+        <div 
+          className="bg-gray-50 rounded-lg p-4"
+          onDragOver={handleDragOver}
+          onDrop={(e) => handleDrop(e, 'delivered')}
+        >
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-gray-900 flex items-center space-x-2">
               <span className="w-3 h-3 bg-purple-500 rounded-full"></span>
@@ -449,7 +580,7 @@ const ManufacturingStatus = () => {
           </div>
           <div className="space-y-2 max-h-[600px] overflow-y-auto">
             {deliveredOrders.map((order) => (
-              <OrderCard key={order.id} order={order} />
+              <OrderCard key={order.id} order={order} columnStatus="delivered" />
             ))}
             {deliveredOrders.length === 0 && (
               <div className="text-center py-8 text-gray-400 text-sm">No orders delivered</div>
@@ -592,6 +723,82 @@ const ManufacturingStatus = () => {
                     setShowStatusModal(false);
                     setSelectedOrder(null);
                     setWorkerName('');
+                    setFormError('');
+                  }}
+                  className="flex-1 bg-gray-200 text-gray-800 py-2 rounded-lg hover:bg-gray-300"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Batch Production Modal */}
+      {showBatchModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold">Batch Production</h2>
+              <button
+                onClick={() => {
+                  setShowBatchModal(false);
+                  setBatchWorkerName('');
+                  setFormError('');
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              if (!batchWorkerName.trim()) {
+                setFormError('Worker name is required');
+                return;
+              }
+              const orderIds = Array.from(selectedOrders);
+              batchUpdateMutation.mutate({
+                orderIds,
+                status: 'produced',
+                workerName: batchWorkerName.trim()
+              });
+            }}>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Worker Name *
+                </label>
+                <input
+                  type="text"
+                  value={batchWorkerName}
+                  onChange={(e) => setBatchWorkerName(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500"
+                  required
+                  placeholder="Enter worker name"
+                />
+              </div>
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+                <p>This will mark <strong>{selectedOrders.size}</strong> order(s) as "produced" with the worker name above.</p>
+              </div>
+              {formError && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-800 rounded-lg text-sm">
+                  {formError}
+                </div>
+              )}
+              <div className="flex space-x-3">
+                <button
+                  type="submit"
+                  disabled={batchUpdateMutation.isPending}
+                  className="flex-1 bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 disabled:opacity-50"
+                >
+                  {batchUpdateMutation.isPending ? 'Processing...' : 'Mark as Produced'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBatchModal(false);
+                    setBatchWorkerName('');
                     setFormError('');
                   }}
                   className="flex-1 bg-gray-200 text-gray-800 py-2 rounded-lg hover:bg-gray-300"

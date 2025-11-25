@@ -4,7 +4,8 @@ import { requirePermission } from '../middleware/permissionMiddleware.js';
 import {
   getSettings,
   updateSetting,
-  bulkUpdateSettings
+  bulkUpdateSettings,
+  testPrint
 } from '../controllers/settingsController.js';
 
 const router = express.Router();
@@ -17,6 +18,9 @@ router.put('/:key', authenticate, requirePermission('settings_manage'), updateSe
 
 // Bulk update settings (requires permission)
 router.put('/', authenticate, requirePermission('settings_manage'), bulkUpdateSettings);
+
+// Test print (requires permission)
+router.post('/test-print', authenticate, requirePermission('settings_manage'), testPrint);
 
 export default router;
 
