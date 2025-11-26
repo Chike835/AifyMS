@@ -317,6 +317,30 @@ export const createPurchase = async (req, res) => {
     // Commit transaction - all operations succeeded
     await transaction.commit();
 
+    // Create ledger entry for confirmed purchases with supplier
+    if (purchase.status === 'confirmed' && supplier_id && total_amount > 0) {
+      try {
+        const { createLedgerEntry } = await import('../services/ledgerService.js');
+        await createLedgerEntry(
+          supplier_id,
+          'supplier',
+          {
+            transaction_date: purchase.created_at || new Date(),
+            transaction_type: 'INVOICE',
+            transaction_id: purchase.id,
+            description: `Purchase ${purchase_number}`,
+            debit_amount: 0,
+            credit_amount: total_amount,
+            branch_id: purchaseBranchId,
+            created_by: req.user.id
+          }
+        );
+      } catch (ledgerError) {
+        console.error('Error creating ledger entry for purchase:', ledgerError);
+        // Don't fail the purchase if ledger entry fails
+      }
+    }
+
     // Fetch the complete purchase with all relations
     const completePurchase = await Purchase.findByPk(purchase.id, {
       include: [

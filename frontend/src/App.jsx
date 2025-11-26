@@ -13,6 +13,8 @@ import Products from './pages/Products';
 import Payments from './pages/Payments';
 import Customers from './pages/Customers';
 import Suppliers from './pages/Suppliers';
+import CustomerLedger from './pages/CustomerLedger';
+import SupplierLedger from './pages/SupplierLedger';
 import Purchases from './pages/Purchases';
 import AddPurchase from './pages/AddPurchase';
 import Expenses from './pages/Expenses';
@@ -68,12 +70,15 @@ const queryClient = new QueryClient({
 });
 
 function App() {
-  console.log('[DEBUG] App.jsx: Component rendering');
-  
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
+        <BrowserRouter
+          future={{
+            v7_startTransition: true,
+            v7_relativeSplatPath: true,
+          }}
+        >
           <AuthProvider>
             <ErrorBoundary>
               <Routes>
@@ -199,11 +204,31 @@ function App() {
               }
             />
             <Route
+              path="/customers/:id/ledger"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <CustomerLedger />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/suppliers"
               element={
                 <ProtectedRoute>
                   <Layout>
                     <Suppliers />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/suppliers/:id/ledger"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <SupplierLedger />
                   </Layout>
                 </ProtectedRoute>
               }

@@ -1,5 +1,6 @@
 import { Supplier, Branch, Purchase } from '../models/index.js';
 import { Op } from 'sequelize';
+import { logActivitySync } from '../middleware/activityLogger.js';
 
 /**
  * Get all suppliers
@@ -158,6 +159,16 @@ export const createSupplier = async (req, res) => {
       ]
     });
 
+    // Log activity
+    await logActivitySync(
+      'CREATE',
+      'suppliers',
+      `Created supplier: ${supplier.name}`,
+      req,
+      'supplier',
+      supplier.id
+    );
+
     return res.status(201).json({
       message: 'Supplier created successfully',
       supplier: supplierWithBranch
@@ -253,6 +264,16 @@ export const updateSupplier = async (req, res) => {
       ]
     });
 
+    // Log activity
+    await logActivitySync(
+      'UPDATE',
+      'suppliers',
+      `Updated supplier: ${updatedSupplier.name}`,
+      req,
+      'supplier',
+      updatedSupplier.id
+    );
+
     return res.json({
       message: 'Supplier updated successfully',
       supplier: updatedSupplier
@@ -294,7 +315,18 @@ export const deleteSupplier = async (req, res) => {
     //   });
     // }
 
+    const supplierName = supplier.name;
     await supplier.destroy();
+
+    // Log activity
+    await logActivitySync(
+      'DELETE',
+      'suppliers',
+      `Deleted supplier: ${supplierName}`,
+      req,
+      'supplier',
+      id
+    );
 
     return res.json({ message: 'Supplier deleted successfully' });
   } catch (error) {

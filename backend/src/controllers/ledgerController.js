@@ -1,0 +1,231 @@
+import { getLedger, backfillHistoricalLedger } from '../services/ledgerService.js';
+import { Customer, Supplier } from '../models/index.js';
+
+/**
+ * GET /api/ledger/customer/:id
+ * Get customer ledger entries
+ */
+export const getCustomerLedger = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { start_date, end_date, branch_id } = req.query;
+
+    // Verify customer exists
+    const customer = await Customer.findByPk(id);
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    // Get ledger entries
+    const entries = await getLedger(
+      id,
+      'customer',
+      start_date || null,
+      end_date || null,
+      branch_id || null
+    );
+
+    res.json({
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        phone: customer.phone,
+        email: customer.email,
+        address: customer.address,
+        ledger_balance: customer.ledger_balance
+      },
+      entries: entries.map(entry => ({
+        id: entry.id,
+        transaction_date: entry.transaction_date,
+        transaction_type: entry.transaction_type,
+        transaction_id: entry.transaction_id,
+        description: entry.description,
+        debit_amount: parseFloat(entry.debit_amount || 0),
+        credit_amount: parseFloat(entry.credit_amount || 0),
+        running_balance: parseFloat(entry.running_balance || 0),
+        branch: entry.branch ? {
+          id: entry.branch.id,
+          name: entry.branch.name,
+          code: entry.branch.code
+        } : null,
+        created_by: entry.creator ? {
+          id: entry.creator.id,
+          full_name: entry.creator.full_name
+        } : null
+      })),
+      total_entries: entries.length
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/ledger/supplier/:id
+ * Get supplier ledger entries
+ */
+export const getSupplierLedger = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { start_date, end_date, branch_id } = req.query;
+
+    // Verify supplier exists
+    const supplier = await Supplier.findByPk(id);
+    if (!supplier) {
+      return res.status(404).json({ error: 'Supplier not found' });
+    }
+
+    // Get ledger entries
+    const entries = await getLedger(
+      id,
+      'supplier',
+      start_date || null,
+      end_date || null,
+      branch_id || null
+    );
+
+    res.json({
+      supplier: {
+        id: supplier.id,
+        name: supplier.name,
+        phone: supplier.phone,
+        email: supplier.email,
+        address: supplier.address,
+        ledger_balance: supplier.ledger_balance
+      },
+      entries: entries.map(entry => ({
+        id: entry.id,
+        transaction_date: entry.transaction_date,
+        transaction_type: entry.transaction_type,
+        transaction_id: entry.transaction_id,
+        description: entry.description,
+        debit_amount: parseFloat(entry.debit_amount || 0),
+        credit_amount: parseFloat(entry.credit_amount || 0),
+        running_balance: parseFloat(entry.running_balance || 0),
+        branch: entry.branch ? {
+          id: entry.branch.id,
+          name: entry.branch.name,
+          code: entry.branch.code
+        } : null,
+        created_by: entry.creator ? {
+          id: entry.creator.id,
+          full_name: entry.creator.full_name
+        } : null
+      })),
+      total_entries: entries.length
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/ledger/export/:type/:id
+ * Export ledger to CSV or PDF
+ * @param {string} type - 'customer' or 'supplier'
+ * @param {string} id - Contact ID
+ * @query {string} format - 'csv' or 'pdf'
+ * @query {string} start_date - Optional start date
+ * @query {string} end_date - Optional end date
+ * @query {string} branch_id - Optional branch filter
+ */
+export const exportLedger = async (req, res, next) => {
+  try {
+    const { type, id } = req.params;
+    const { format = 'csv', start_date, end_date, branch_id } = req.query;
+
+    if (type !== 'customer' && type !== 'supplier') {
+      return res.status(400).json({ error: 'Invalid type. Must be customer or supplier' });
+    }
+
+    // Verify contact exists
+    const Contact = type === 'customer' ? Customer : Supplier;
+    const contact = await Contact.findByPk(id);
+    if (!contact) {
+      return res.status(404).json({ error: `${type} not found` });
+    }
+
+    // Get ledger entries
+    const entries = await getLedger(
+      id,
+      type,
+      start_date || null,
+      end_date || null,
+      branch_id || null
+    );
+
+    if (format === 'csv') {
+      // Convert to CSV
+      const csvData = entries.map(entry => ({
+        date: entry.transaction_date.toISOString().split('T')[0],
+        type: entry.transaction_type,
+        description: entry.description || '',
+        debit: parseFloat(entry.debit_amount || 0).toFixed(2),
+        credit: parseFloat(entry.credit_amount || 0).toFixed(2),
+        balance: parseFloat(entry.running_balance || 0).toFixed(2),
+        branch: entry.branch?.name || ''
+      }));
+
+      const headers = ['date', 'type', 'description', 'debit', 'credit', 'balance', 'branch'];
+      const csv = arrayToCSV(csvData, headers);
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="${type}_ledger_${id}.csv"`);
+      res.send(csv);
+    } else if (format === 'pdf') {
+      // For PDF, we'll return JSON for now (PDF generation can be added later)
+      return res.status(501).json({ 
+        error: 'PDF export not yet implemented',
+        message: 'Please use CSV format for now'
+      });
+    } else {
+      return res.status(400).json({ error: 'Invalid format. Must be csv or pdf' });
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Helper function to convert array to CSV
+ */
+const arrayToCSV = (data, headers) => {
+  if (!data || data.length === 0) {
+    return headers.join(',') + '\n';
+  }
+
+  const csvRows = [headers.join(',')];
+
+  for (const row of data) {
+    const values = headers.map(header => {
+      const value = row[header];
+      if (value === null || value === undefined) {
+        return '';
+      }
+      // Escape commas and quotes in values
+      const stringValue = String(value).replace(/"/g, '""');
+      return `"${stringValue}"`;
+    });
+    csvRows.push(values.join(','));
+  }
+
+  return csvRows.join('\n');
+};
+
+/**
+ * POST /api/ledger/backfill
+ * Trigger historical ledger backfill (Admin only)
+ */
+export const triggerBackfill = async (req, res, next) => {
+  try {
+    // This should be protected by admin permission middleware
+    const result = await backfillHistoricalLedger();
+    res.json({
+      message: 'Backfill completed successfully',
+      ...result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+

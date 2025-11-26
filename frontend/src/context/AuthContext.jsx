@@ -10,32 +10,25 @@ export const AuthProvider = ({ children }) => {
 
   // Load user from localStorage on mount
   useEffect(() => {
-    console.log('[DEBUG] AuthContext: Initializing, checking localStorage');
-    
     try {
       const storedUser = localStorage.getItem('user');
       const storedToken = localStorage.getItem('token');
       
       if (storedUser && storedToken) {
         try {
-          console.log('[DEBUG] AuthContext: Found stored user, parsing...');
           const userData = JSON.parse(storedUser);
           setUser(userData);
           setPermissions(userData.permissions || []);
-          console.log('[DEBUG] AuthContext: User loaded from localStorage');
         } catch (error) {
           console.error('[ERROR] AuthContext: Error parsing stored user:', error);
           localStorage.removeItem('user');
           localStorage.removeItem('token');
         }
-      } else {
-        console.log('[DEBUG] AuthContext: No stored user found');
       }
     } catch (error) {
       console.error('[ERROR] AuthContext: Error accessing localStorage:', error);
     } finally {
       setLoading(false);
-      console.log('[DEBUG] AuthContext: Initialization complete, loading set to false');
     }
   }, []);
 

@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { Building2, Plus, Edit, Trash2, Search, X, Eye } from 'lucide-react';
 
 const Suppliers = () => {
   const { hasPermission, user } = useAuth();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [showModal, setShowModal] = useState(false);
-  const [showLedgerModal, setShowLedgerModal] = useState(false);
   const [selectedSupplier, setSelectedSupplier] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [formData, setFormData] = useState({
@@ -40,16 +41,6 @@ const Suppliers = () => {
     enabled: user?.role_name === 'Super Admin'
   });
 
-  // Fetch supplier ledger
-  const { data: ledgerData, isLoading: ledgerLoading } = useQuery({
-    queryKey: ['supplierLedger', selectedSupplier?.id],
-    queryFn: async () => {
-      if (!selectedSupplier?.id) return null;
-      const response = await api.get(`/suppliers/${selectedSupplier.id}/ledger`);
-      return response.data;
-    },
-    enabled: !!selectedSupplier?.id && showLedgerModal
-  });
 
   // Create mutation
   const createMutation = useMutation({
@@ -115,21 +106,11 @@ const Suppliers = () => {
     setShowModal(true);
   };
 
-  const openLedgerModal = (supplier) => {
-    setSelectedSupplier(supplier);
-    setShowLedgerModal(true);
-  };
-
   const closeModal = () => {
     setShowModal(false);
     setSelectedSupplier(null);
     setFormData({ name: '', phone: '', email: '', address: '', branch_id: '' });
     setFormError('');
-  };
-
-  const closeLedgerModal = () => {
-    setShowLedgerModal(false);
-    setSelectedSupplier(null);
   };
 
   const handleSubmit = (e) => {
@@ -290,7 +271,7 @@ const Suppliers = () => {
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex justify-end space-x-2">
                       <button
-                        onClick={() => openLedgerModal(supplier)}
+                        onClick={() => navigate(`/suppliers/${supplier.id}/ledger`)}
                         className="text-blue-600 hover:text-blue-900"
                         title="View Ledger"
                       >
@@ -450,110 +431,6 @@ const Suppliers = () => {
         </div>
       )}
 
-      {/* Ledger Modal */}
-      {showLedgerModal && selectedSupplier && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6 max-h-[80vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900">Supplier Ledger</h2>
-                <p className="text-gray-600">{selectedSupplier.name}</p>
-              </div>
-              <button onClick={closeLedgerModal} className="text-gray-400 hover:text-gray-600">
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-
-            {ledgerLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-              </div>
-            ) : (
-              <>
-                {/* Balance Summary */}
-                <div className="bg-gray-50 rounded-lg p-4 mb-6">
-                  <p className="text-sm text-gray-600">Current Balance</p>
-                  <p className={`text-2xl font-bold ${
-                    parseFloat(ledgerData?.supplier?.ledger_balance) >= 0 
-                      ? 'text-green-600' 
-                      : 'text-red-600'
-                  }`}>
-                    {formatCurrency(ledgerData?.supplier?.ledger_balance)}
-                  </p>
-                  {ledgerData?.supplier?.branch && (
-                    <p className="text-sm text-gray-500 mt-1">
-                      Branch: {ledgerData.supplier.branch.name}
-                    </p>
-                  )}
-                </div>
-
-                {/* Purchase Orders Placeholder */}
-                <div className="mb-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Purchase Orders</h3>
-                  {ledgerData?.purchase_orders?.length > 0 ? (
-                    <div className="space-y-2">
-                      {ledgerData.purchase_orders.map((order) => (
-                        <div key={order.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">{order.order_number}</p>
-                            <p className="text-xs text-gray-500">
-                              {new Date(order.created_at).toLocaleDateString()}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm font-medium text-gray-900">
-                              {formatCurrency(order.total_amount)}
-                            </p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-gray-500 text-sm">No purchase orders found (feature coming soon)</p>
-                  )}
-                </div>
-
-                {/* Payments Placeholder */}
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Payments</h3>
-                  {ledgerData?.payments?.length > 0 ? (
-                    <div className="space-y-2">
-                      {ledgerData.payments.map((payment) => (
-                        <div key={payment.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                          <div>
-                            <p className="text-sm font-medium text-gray-900 capitalize">
-                              {payment.method}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              {new Date(payment.created_at).toLocaleDateString()}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm font-medium text-red-600">
-                              -{formatCurrency(payment.amount)}
-                            </p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-gray-500 text-sm">No payments found (feature coming soon)</p>
-                  )}
-                </div>
-              </>
-            )}
-
-            <div className="mt-6 pt-4 border-t border-gray-200">
-              <button
-                onClick={closeLedgerModal}
-                className="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

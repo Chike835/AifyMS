@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
+import DateFilterDropdown from '../components/common/DateFilterDropdown';
 import { 
   CreditCard, 
   Package, 
@@ -14,15 +15,30 @@ import {
   DollarSign,
   ArrowRight,
   Clock,
-  CheckCircle
+  CheckCircle,
+  Building2
 } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 const Dashboard = () => {
   const { user, loading, hasPermission } = useAuth();
   const navigate = useNavigate();
-  const [dateRange, setDateRange] = useState('7d'); // '7d', '30d', '90d', '6m', '1y'
-  const [chartDays, setChartDays] = useState(7);
+  const [dateRange, setDateRange] = useState({ startDate: null, endDate: null, startDateTime: null, endDateTime: null });
+  const [selectedBranch, setSelectedBranch] = useState(null);
+  
+  // Initialize branch filter - default to user's branch if not Super Admin
+  // Must be before conditional returns to follow Rules of Hooks
+  const defaultBranchId = user?.role_name !== 'Super Admin' ? user?.branch_id : null;
+  const [branchId, setBranchId] = useState(selectedBranch || defaultBranchId);
+
+  // Fetch branches for filter
+  const { data: branchesData } = useQuery({
+    queryKey: ['branches'],
+    queryFn: async () => {
+      const response = await api.get('/branches');
+      return response.data.branches || [];
+    }
+  });
 
   // Show loading state while user data is being loaded
   if (loading) {
@@ -42,54 +58,63 @@ const Dashboard = () => {
     );
   }
 
-  // Calculate date range based on selection
-  const getDateRange = (range) => {
-    const endDate = new Date();
-    const startDate = new Date();
-    
-    switch (range) {
-      case '7d':
-        startDate.setDate(startDate.getDate() - 7);
-        return { startDate, endDate, days: 7 };
-      case '30d':
-        startDate.setDate(startDate.getDate() - 30);
-        return { startDate, endDate, days: 30 };
-      case '90d':
-        startDate.setDate(startDate.getDate() - 90);
-        return { startDate, endDate, days: 90 };
-      case '6m':
-        startDate.setMonth(startDate.getMonth() - 6);
-        return { startDate, endDate, days: 180 };
-      case '1y':
-        startDate.setFullYear(startDate.getFullYear() - 1);
-        return { startDate, endDate, days: 365 };
-      default:
-        startDate.setDate(startDate.getDate() - 7);
-        return { startDate, endDate, days: 7 };
-    }
+  // Handle date range change
+  const handleDateChange = (range) => {
+    setDateRange(range);
   };
 
-  const dateRangeParams = getDateRange(dateRange);
+  // Handle branch change
+  const handleBranchChange = (e) => {
+    const branchValue = e.target.value === 'all' ? null : e.target.value;
+    setBranchId(branchValue);
+    setSelectedBranch(branchValue);
+  };
 
-  // Fetch dashboard stats with date range
+  // Get date params for API calls
+  const getDateParams = () => {
+    if (dateRange.startDate && dateRange.endDate) {
+      return {
+        start_date: dateRange.startDate,
+        end_date: dateRange.endDate
+      };
+    }
+    // Default to last 30 days if no range selected
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 30);
+    return {
+      start_date: startDate.toISOString().split('T')[0],
+      end_date: endDate.toISOString().split('T')[0]
+    };
+  };
+
+  const dateParams = getDateParams();
+
+  // Fetch dashboard stats with date range and branch
   const { data: statsData, isLoading: statsLoading } = useQuery({
-    queryKey: ['dashboardStats', dateRange],
+    queryKey: ['dashboardStats', dateParams.start_date, dateParams.end_date, branchId],
     queryFn: async () => {
       const params = new URLSearchParams();
-      params.append('start_date', dateRangeParams.startDate.toISOString().split('T')[0]);
-      params.append('end_date', dateRangeParams.endDate.toISOString().split('T')[0]);
+      params.append('start_date', dateParams.start_date);
+      params.append('end_date', dateParams.end_date);
+      if (branchId) {
+        params.append('branch_id', branchId);
+      }
       const response = await api.get(`/dashboard/stats?${params.toString()}`);
       return response.data;
     }
   });
 
-  // Fetch sales chart data with date range
+  // Fetch sales chart data with date range and branch
   const { data: chartData, isLoading: chartLoading } = useQuery({
-    queryKey: ['dashboardSalesChart', dateRange],
+    queryKey: ['dashboardSalesChart', dateParams.start_date, dateParams.end_date, branchId],
     queryFn: async () => {
       const params = new URLSearchParams();
-      params.append('start_date', dateRangeParams.startDate.toISOString().split('T')[0]);
-      params.append('end_date', dateRangeParams.endDate.toISOString().split('T')[0]);
+      params.append('start_date', dateParams.start_date);
+      params.append('end_date', dateParams.end_date);
+      if (branchId) {
+        params.append('branch_id', branchId);
+      }
       const response = await api.get(`/dashboard/sales-chart?${params.toString()}`);
       return response.data;
     }
@@ -140,13 +165,16 @@ const Dashboard = () => {
     }
   });
 
-  // Fetch expense data for revenue vs expenses chart with date range
+  // Fetch expense data for revenue vs expenses chart with date range and branch
   const { data: expenseChartData, isLoading: expenseChartLoading } = useQuery({
-    queryKey: ['dashboardExpenseChart', dateRange],
+    queryKey: ['dashboardExpenseChart', dateParams.start_date, dateParams.end_date, branchId],
     queryFn: async () => {
       const params = new URLSearchParams();
-      params.append('start_date', dateRangeParams.startDate.toISOString().split('T')[0]);
-      params.append('end_date', dateRangeParams.endDate.toISOString().split('T')[0]);
+      params.append('start_date', dateParams.start_date);
+      params.append('end_date', dateParams.end_date);
+      if (branchId) {
+        params.append('branch_id', branchId);
+      }
       
       const response = await api.get(`/reports/expenses?${params.toString()}`);
       return response.data;
@@ -241,7 +269,7 @@ const Dashboard = () => {
 
   return (
     <div className="p-6">
-      <div className="mb-8 flex justify-between items-center">
+      <div className="mb-8 flex justify-between items-center flex-wrap gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">
             Welcome, {user?.full_name}
@@ -250,57 +278,31 @@ const Dashboard = () => {
             {user?.role_name} {user?.branch?.name && `• ${user?.branch?.name}`}
           </p>
         </div>
-        <div className="flex space-x-2">
-          <button
-            onClick={() => { setDateRange('7d'); setChartDays(7); }}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              dateRange === '7d'
-                ? 'bg-primary-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            7 Days
-          </button>
-          <button
-            onClick={() => { setDateRange('30d'); setChartDays(30); }}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              dateRange === '30d'
-                ? 'bg-primary-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            30 Days
-          </button>
-          <button
-            onClick={() => { setDateRange('90d'); setChartDays(90); }}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              dateRange === '90d'
-                ? 'bg-primary-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            90 Days
-          </button>
-          <button
-            onClick={() => { setDateRange('6m'); setChartDays(180); }}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              dateRange === '6m'
-                ? 'bg-primary-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            6 Months
-          </button>
-          <button
-            onClick={() => { setDateRange('1y'); setChartDays(365); }}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              dateRange === '1y'
-                ? 'bg-primary-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            1 Year
-          </button>
+        <div className="flex items-center space-x-4">
+          {/* Branch Filter */}
+          {(user?.role_name === 'Super Admin' || branchesData?.length > 1) && (
+            <div className="flex items-center space-x-2">
+              <Building2 className="h-4 w-4 text-gray-400" />
+              <select
+                value={branchId || 'all'}
+                onChange={handleBranchChange}
+                className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="all">All Branches</option>
+                {branchesData?.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {/* Date Range Picker */}
+          <DateFilterDropdown
+            onDateChange={handleDateChange}
+            initialPreset="this-month"
+            showTimeRange={false}
+          />
         </div>
       </div>
 

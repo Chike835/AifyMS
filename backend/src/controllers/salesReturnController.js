@@ -352,6 +352,30 @@ export const approveSalesReturn = async (req, res, next) => {
 
     await transaction.commit();
 
+    // Create ledger entry for credit refunds
+    if (salesReturn.refund_method === 'credit' && salesReturn.customer_id && salesReturn.total_amount > 0) {
+      try {
+        const { createLedgerEntry } = await import('../services/ledgerService.js');
+        await createLedgerEntry(
+          salesReturn.customer_id,
+          'customer',
+          {
+            transaction_date: salesReturn.approved_at || new Date(),
+            transaction_type: 'RETURN',
+            transaction_id: salesReturn.id,
+            description: `Sales Return ${salesReturn.return_number}`,
+            debit_amount: 0,
+            credit_amount: salesReturn.total_amount,
+            branch_id: salesReturn.branch_id,
+            created_by: req.user.id
+          }
+        );
+      } catch (ledgerError) {
+        console.error('Error creating ledger entry for sales return:', ledgerError);
+        // Don't fail the return if ledger entry fails
+      }
+    }
+
     // Fetch updated return
     const updatedReturn = await SalesReturn.findByPk(id, {
       include: [

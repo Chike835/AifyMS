@@ -278,12 +278,35 @@ export const createSale = async (req, res, next) => {
     // Commit transaction
     await transaction.commit();
 
+    // Create ledger entry for invoices (not drafts or quotations)
+    if (order_type === 'invoice' && customer_id && totalAmount > 0) {
+      try {
+        const { createLedgerEntry } = await import('../services/ledgerService.js');
+        await createLedgerEntry(
+          customer_id,
+          'customer',
+          {
+            transaction_date: salesOrder.created_at || new Date(),
+            transaction_type: 'INVOICE',
+            transaction_id: salesOrder.id,
+            description: `Invoice ${invoiceNumber}`,
+            debit_amount: totalAmount,
+            credit_amount: 0,
+            branch_id: finalBranchId,
+            created_by: req.user.id
+          }
+        );
+      } catch (ledgerError) {
+        console.error('Error creating ledger entry for sale:', ledgerError);
+        // Don't fail the sale if ledger entry fails
+      }
+    }
+
     // Fetch complete order with associations
     const completeOrder = await SalesOrder.findByPk(salesOrder.id, {
       include: [
         { model: Customer, as: 'customer' },
         { model: Branch, as: 'branch' },
-        { model: Agent, as: 'agent', attributes: ['id', 'name', 'commission_rate'] },
         { model: Agent, as: 'agent', attributes: ['id', 'name', 'commission_rate'] },
         { 
           model: SalesItem, 

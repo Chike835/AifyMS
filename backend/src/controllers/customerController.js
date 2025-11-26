@@ -1,5 +1,6 @@
 import { Customer, Branch, SalesOrder, Payment } from '../models/index.js';
 import { Op } from 'sequelize';
+import { logActivitySync } from '../middleware/activityLogger.js';
 
 /**
  * Get all customers
@@ -116,6 +117,16 @@ export const createCustomer = async (req, res) => {
       ledger_balance: 0
     });
 
+    // Log activity
+    await logActivitySync(
+      'CREATE',
+      'customers',
+      `Created customer: ${customer.name}`,
+      req,
+      'customer',
+      customer.id
+    );
+
     return res.status(201).json({
       message: 'Customer created successfully',
       customer
@@ -182,6 +193,16 @@ export const updateCustomer = async (req, res) => {
       address: address !== undefined ? (address?.trim() || null) : customer.address
     });
 
+    // Log activity
+    await logActivitySync(
+      'UPDATE',
+      'customers',
+      `Updated customer: ${customer.name}`,
+      req,
+      'customer',
+      customer.id
+    );
+
     return res.json({
       message: 'Customer updated successfully',
       customer
@@ -226,7 +247,18 @@ export const deleteCustomer = async (req, res) => {
       });
     }
 
+    const customerName = customer.name;
     await customer.destroy();
+
+    // Log activity
+    await logActivitySync(
+      'DELETE',
+      'customers',
+      `Deleted customer: ${customerName}`,
+      req,
+      'customer',
+      id
+    );
 
     return res.json({ message: 'Customer deleted successfully' });
   } catch (error) {

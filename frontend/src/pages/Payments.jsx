@@ -1,20 +1,76 @@
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
-import { Check, Clock } from 'lucide-react';
+import { Check, Clock, Plus, DollarSign, Search } from 'lucide-react';
 
 const Payments = () => {
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState('form'); // 'form', 'recent', 'pending'
+  const [formData, setFormData] = useState({
+    customer_id: '',
+    amount: '',
+    method: 'cash',
+    reference_note: ''
+  });
+  const [formError, setFormError] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
+
+  // Fetch customers for payment form
+  const { data: customersData } = useQuery({
+    queryKey: ['customers', customerSearch],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (customerSearch) params.append('search', customerSearch);
+      const response = await api.get(`/customers?${params.toString()}`);
+      return response.data.customers || [];
+    }
+  });
+
+  // Fetch recent payments
+  const { data: recentPaymentsData, isLoading: recentLoading } = useQuery({
+    queryKey: ['recentPayments'],
+    queryFn: async () => {
+      const response = await api.get('/payments/recent');
+      return response.data.payments || [];
+    },
+    enabled: hasPermission('payment_view'),
+  });
 
   // Fetch pending payments
-  const { data, isLoading } = useQuery({
+  const { data: pendingPaymentsData, isLoading: pendingLoading } = useQuery({
     queryKey: ['pendingPayments'],
     queryFn: async () => {
       const response = await api.get('/payments/pending');
       return response.data.payments || [];
     },
     enabled: hasPermission('payment_confirm'),
+  });
+
+  // Create payment mutation
+  const createPaymentMutation = useMutation({
+    mutationFn: async (data) => {
+      const response = await api.post('/payments', data);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['recentPayments'] });
+      queryClient.invalidateQueries({ queryKey: ['pendingPayments'] });
+      setFormData({
+        customer_id: '',
+        amount: '',
+        method: 'cash',
+        reference_note: ''
+      });
+      setCustomerSearch('');
+      setFormError('');
+      alert('Payment logged successfully! Awaiting confirmation.');
+      setActiveTab('recent');
+    },
+    onError: (error) => {
+      setFormError(error.response?.data?.error || 'Failed to create payment');
+    },
   });
 
   // Confirm payment mutation
@@ -25,6 +81,7 @@ const Payments = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pendingPayments'] });
+      queryClient.invalidateQueries({ queryKey: ['recentPayments'] });
       alert('Payment confirmed successfully!');
     },
     onError: (error) => {
@@ -32,110 +89,410 @@ const Payments = () => {
     },
   });
 
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    setFormError('');
+
+    if (!formData.customer_id) {
+      setFormError('Please select a customer');
+      return;
+    }
+
+    if (!formData.amount || parseFloat(formData.amount) <= 0) {
+      setFormError('Amount must be greater than 0');
+      return;
+    }
+
+    createPaymentMutation.mutate({
+      customer_id: formData.customer_id,
+      amount: parseFloat(formData.amount),
+      method: formData.method,
+      reference_note: formData.reference_note || null
+    });
+  };
+
   const handleConfirm = (paymentId) => {
     if (window.confirm('Are you sure you want to confirm this payment?')) {
       confirmPaymentMutation.mutate(paymentId);
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
-      </div>
-    );
-  }
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: 'NGN'
+    }).format(amount || 0);
+  };
 
-  const payments = data || [];
+  const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString('en-NG', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const recentPayments = recentPaymentsData || [];
+  const pendingPayments = pendingPaymentsData || [];
 
   return (
-    <div>
+    <div className="p-6">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Payment Approval</h1>
-        <p className="text-gray-600 mt-2">Review and confirm pending payments</p>
+        <h1 className="text-3xl font-bold text-gray-900">Payment Portal</h1>
+        <p className="text-gray-600 mt-2">Log payments and manage payment approvals</p>
       </div>
 
-      {payments.length === 0 ? (
-        <div className="bg-white rounded-lg shadow border border-gray-200 p-12 text-center">
-          <Clock className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-          <p className="text-gray-600">No pending payments</p>
-        </div>
-      ) : (
-        <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Customer
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Amount
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Method
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Created By
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Reference
-                </th>
-                {hasPermission('payment_confirm') && (
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                )}
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {payments.map((payment) => (
-                <tr key={payment.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
-                      {payment.customer?.name || 'N/A'}
-                    </div>
-                    {payment.customer?.phone && (
-                      <div className="text-sm text-gray-500">{payment.customer.phone}</div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
-                      ₦{parseFloat(payment.amount).toLocaleString()}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
-                      {payment.method.toUpperCase()}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {payment.creator?.full_name || 'N/A'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {new Date(payment.created_at).toLocaleDateString()}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {payment.reference_note || '—'}
-                  </td>
-                  {hasPermission('payment_confirm') && (
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+      {/* Tabs */}
+      <div className="mb-6 border-b border-gray-200">
+        <nav className="flex space-x-8">
+          {hasPermission('payment_receive') && (
+            <button
+              onClick={() => setActiveTab('form')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'form'
+                  ? 'border-primary-500 text-primary-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Plus className="h-4 w-4 inline mr-2" />
+              Add Payment
+            </button>
+          )}
+          {hasPermission('payment_view') && (
+            <button
+              onClick={() => setActiveTab('recent')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'recent'
+                  ? 'border-primary-500 text-primary-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <DollarSign className="h-4 w-4 inline mr-2" />
+              Recent Payments
+            </button>
+          )}
+          {hasPermission('payment_confirm') && (
+            <button
+              onClick={() => setActiveTab('pending')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'pending'
+                  ? 'border-primary-500 text-primary-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Clock className="h-4 w-4 inline mr-2" />
+              Pending Approval ({pendingPayments.length})
+            </button>
+          )}
+        </nav>
+      </div>
+
+      {/* Payment Form Tab */}
+      {activeTab === 'form' && hasPermission('payment_receive') && (
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-6">Add Payment</h2>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Customer Selection */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Customer <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search customer by name or phone..."
+                  value={customerSearch}
+                  onChange={(e) => setCustomerSearch(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+              {customerSearch && customersData && (
+                <div className="mt-2 border border-gray-200 rounded-lg max-h-48 overflow-y-auto">
+                  {customersData.length === 0 ? (
+                    <div className="p-3 text-sm text-gray-500">No customers found</div>
+                  ) : (
+                    customersData.map((customer) => (
                       <button
-                        onClick={() => handleConfirm(payment.id)}
-                        disabled={confirmPaymentMutation.isPending}
-                        className="inline-flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        key={customer.id}
+                        type="button"
+                        onClick={() => {
+                          setFormData({ ...formData, customer_id: customer.id });
+                          setCustomerSearch(customer.name);
+                        }}
+                        className={`w-full text-left px-4 py-2 hover:bg-gray-50 ${
+                          formData.customer_id === customer.id ? 'bg-primary-50' : ''
+                        }`}
                       >
-                        <Check className="h-4 w-4" />
-                        <span>Confirm</span>
+                        <div className="font-medium text-gray-900">{customer.name}</div>
+                        {customer.phone && (
+                          <div className="text-sm text-gray-500">{customer.phone}</div>
+                        )}
                       </button>
-                    </td>
+                    ))
                   )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                </div>
+              )}
+              {formData.customer_id && (
+                <div className="mt-2 text-sm text-gray-600">
+                  Selected: {customersData?.find(c => c.id === formData.customer_id)?.name}
+                </div>
+              )}
+            </div>
+
+            {/* Amount */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Amount <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={formData.amount}
+                onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="0.00"
+                required
+              />
+            </div>
+
+            {/* Payment Method */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Payment Method <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={formData.method}
+                onChange={(e) => setFormData({ ...formData, method: e.target.value })}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                required
+              >
+                <option value="cash">Cash</option>
+                <option value="transfer">Transfer</option>
+                <option value="pos">POS</option>
+              </select>
+            </div>
+
+            {/* Reference Note */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Reference Note (Optional)
+              </label>
+              <textarea
+                value={formData.reference_note}
+                onChange={(e) => setFormData({ ...formData, reference_note: e.target.value })}
+                rows={3}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="Add any reference or notes..."
+              />
+            </div>
+
+            {/* Error Message */}
+            {formError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+                {formError}
+              </div>
+            )}
+
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={createPaymentMutation.isPending}
+              className="w-full px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+            >
+              {createPaymentMutation.isPending ? 'Logging Payment...' : 'Log Payment'}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* Recent Payments Tab */}
+      {activeTab === 'recent' && hasPermission('payment_view') && (
+        <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
+          <div className="p-6 border-b border-gray-200">
+            <h2 className="text-xl font-semibold text-gray-900">Recent Payments</h2>
+            <p className="text-sm text-gray-600 mt-1">Last 50 payments</p>
+          </div>
+          {recentLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+            </div>
+          ) : recentPayments.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <DollarSign className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+              <p>No recent payments</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Customer
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Amount
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Method
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Created By
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Confirmed By
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Date
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {recentPayments.map((payment) => (
+                    <tr key={payment.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">
+                          {payment.customer?.name || 'N/A'}
+                        </div>
+                        {payment.customer?.phone && (
+                          <div className="text-sm text-gray-500">{payment.customer.phone}</div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">
+                          {formatCurrency(payment.amount)}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                          {payment.method.toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                          payment.status === 'confirmed'
+                            ? 'bg-green-100 text-green-800'
+                            : payment.status === 'voided'
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {payment.status === 'pending_confirmation' ? 'Pending' : payment.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {payment.creator?.full_name || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {payment.confirmer?.full_name || '—'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {formatDate(payment.created_at)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Pending Payments Tab */}
+      {activeTab === 'pending' && hasPermission('payment_confirm') && (
+        <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
+          <div className="p-6 border-b border-gray-200">
+            <h2 className="text-xl font-semibold text-gray-900">Pending Payments Approval</h2>
+            <p className="text-sm text-gray-600 mt-1">Review and confirm pending payments</p>
+          </div>
+          {pendingLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+            </div>
+          ) : pendingPayments.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <Clock className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+              <p>No pending payments</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Customer
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Amount
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Method
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Created By
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Date
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Reference
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {pendingPayments.map((payment) => (
+                    <tr key={payment.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">
+                          {payment.customer?.name || 'N/A'}
+                        </div>
+                        {payment.customer?.phone && (
+                          <div className="text-sm text-gray-500">{payment.customer.phone}</div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">
+                          {formatCurrency(payment.amount)}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                          {payment.method.toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {payment.creator?.full_name || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {formatDate(payment.created_at)}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-500">
+                        {payment.reference_note || '—'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <button
+                          onClick={() => handleConfirm(payment.id)}
+                          disabled={confirmPaymentMutation.isPending}
+                          className="inline-flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          <Check className="h-4 w-4" />
+                          <span>Confirm</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>

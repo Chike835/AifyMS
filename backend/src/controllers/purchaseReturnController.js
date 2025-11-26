@@ -330,6 +330,30 @@ export const approvePurchaseReturn = async (req, res, next) => {
 
     await transaction.commit();
 
+    // Create ledger entry for approved purchase returns
+    if (purchaseReturn.supplier_id && purchaseReturn.total_amount > 0) {
+      try {
+        const { createLedgerEntry } = await import('../services/ledgerService.js');
+        await createLedgerEntry(
+          purchaseReturn.supplier_id,
+          'supplier',
+          {
+            transaction_date: purchaseReturn.approved_at || new Date(),
+            transaction_type: 'RETURN',
+            transaction_id: purchaseReturn.id,
+            description: `Purchase Return ${purchaseReturn.return_number}`,
+            debit_amount: purchaseReturn.total_amount,
+            credit_amount: 0,
+            branch_id: purchaseReturn.branch_id,
+            created_by: req.user.id
+          }
+        );
+      } catch (ledgerError) {
+        console.error('Error creating ledger entry for purchase return:', ledgerError);
+        // Don't fail the return if ledger entry fails
+      }
+    }
+
     // Fetch updated return
     const updatedReturn = await PurchaseReturn.findByPk(id, {
       include: [

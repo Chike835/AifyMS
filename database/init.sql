@@ -13,6 +13,9 @@ CREATE TYPE payment_method AS ENUM ('cash', 'transfer', 'pos');
 CREATE TYPE payment_status AS ENUM ('pending_confirmation', 'confirmed', 'voided');
 CREATE TYPE production_status AS ENUM ('queue', 'produced', 'delivered', 'na');
 CREATE TYPE instance_status AS ENUM ('in_stock', 'depleted', 'scrapped');
+CREATE TYPE contact_type AS ENUM ('customer', 'supplier');
+CREATE TYPE transaction_type AS ENUM ('INVOICE', 'PAYMENT', 'RETURN', 'ADJUSTMENT', 'OPENING_BALANCE');
+CREATE TYPE action_type AS ENUM ('LOGIN', 'CREATE', 'UPDATE', 'DELETE', 'PRINT', 'CONFIRM', 'VOID');
 
 -- ============================================
 -- TABLES
@@ -506,6 +509,51 @@ CREATE TABLE tax_rates (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_tax_rates_active ON tax_rates(is_active);
+
+-- Ledger Entries table (Financial ledger for customers and suppliers)
+CREATE TABLE ledger_entries (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    contact_id UUID NOT NULL,
+    contact_type contact_type NOT NULL,
+    transaction_date TIMESTAMP NOT NULL,
+    transaction_type transaction_type NOT NULL,
+    transaction_id UUID,
+    description TEXT,
+    debit_amount DECIMAL(15, 2) DEFAULT 0,
+    credit_amount DECIMAL(15, 2) DEFAULT 0,
+    running_balance DECIMAL(15, 2) NOT NULL,
+    branch_id UUID NOT NULL REFERENCES branches(id),
+    created_by UUID NOT NULL REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CHECK (debit_amount >= 0),
+    CHECK (credit_amount >= 0),
+    CHECK (debit_amount = 0 OR credit_amount = 0)
+);
+CREATE INDEX idx_ledger_entries_contact_id ON ledger_entries(contact_id);
+CREATE INDEX idx_ledger_entries_transaction_date ON ledger_entries(transaction_date);
+CREATE INDEX idx_ledger_entries_branch_id ON ledger_entries(branch_id);
+CREATE INDEX idx_ledger_entries_transaction_type ON ledger_entries(transaction_type);
+CREATE INDEX idx_ledger_entries_contact_type ON ledger_entries(contact_type);
+
+-- Activity Logs table (System activity tracking)
+CREATE TABLE activity_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id),
+    action_type action_type NOT NULL,
+    module VARCHAR(100) NOT NULL,
+    description TEXT,
+    ip_address VARCHAR(45),
+    branch_id UUID REFERENCES branches(id),
+    reference_type VARCHAR(50),
+    reference_id UUID,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_activity_logs_user_id ON activity_logs(user_id);
+CREATE INDEX idx_activity_logs_action_type ON activity_logs(action_type);
+CREATE INDEX idx_activity_logs_module ON activity_logs(module);
+CREATE INDEX idx_activity_logs_timestamp ON activity_logs(timestamp);
+CREATE INDEX idx_activity_logs_branch_id ON activity_logs(branch_id);
+CREATE INDEX idx_activity_logs_reference ON activity_logs(reference_type, reference_id);
 
 -- Product Attributes: Brands
 CREATE TABLE product_attributes_brands (
@@ -1005,6 +1053,13 @@ COMMENT ON TABLE expense_categories IS 'Branch-scoped expense categories for org
 COMMENT ON TABLE expenses IS 'Individual expense records tied to branches, categories, and users';
 COMMENT ON TABLE payroll_records IS 'Monthly payroll records for employees, scoped by branch';
 COMMENT ON COLUMN payroll_records.net_pay IS 'Calculated as gross_pay - deductions';
+COMMENT ON TABLE ledger_entries IS 'Financial ledger entries tracking all transactions for customers and suppliers with running balances';
+COMMENT ON COLUMN ledger_entries.contact_type IS 'Type of contact: customer or supplier';
+COMMENT ON COLUMN ledger_entries.transaction_type IS 'Type of transaction: INVOICE, PAYMENT, RETURN, ADJUSTMENT, or OPENING_BALANCE';
+COMMENT ON COLUMN ledger_entries.running_balance IS 'Calculated running balance after this transaction';
+COMMENT ON TABLE activity_logs IS 'System activity log tracking user actions across all modules';
+COMMENT ON COLUMN activity_logs.action_type IS 'Type of action: LOGIN, CREATE, UPDATE, DELETE, PRINT, CONFIRM, or VOID';
+COMMENT ON COLUMN activity_logs.module IS 'Module where action occurred (e.g., sales, purchases, payments)';
 
 -- ============================================
 -- INITIALIZATION COMPLETE

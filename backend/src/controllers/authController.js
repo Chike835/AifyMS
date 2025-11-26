@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import config from '../config/env.js';
 import { User, Role, Branch, Permission } from '../models/index.js';
+import { logActivitySync } from '../middleware/activityLogger.js';
 
 /**
  * POST /api/auth/login
@@ -66,6 +67,26 @@ export const login = async (req, res, next) => {
       { userId: user.id, email: user.email },
       config.jwtSecret,
       { expiresIn: config.jwtExpiresIn }
+    );
+
+    // Log login activity
+    // Create a mock req object for logging
+    const mockReq = {
+      user: {
+        id: user.id,
+        branch_id: user.branch_id
+      },
+      ip: req.ip || req.headers['x-forwarded-for']?.split(',')[0] || req.headers['x-real-ip'] || req.connection?.remoteAddress,
+      headers: req.headers
+    };
+
+    await logActivitySync(
+      'LOGIN',
+      'auth',
+      `User ${user.full_name} logged in`,
+      mockReq,
+      'user',
+      user.id
     );
 
     // Return user data with token

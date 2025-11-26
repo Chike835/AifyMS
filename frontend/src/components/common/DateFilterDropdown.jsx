@@ -28,7 +28,8 @@ const DateFilterDropdown = ({
         });
       }
     }
-  }, [selectedPreset, fiscalYearStartMonth, onDateChange]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPreset, fiscalYearStartMonth]);
 
   const handlePresetChange = (preset) => {
     setSelectedPreset(preset);

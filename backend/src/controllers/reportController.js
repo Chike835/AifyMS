@@ -17,7 +17,8 @@ import {
   PaymentAccount,
   AccountTransaction,
   StockAdjustment,
-  Agent
+  Agent,
+  ActivityLog
 } from '../models/index.js';
 
 /**
@@ -1582,89 +1583,106 @@ export const getRegisterReport = async (req, res, next) => {
 
 /**
  * GET /api/reports/activity-log
- * Get activity log report (recent system activities)
+ * Get activity log report from activity_logs table
  */
 export const getActivityLogReport = async (req, res, next) => {
   try {
-    const { start_date, end_date, branch_id, limit = 100 } = req.query;
+    const { start_date, end_date, branch_id, action_type, module, user_id, limit = 100 } = req.query;
+    
     const where = {};
 
+    // Date filter
     if (start_date && end_date) {
-      where.created_at = {
+      where.timestamp = {
         [Op.between]: [new Date(start_date), new Date(end_date + 'T23:59:59')]
+      };
+    } else if (start_date) {
+      where.timestamp = {
+        [Op.gte]: new Date(start_date)
+      };
+    } else if (end_date) {
+      where.timestamp = {
+        [Op.lte]: new Date(end_date + 'T23:59:59')
       };
     }
 
-    // Get recent activities from multiple sources
-    const activities = [];
-
-    // Recent sales
-    const salesWhere = { ...where };
-    if (branch_id) {
-      salesWhere.branch_id = branch_id;
-    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
-      salesWhere.branch_id = req.user.branch_id;
+    // Action type filter
+    if (action_type) {
+      where.action_type = action_type;
     }
 
-    const recentSales = await SalesOrder.findAll({
-      where: salesWhere,
-      include: [
-        { model: Customer, as: 'customer', attributes: ['id', 'name'] },
-        { model: Branch, as: 'branch', attributes: ['id', 'name'] },
-        { model: User, as: 'creator', attributes: ['id', 'full_name'] }
-      ],
-      order: [['created_at', 'DESC']],
-      limit: Math.floor(parseInt(limit) / 2)
-    });
-
-    recentSales.forEach(sale => {
-      activities.push({
-        type: 'sale',
-        description: `Sale ${sale.invoice_number} to ${sale.customer?.name || 'Walk-in'}`,
-        amount: parseFloat(sale.total_amount),
-        user: sale.creator,
-        branch: sale.branch,
-        created_at: sale.created_at
-      });
-    });
-
-    // Recent purchases
-    const purchasesWhere = { ...where };
-    if (branch_id) {
-      purchasesWhere.branch_id = branch_id;
-    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
-      purchasesWhere.branch_id = req.user.branch_id;
+    // Module filter
+    if (module) {
+      where.module = module;
     }
 
-    const recentPurchases = await Purchase.findAll({
-      where: purchasesWhere,
+    // User filter
+    if (user_id) {
+      where.user_id = user_id;
+    }
+
+    // Branch filter
+    if (branch_id) {
+      where.branch_id = branch_id;
+    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      where.branch_id = req.user.branch_id;
+    }
+
+    // Get activities from activity_logs table
+    const activities = await ActivityLog.findAll({
+      where,
       include: [
-        { model: Supplier, as: 'supplier', attributes: ['id', 'name'] },
-        { model: Branch, as: 'branch', attributes: ['id', 'name'] },
-        { model: User, as: 'user', attributes: ['id', 'full_name'] }
+        { 
+          model: User, 
+          as: 'user', 
+          attributes: ['id', 'full_name', 'email'] 
+        },
+        { 
+          model: Branch, 
+          as: 'branch', 
+          attributes: ['id', 'name', 'code'],
+          required: false
+        }
       ],
-      order: [['created_at', 'DESC']],
-      limit: Math.floor(parseInt(limit) / 2)
+      order: [['timestamp', 'DESC']],
+      limit: parseInt(limit)
     });
 
-    recentPurchases.forEach(purchase => {
-      activities.push({
-        type: 'purchase',
-        description: `Purchase ${purchase.purchase_number} from ${purchase.supplier?.name || 'Unknown'}`,
-        amount: parseFloat(purchase.total_amount),
-        user: purchase.user,
-        branch: purchase.branch,
-        created_at: purchase.created_at
-      });
-    });
+    const totalCount = await ActivityLog.count({ where });
 
-    // Sort by date and limit
-    activities.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    activities.splice(parseInt(limit));
+    // Format activities for response
+    const formattedActivities = activities.map(activity => ({
+      id: activity.id,
+      timestamp: activity.timestamp,
+      action_type: activity.action_type,
+      module: activity.module,
+      description: activity.description,
+      ip_address: activity.ip_address,
+      user: activity.user ? {
+        id: activity.user.id,
+        full_name: activity.user.full_name,
+        email: activity.user.email
+      } : null,
+      branch: activity.branch ? {
+        id: activity.branch.id,
+        name: activity.branch.name,
+        code: activity.branch.code
+      } : null,
+      reference_type: activity.reference_type,
+      reference_id: activity.reference_id
+    }));
 
     res.json({
-      activities,
-      total_count: activities.length
+      activities: formattedActivities,
+      total_count: totalCount,
+      filters: {
+        start_date: start_date || null,
+        end_date: end_date || null,
+        branch_id: branch_id || null,
+        action_type: action_type || null,
+        module: module || null,
+        user_id: user_id || null
+      }
     });
   } catch (error) {
     next(error);

@@ -3,7 +3,8 @@ import {
   createPayment, 
   confirmPayment, 
   getPayments,
-  getPendingPayments 
+  getPendingPayments,
+  getRecentPayments
 } from '../controllers/paymentController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { requirePermission } from '../middleware/permissionMiddleware.js';
@@ -15,6 +16,9 @@ router.use(authenticate);
 
 // GET /api/payments - List payments (requires payment_view)
 router.get('/', requirePermission('payment_view'), getPayments);
+
+// GET /api/payments/recent - Get recent payments (requires payment_view)
+router.get('/recent', requirePermission('payment_view'), getRecentPayments);
 
 // GET /api/payments/pending - List pending payments (requires payment_confirm)
 router.get('/pending', requirePermission('payment_confirm'), getPendingPayments);

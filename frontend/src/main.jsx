@@ -3,28 +3,20 @@ import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import './index.css';
 
-// Debug: Log initialization start
-console.log('[DEBUG] main.jsx: Starting React initialization');
-
 // Defensive check: Ensure root element exists
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   console.error('[ERROR] main.jsx: Root element (#root) not found in DOM');
   document.body.innerHTML = '<div style="padding: 20px; font-family: monospace; color: red;"><h1>Critical Error</h1><p>Root element (#root) not found. Check index.html.</p></div>';
 } else {
-  console.log('[DEBUG] main.jsx: Root element found, creating React root');
-  
   try {
     const root = ReactDOM.createRoot(rootElement);
-    console.log('[DEBUG] main.jsx: React root created, rendering App');
     
     root.render(
       <React.StrictMode>
         <App />
       </React.StrictMode>
     );
-    
-    console.log('[DEBUG] main.jsx: App rendered successfully');
   } catch (error) {
     console.error('[ERROR] main.jsx: Failed to render App', error);
     rootElement.innerHTML = `

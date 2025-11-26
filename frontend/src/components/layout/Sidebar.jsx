@@ -58,13 +58,11 @@ const Sidebar = () => {
 
   const menuStructure = [
     {
-      type: 'group',
+      type: 'item',
       name: 'Home',
+      path: '/',
       icon: Home,
       permission: null,
-      items: [
-        { name: 'Dashboard', path: '/', icon: LayoutDashboard, permission: null },
-      ],
     },
     {
       type: 'group',
@@ -263,6 +261,27 @@ const Sidebar = () => {
   };
 
   const renderMenuItem = (item, level = 0) => {
+    // Handle direct link items (like Home)
+    if (item.type === 'item' && !item.items) {
+      if (item.permission && !hasPermission(item.permission)) return null;
+      const isActive = isPathActive(item.path);
+      const Icon = item.icon || List;
+      return (
+        <Link
+          key={item.path}
+          to={item.path}
+          className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
+            isActive
+              ? 'bg-primary-600 text-white'
+              : 'text-gray-300 hover:bg-gray-800'
+          }`}
+        >
+          <Icon className="h-5 w-5" />
+          <span>{item.name}</span>
+        </Link>
+      );
+    }
+
     if (item.type === 'group') {
       if (!hasVisibleItems(item)) return null;
 

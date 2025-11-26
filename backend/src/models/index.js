@@ -43,6 +43,8 @@ import Category from './Category.js';
 import Warranty from './Warranty.js';
 import BatchType from './BatchType.js';
 import CategoryBatchType from './CategoryBatchType.js';
+import LedgerEntry from './LedgerEntry.js';
+import ActivityLog from './ActivityLog.js';
 
 // Define all associations
 export const associateModels = () => {
@@ -820,6 +822,86 @@ export const associateModels = () => {
     foreignKey: 'warranty_id',
     as: 'warranty'
   });
+
+  // LedgerEntry - Customer (Many-to-One, polymorphic via contact_id)
+  LedgerEntry.belongsTo(Customer, {
+    foreignKey: 'contact_id',
+    constraints: false,
+    scope: {
+      contact_type: 'customer'
+    },
+    as: 'customer'
+  });
+
+  // LedgerEntry - Supplier (Many-to-One, polymorphic via contact_id)
+  LedgerEntry.belongsTo(Supplier, {
+    foreignKey: 'contact_id',
+    constraints: false,
+    scope: {
+      contact_type: 'supplier'
+    },
+    as: 'supplier'
+  });
+
+  // LedgerEntry - Branch (Many-to-One)
+  LedgerEntry.belongsTo(Branch, {
+    foreignKey: 'branch_id',
+    as: 'branch'
+  });
+  Branch.hasMany(LedgerEntry, {
+    foreignKey: 'branch_id',
+    as: 'ledger_entries'
+  });
+
+  // LedgerEntry - User (Many-to-One: Creator)
+  LedgerEntry.belongsTo(User, {
+    foreignKey: 'created_by',
+    as: 'creator'
+  });
+  User.hasMany(LedgerEntry, {
+    foreignKey: 'created_by',
+    as: 'ledger_entries_created'
+  });
+
+  // Customer - LedgerEntry (One-to-Many)
+  Customer.hasMany(LedgerEntry, {
+    foreignKey: 'contact_id',
+    constraints: false,
+    scope: {
+      contact_type: 'customer'
+    },
+    as: 'ledger_entries'
+  });
+
+  // Supplier - LedgerEntry (One-to-Many)
+  Supplier.hasMany(LedgerEntry, {
+    foreignKey: 'contact_id',
+    constraints: false,
+    scope: {
+      contact_type: 'supplier'
+    },
+    as: 'ledger_entries'
+  });
+
+  // ActivityLog - User (Many-to-One)
+  ActivityLog.belongsTo(User, {
+    foreignKey: 'user_id',
+    as: 'user'
+  });
+  User.hasMany(ActivityLog, {
+    foreignKey: 'user_id',
+    as: 'activity_logs'
+  });
+
+  // ActivityLog - Branch (Many-to-One)
+  ActivityLog.belongsTo(Branch, {
+    foreignKey: 'branch_id',
+    as: 'branch'
+  });
+  Branch.hasMany(ActivityLog, {
+    foreignKey: 'branch_id',
+    as: 'activity_logs'
+  });
 };
 
 // Export all models
@@ -868,6 +950,8 @@ export {
   Category,
   Warranty,
   BatchType,
-  CategoryBatchType
+  CategoryBatchType,
+  LedgerEntry,
+  ActivityLog
 };
 
