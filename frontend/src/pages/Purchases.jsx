@@ -343,17 +343,17 @@ const Purchases = () => {
                               {formatCurrency(item.subtotal)}
                             </td>
                             <td className="px-4 py-3">
-                              {item.inventory_instance ? (
+                              {item.inventory_batch ? (
                                 <div>
                                   <span className="text-sm font-mono text-primary-600">
-                                    {item.inventory_instance.instance_code}
+                                    {item.inventory_batch.instance_code || item.inventory_batch.batch_identifier}
                                   </span>
                                   <span className={`ml-2 px-1.5 py-0.5 text-xs rounded-full ${
-                                    item.inventory_instance.status === 'in_stock'
+                                    item.inventory_batch.status === 'in_stock'
                                       ? 'bg-green-100 text-green-800'
                                       : 'bg-gray-100 text-gray-800'
                                   }`}>
-                                    {item.inventory_instance.status}
+                                    {item.inventory_batch.status}
                                   </span>
                                 </div>
                               ) : (

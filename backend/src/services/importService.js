@@ -1,4 +1,4 @@
-import { Product, InventoryInstance, Branch, Customer, Supplier } from '../models/index.js';
+import { Product, InventoryBatch, Branch, Customer, Supplier } from '../models/index.js';
 import { Op } from 'sequelize';
 import XLSX from 'xlsx';
 
@@ -94,7 +94,7 @@ export const importProducts = async (data, errors = []) => {
  * Import inventory instances from CSV/JSON data
  * Expected columns: instance_code, product_sku, branch_code, initial_quantity
  */
-export const importInventoryInstances = async (data, errors = []) => {
+export const importInventoryBatches = async (data, errors = []) => {
   const results = {
     created: 0,
     skipped: 0,
@@ -159,12 +159,12 @@ export const importInventoryInstances = async (data, errors = []) => {
         continue;
       }
 
-      // Check if instance already exists
-      const existingInstance = await InventoryInstance.findOne({
+      // Check if batch already exists
+      const existingBatch = await InventoryBatch.findOne({
         where: { instance_code: row.instance_code.trim() }
       });
 
-      if (existingInstance) {
+      if (existingBatch) {
         results.errors.push({
           row: rowNum,
           error: `Instance code "${row.instance_code}" already exists`
@@ -173,11 +173,14 @@ export const importInventoryInstances = async (data, errors = []) => {
         continue;
       }
 
-      // Create inventory instance
-      await InventoryInstance.create({
+      // Create inventory batch
+      await InventoryBatch.create({
         product_id: product.id,
         branch_id: branch.id,
         instance_code: row.instance_code.trim(),
+        batch_type: 'coil', // Default for imports
+        grouped: true,
+        batch_identifier: row.instance_code.trim(),
         initial_quantity: initialQuantity,
         remaining_quantity: initialQuantity,
         status: 'in_stock'

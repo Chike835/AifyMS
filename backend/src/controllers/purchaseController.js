@@ -6,7 +6,7 @@ import {
   Supplier, 
   Branch, 
   User, 
-  InventoryInstance 
+  InventoryBatch 
 } from '../models/index.js';
 import { Op } from 'sequelize';
 
@@ -137,8 +137,8 @@ export const getPurchaseById = async (req, res) => {
               attributes: ['id', 'sku', 'name', 'type', 'base_unit']
             },
             {
-              model: InventoryInstance,
-              as: 'inventory_instance',
+              model: InventoryBatch,
+              as: 'inventory_batch',
               attributes: ['id', 'instance_code', 'initial_quantity', 'remaining_quantity', 'status']
             }
           ]
@@ -240,12 +240,12 @@ export const createPurchase = async (req, res) => {
         }
 
         // Check if instance_code already exists
-        const existingInstance = await InventoryInstance.findOne({
+        const existingBatch = await InventoryBatch.findOne({
           where: { instance_code: item.instance_code.trim() },
           transaction
         });
 
-        if (existingInstance) {
+        if (existingBatch) {
           await transaction.rollback();
           return res.status(400).json({ 
             error: `Instance code "${item.instance_code}" already exists. Each coil/pallet must have a unique code.` 
@@ -275,19 +275,19 @@ export const createPurchase = async (req, res) => {
       notes: notes?.trim() || null
     }, { transaction });
 
-    // Create purchase items and inventory instances for raw_tracked products
+    // Create purchase items and inventory batches for raw_tracked products
     const createdItems = [];
-    const createdInstances = [];
+    const createdBatches = [];
 
     for (const item of items) {
       const product = productMap.get(item.product_id);
       const subtotal = parseFloat(item.quantity) * parseFloat(item.unit_cost);
 
-      let inventoryInstanceId = null;
+      let inventoryBatchId = null;
 
-      // For raw_tracked products, create inventory instance
+      // For raw_tracked products, create inventory batch
       if (product.type === 'raw_tracked') {
-        const inventoryInstance = await InventoryInstance.create({
+        const inventoryBatch = await InventoryBatch.create({
           product_id: item.product_id,
           branch_id: purchaseBranchId,
           instance_code: item.instance_code.trim(),
@@ -296,8 +296,8 @@ export const createPurchase = async (req, res) => {
           status: 'in_stock'
         }, { transaction });
 
-        inventoryInstanceId = inventoryInstance.id;
-        createdInstances.push(inventoryInstance);
+        inventoryBatchId = inventoryBatch.id;
+        createdBatches.push(inventoryBatch);
       }
 
       // Create purchase item
@@ -308,7 +308,7 @@ export const createPurchase = async (req, res) => {
         unit_cost: parseFloat(item.unit_cost),
         subtotal,
         instance_code: item.instance_code?.trim() || null,
-        inventory_instance_id: inventoryInstanceId
+        inventory_batch_id: inventoryBatchId
       }, { transaction });
 
       createdItems.push(purchaseItem);
@@ -345,8 +345,8 @@ export const createPurchase = async (req, res) => {
               attributes: ['id', 'sku', 'name', 'type', 'base_unit']
             },
             {
-              model: InventoryInstance,
-              as: 'inventory_instance',
+              model: InventoryBatch,
+              as: 'inventory_batch',
               attributes: ['id', 'instance_code', 'initial_quantity', 'status']
             }
           ]
@@ -357,7 +357,7 @@ export const createPurchase = async (req, res) => {
     return res.status(201).json({
       message: 'Purchase created successfully',
       purchase: completePurchase,
-      inventory_instances_created: createdInstances.length
+      inventory_batches_created: createdBatches.length
     });
 
   } catch (error) {
@@ -463,19 +463,19 @@ export const deletePurchase = async (req, res) => {
       });
     }
 
-    // Check if any inventory instances from this purchase have been used
+    // Check if any inventory batches from this purchase have been used
     for (const item of purchase.items) {
-      if (item.inventory_instance_id) {
-        const instance = await InventoryInstance.findByPk(item.inventory_instance_id, { transaction });
-        if (instance && instance.remaining_quantity < instance.initial_quantity) {
+      if (item.inventory_batch_id) {
+        const batch = await InventoryBatch.findByPk(item.inventory_batch_id, { transaction });
+        if (batch && batch.remaining_quantity < batch.initial_quantity) {
           await transaction.rollback();
           return res.status(400).json({ 
-            error: `Cannot delete: Inventory instance ${instance.instance_code} has been partially used` 
+            error: `Cannot delete: Inventory batch ${batch.instance_code || batch.batch_identifier} has been partially used` 
           });
         }
-        // Delete the inventory instance
-        if (instance) {
-          await instance.destroy({ transaction });
+        // Delete the inventory batch
+        if (batch) {
+          await batch.destroy({ transaction });
         }
       }
     }

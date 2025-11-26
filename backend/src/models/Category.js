@@ -23,6 +23,15 @@ const Category = sequelize.define('Category', {
     type: DataTypes.TEXT,
     allowNull: true
   },
+  unit_type: {
+    type: DataTypes.STRING(50),
+    allowNull: true
+  },
+  attribute_schema: {
+    type: DataTypes.JSONB,
+    allowNull: false,
+    defaultValue: []
+  },
   is_active: {
     type: DataTypes.BOOLEAN,
     defaultValue: true
@@ -38,6 +47,7 @@ const Category = sequelize.define('Category', {
 });
 
 export default Category;
+
 
 
 

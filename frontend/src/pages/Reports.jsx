@@ -2,6 +2,11 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
+import DateFilterDropdown from '../components/common/DateFilterDropdown';
+import RevenueChart from '../components/reports/RevenueChart';
+import ExpenseChart from '../components/reports/ExpenseChart';
+import ProfitChart from '../components/reports/ProfitChart';
+import { printReport, exportToPDF, exportToExcel, generateFilename } from '../utils/exportUtils';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -12,7 +17,9 @@ import {
   FileText,
   Download,
   Calendar,
-  Building2
+  Building2,
+  Printer,
+  FileDown
 } from 'lucide-react';
 
 const Reports = () => {
@@ -22,6 +29,11 @@ const Reports = () => {
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedBranch, setSelectedBranch] = useState('');
+
+  const handleDateChange = (dateRange) => {
+    if (dateRange.startDate) setStartDate(dateRange.startDate);
+    if (dateRange.endDate) setEndDate(dateRange.endDate);
+  };
 
   // Fetch branches for Super Admin
   const { data: branchesData } = useQuery({
@@ -379,18 +391,41 @@ const Reports = () => {
 
   const visibleTabs = tabs.filter(tab => !tab.permission || hasPermission(tab.permission));
 
-  const handleExport = async (type) => {
-    try {
-      const params = new URLSearchParams();
-      if (startDate) params.append('start_date', startDate);
-      if (endDate) params.append('end_date', endDate);
-      if (selectedBranch) params.append('branch_id', selectedBranch);
-      
-      // In a real implementation, this would generate and download a PDF/Excel file
-      // For now, we'll just show an alert
-      alert(`Export ${type} report functionality will be implemented with PDF/Excel generation service.`);
-    } catch (error) {
-      console.error('Export error:', error);
+  const handlePrint = () => {
+    printReport();
+  };
+
+  const handleExportPDF = () => {
+    const filename = generateFilename(`${activeTab}-report`, startDate, endDate, 'pdf');
+    exportToPDF('report-content', filename);
+  };
+
+  const handleExportExcel = () => {
+    // Get current report data and convert to array
+    const reportElement = document.getElementById('report-content');
+    if (!reportElement) {
+      alert('Report content not found.');
+      return;
+    }
+
+    // Try to extract table data
+    const tables = reportElement.querySelectorAll('table');
+    if (tables.length > 0) {
+      const table = tables[0];
+      const rows = Array.from(table.querySelectorAll('tr'));
+      const data = rows.map(row => {
+        const cells = Array.from(row.querySelectorAll('th, td'));
+        const rowData = {};
+        cells.forEach((cell, index) => {
+          rowData[`Column${index + 1}`] = cell.textContent.trim();
+        });
+        return rowData;
+      });
+
+      const filename = generateFilename(`${activeTab}-report`, startDate, endDate, 'csv');
+      exportToExcel(data, filename);
+    } else {
+      alert('No table data found to export.');
     }
   };
 
@@ -426,13 +461,6 @@ const Reports = () => {
         <div className="bg-white rounded-lg shadow">
           <div className="p-4 border-b flex justify-between items-center">
             <h3 className="text-lg font-semibold">Top Selling Products</h3>
-            <button
-              onClick={() => handleExport('sales')}
-              className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700"
-            >
-              <Download className="h-4 w-4" />
-              <span>Export</span>
-            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -456,25 +484,13 @@ const Reports = () => {
           </div>
         </div>
 
-        {/* Daily Trend */}
+        {/* Daily Trend Chart */}
         {daily_trend && daily_trend.length > 0 && (
-          <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-lg font-semibold mb-4">Daily Sales Trend</h3>
-            <div className="space-y-2">
-              {daily_trend.map((day, idx) => (
-                <div key={idx} className="flex items-center space-x-4">
-                  <div className="w-24 text-sm text-gray-600">{formatDate(day.date)}</div>
-                  <div className="flex-1 bg-gray-200 rounded-full h-6 relative">
-                    <div
-                      className="bg-primary-600 h-6 rounded-full flex items-center justify-end pr-2"
-                      style={{ width: `${Math.min((day.amount / summary?.total_sales) * 100, 100)}%` }}
-                    >
-                      <span className="text-xs text-white font-medium">{formatCurrency(day.amount)}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+          <div className="mt-6">
+            <RevenueChart 
+              data={daily_trend.map(day => ({ date: day.date, amount: day.amount }))}
+              title="Daily Sales Trend"
+            />
           </div>
         )}
       </div>
@@ -507,13 +523,6 @@ const Reports = () => {
         <div className="bg-white rounded-lg shadow">
           <div className="p-4 border-b flex justify-between items-center">
             <h3 className="text-lg font-semibold">Top Suppliers</h3>
-            <button
-              onClick={() => handleExport('purchases')}
-              className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700"
-            >
-              <Download className="h-4 w-4" />
-              <span>Export</span>
-            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -570,13 +579,6 @@ const Reports = () => {
         <div className="bg-white rounded-lg shadow">
           <div className="p-4 border-b flex justify-between items-center">
             <h3 className="text-lg font-semibold">Inventory by Product</h3>
-            <button
-              onClick={() => handleExport('inventory')}
-              className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700"
-            >
-              <Download className="h-4 w-4" />
-              <span>Export</span>
-            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -630,15 +632,25 @@ const Reports = () => {
           </div>
         </div>
 
+        {/* Expenses by Category Chart */}
+        {by_category && by_category.length > 0 && (
+          <div className="mb-6">
+            <ExpenseChart 
+              data={by_category}
+              title="Expenses by Category"
+            />
+          </div>
+        )}
+
         <div className="bg-white rounded-lg shadow">
           <div className="p-4 border-b flex justify-between items-center">
             <h3 className="text-lg font-semibold">Expenses by Category</h3>
             <button
-              onClick={() => handleExport('expenses')}
+              onClick={() => handleExportExcel()}
               className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700"
             >
               <Download className="h-4 w-4" />
-              <span>Export</span>
+              <span>Export Excel</span>
             </button>
           </div>
           <div className="overflow-x-auto">
@@ -682,13 +694,6 @@ const Reports = () => {
         <div className="bg-white rounded-lg shadow">
           <div className="p-4 border-b flex justify-between items-center">
             <h3 className="text-lg font-semibold">Top Customers</h3>
-            <button
-              onClick={() => handleExport('customers')}
-              className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700"
-            >
-              <Download className="h-4 w-4" />
-              <span>Export</span>
-            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -745,13 +750,6 @@ const Reports = () => {
         <div className="bg-white rounded-lg shadow">
           <div className="p-4 border-b flex justify-between items-center">
             <h3 className="text-lg font-semibold">Payments by Method</h3>
-            <button
-              onClick={() => handleExport('payments')}
-              className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700"
-            >
-              <Download className="h-4 w-4" />
-              <span>Export</span>
-            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -786,16 +784,21 @@ const Reports = () => {
 
     return (
       <div className="space-y-6">
+        {/* Profit Distribution Chart */}
+        <ProfitChart
+          data={{
+            'Revenue': revenue || 0,
+            'COGS': cost_of_goods_sold || 0,
+            'Gross Profit': gross_profit || 0,
+            'Operating Expenses': operating_expenses || 0,
+            'Net Profit': net_profit || 0
+          }}
+          title="Profit & Loss Distribution"
+        />
+
         <div className="bg-white rounded-lg shadow p-6">
-          <div className="p-4 border-b flex justify-between items-center mb-4">
+          <div className="p-4 border-b mb-4">
             <h3 className="text-lg font-semibold">Profit & Loss Statement</h3>
-            <button
-              onClick={() => handleExport('profit-loss')}
-              className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700"
-            >
-              <Download className="h-4 w-4" />
-              <span>Export</span>
-            </button>
           </div>
           <div className="space-y-4">
             <div className="flex justify-between items-center py-2 border-b">
@@ -1770,9 +1773,9 @@ const Reports = () => {
         <p className="text-gray-600">View and analyze your business data</p>
       </div>
 
-      {/* Filters */}
+      {/* Filters and Export Actions */}
       <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="flex flex-wrap items-end gap-4 mb-4">
           {(activeTab === 'balance-sheet' || activeTab === 'trial-balance') ? (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">As Of Date</label>
@@ -1787,33 +1790,43 @@ const Reports = () => {
               </div>
             </div>
           ) : (
-            <>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="pl-10 w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="pl-10 w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-            </>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Date Range</label>
+              <DateFilterDropdown
+                onDateChange={handleDateChange}
+                initialPreset="this-month"
+              />
+            </div>
           )}
+          
+          {/* Export Buttons */}
+          <div className="flex items-center space-x-2 ml-auto">
+            <button
+              onClick={handlePrint}
+              className="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors no-print"
+              title="Print Report"
+            >
+              <Printer className="h-4 w-4" />
+              <span className="hidden sm:inline">Print</span>
+            </button>
+            <button
+              onClick={handleExportPDF}
+              className="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors no-print"
+              title="Export to PDF"
+            >
+              <FileDown className="h-4 w-4" />
+              <span className="hidden sm:inline">PDF</span>
+            </button>
+            <button
+              onClick={handleExportExcel}
+              className="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors no-print"
+              title="Export to Excel"
+            >
+              <Download className="h-4 w-4" />
+              <span className="hidden sm:inline">Excel</span>
+            </button>
+          </div>
+        </div>
           {user?.role_name === 'Super Admin' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Branch</label>
@@ -1834,7 +1847,6 @@ const Reports = () => {
               </div>
             </div>
           )}
-        </div>
       </div>
 
       {/* Tabs */}
@@ -1863,7 +1875,7 @@ const Reports = () => {
       </div>
 
       {/* Report Content */}
-      <div>{renderActiveTab()}</div>
+      <div id="report-content">{renderActiveTab()}</div>
     </div>
   );
 };

@@ -7,11 +7,11 @@ const StockAdjustment = sequelize.define('StockAdjustment', {
     defaultValue: DataTypes.UUIDV4,
     primaryKey: true
   },
-  inventory_instance_id: {
+  inventory_batch_id: {
     type: DataTypes.UUID,
     allowNull: false,
     references: {
-      model: 'inventory_instances',
+      model: 'inventory_batches',
       key: 'id'
     }
   },

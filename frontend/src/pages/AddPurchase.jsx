@@ -41,7 +41,7 @@ const AddPurchase = () => {
       return response.data;
     },
     onSuccess: (data) => {
-      setFormSuccess(`Purchase ${data.purchase?.purchase_number} created successfully! ${data.inventory_instances_created > 0 ? `${data.inventory_instances_created} inventory instance(s) registered.` : ''}`);
+      setFormSuccess(`Purchase ${data.purchase?.purchase_number} created successfully! ${data.inventory_batches_created > 0 ? `${data.inventory_batches_created} inventory batch(es) registered.` : ''}`);
       setFormError('');
       // Reset form after short delay
       setTimeout(() => {

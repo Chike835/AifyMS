@@ -9,7 +9,7 @@ import {
   Product,
   Branch,
   User,
-  InventoryInstance
+  InventoryBatch
 } from '../models/index.js';
 
 /**
@@ -106,7 +106,7 @@ export const getPurchaseReturnById = async (req, res, next) => {
           as: 'items',
           include: [
             { model: Product, as: 'product' },
-            { model: InventoryInstance, as: 'inventory_instance' }
+            { model: InventoryBatch, as: 'inventory_batch' }
           ]
         }
       ]
@@ -132,7 +132,7 @@ export const createPurchaseReturn = async (req, res, next) => {
   try {
     const {
       purchase_id,
-      items, // Array of { purchase_item_id, quantity, inventory_instance_id? }
+      items, // Array of { purchase_item_id, quantity, inventory_batch_id? }
       reason
     } = req.body;
 
@@ -161,7 +161,7 @@ export const createPurchaseReturn = async (req, res, next) => {
           as: 'items', 
           include: [
             { model: Product, as: 'product' },
-            { model: InventoryInstance, as: 'inventory_instance' }
+            { model: InventoryBatch, as: 'inventory_batch' }
           ] 
         }
       ],
@@ -192,7 +192,7 @@ export const createPurchaseReturn = async (req, res, next) => {
     let totalAmount = 0;
 
     for (const item of items) {
-      const { purchase_item_id, quantity, inventory_instance_id } = item;
+      const { purchase_item_id, quantity, inventory_batch_id } = item;
 
       // Find the original purchase item
       const originalItem = purchase.items.find(i => i.id === purchase_item_id);
@@ -220,7 +220,7 @@ export const createPurchaseReturn = async (req, res, next) => {
         quantity,
         unit_cost: originalItem.unit_cost,
         subtotal,
-        inventory_instance_id: inventory_instance_id || originalItem.inventory_instance_id
+        inventory_batch_id: inventory_batch_id || originalItem.inventory_batch_id
       }, { transaction });
     }
 
@@ -272,7 +272,7 @@ export const approvePurchaseReturn = async (req, res, next) => {
           as: 'items',
           include: [
             { model: Product, as: 'product' },
-            { model: InventoryInstance, as: 'inventory_instance' }
+            { model: InventoryBatch, as: 'inventory_batch' }
           ]
         },
         { model: Supplier, as: 'supplier' }
@@ -292,9 +292,9 @@ export const approvePurchaseReturn = async (req, res, next) => {
 
     // Process inventory deduction for returned items
     for (const item of purchaseReturn.items) {
-      if (item.inventory_instance) {
-        const instance = await InventoryInstance.findByPk(
-          item.inventory_instance.id,
+      if (item.inventory_batch) {
+        const batch = await InventoryBatch.findByPk(
+          item.inventory_batch.id,
           { lock: transaction.LOCK.UPDATE, transaction }
         );
 

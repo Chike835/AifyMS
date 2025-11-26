@@ -8,6 +8,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import POS from './pages/POS';
 import Inventory from './pages/Inventory';
+import InventoryBatches from './pages/InventoryBatches';
 import Products from './pages/Products';
 import Payments from './pages/Payments';
 import Customers from './pages/Customers';
@@ -53,6 +54,9 @@ import BalanceSheet from './pages/BalanceSheet';
 import TrialBalance from './pages/TrialBalance';
 import CashFlow from './pages/CashFlow';
 import PaymentAccountReport from './pages/PaymentAccountReport';
+import StockTransfer from './pages/StockTransfer';
+import StockAdjustment from './pages/StockAdjustment';
+import BatchSettings from './pages/inventory/settings/BatchSettings';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -160,6 +164,16 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <Inventory />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/inventory/batches"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <InventoryBatches />
                   </Layout>
                 </ProtectedRoute>
               }
@@ -405,6 +419,26 @@ function App() {
               }
             />
             <Route
+              path="/inventory/stock-transfer"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <StockTransfer />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/inventory/stock-adjustment"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <StockAdjustment />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/agents"
               element={
                 <ProtectedRoute>
@@ -490,6 +524,16 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <Categories />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/inventory/settings/batches"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <BatchSettings />
                   </Layout>
                 </ProtectedRoute>
               }

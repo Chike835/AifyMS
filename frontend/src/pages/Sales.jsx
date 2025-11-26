@@ -451,7 +451,7 @@ const Sales = () => {
                                       key={assignment.id}
                                       className="inline-block mr-1 px-1.5 py-0.5 text-xs font-mono bg-blue-50 text-blue-700 rounded"
                                     >
-                                      {assignment.inventory_instance?.instance_code}: {parseFloat(assignment.quantity_deducted).toFixed(3)} {assignment.inventory_instance?.product?.base_unit}
+                                      {assignment.inventory_batch?.instance_code || assignment.inventory_batch?.batch_identifier}: {parseFloat(assignment.quantity_deducted).toFixed(3)} {assignment.inventory_batch?.product?.base_unit}
                                     </span>
                                   ))}
                                 </div>

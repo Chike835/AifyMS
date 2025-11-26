@@ -21,6 +21,7 @@ import { LineChart, Line, BarChart, Bar, AreaChart, Area, XAxis, YAxis, Cartesia
 const Dashboard = () => {
   const { user, loading, hasPermission } = useAuth();
   const navigate = useNavigate();
+  const [dateRange, setDateRange] = useState('7d'); // '7d', '30d', '90d', '6m', '1y'
   const [chartDays, setChartDays] = useState(7);
 
   // Show loading state while user data is being loaded
@@ -41,20 +42,55 @@ const Dashboard = () => {
     );
   }
 
-  // Fetch dashboard stats
+  // Calculate date range based on selection
+  const getDateRange = (range) => {
+    const endDate = new Date();
+    const startDate = new Date();
+    
+    switch (range) {
+      case '7d':
+        startDate.setDate(startDate.getDate() - 7);
+        return { startDate, endDate, days: 7 };
+      case '30d':
+        startDate.setDate(startDate.getDate() - 30);
+        return { startDate, endDate, days: 30 };
+      case '90d':
+        startDate.setDate(startDate.getDate() - 90);
+        return { startDate, endDate, days: 90 };
+      case '6m':
+        startDate.setMonth(startDate.getMonth() - 6);
+        return { startDate, endDate, days: 180 };
+      case '1y':
+        startDate.setFullYear(startDate.getFullYear() - 1);
+        return { startDate, endDate, days: 365 };
+      default:
+        startDate.setDate(startDate.getDate() - 7);
+        return { startDate, endDate, days: 7 };
+    }
+  };
+
+  const dateRangeParams = getDateRange(dateRange);
+
+  // Fetch dashboard stats with date range
   const { data: statsData, isLoading: statsLoading } = useQuery({
-    queryKey: ['dashboardStats'],
+    queryKey: ['dashboardStats', dateRange],
     queryFn: async () => {
-      const response = await api.get('/dashboard/stats');
+      const params = new URLSearchParams();
+      params.append('start_date', dateRangeParams.startDate.toISOString().split('T')[0]);
+      params.append('end_date', dateRangeParams.endDate.toISOString().split('T')[0]);
+      const response = await api.get(`/dashboard/stats?${params.toString()}`);
       return response.data;
     }
   });
 
-  // Fetch sales chart data
+  // Fetch sales chart data with date range
   const { data: chartData, isLoading: chartLoading } = useQuery({
-    queryKey: ['dashboardSalesChart', chartDays],
+    queryKey: ['dashboardSalesChart', dateRange],
     queryFn: async () => {
-      const response = await api.get(`/dashboard/sales-chart?days=${chartDays}`);
+      const params = new URLSearchParams();
+      params.append('start_date', dateRangeParams.startDate.toISOString().split('T')[0]);
+      params.append('end_date', dateRangeParams.endDate.toISOString().split('T')[0]);
+      const response = await api.get(`/dashboard/sales-chart?${params.toString()}`);
       return response.data;
     }
   });
@@ -104,17 +140,13 @@ const Dashboard = () => {
     }
   });
 
-  // Fetch expense data for revenue vs expenses chart
+  // Fetch expense data for revenue vs expenses chart with date range
   const { data: expenseChartData, isLoading: expenseChartLoading } = useQuery({
-    queryKey: ['dashboardExpenseChart', chartDays],
+    queryKey: ['dashboardExpenseChart', dateRange],
     queryFn: async () => {
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - chartDays);
-      
       const params = new URLSearchParams();
-      params.append('start_date', startDate.toISOString().split('T')[0]);
-      params.append('end_date', endDate.toISOString().split('T')[0]);
+      params.append('start_date', dateRangeParams.startDate.toISOString().split('T')[0]);
+      params.append('end_date', dateRangeParams.endDate.toISOString().split('T')[0]);
       
       const response = await api.get(`/reports/expenses?${params.toString()}`);
       return response.data;
@@ -209,13 +241,67 @@ const Dashboard = () => {
 
   return (
     <div className="p-6">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">
-          Welcome, {user?.full_name}
-        </h1>
-        <p className="text-gray-600 mt-2">
-          {user?.role_name} {user?.branch?.name && `• ${user?.branch?.name}`}
-        </p>
+      <div className="mb-8 flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">
+            Welcome, {user?.full_name}
+          </h1>
+          <p className="text-gray-600 mt-2">
+            {user?.role_name} {user?.branch?.name && `• ${user?.branch?.name}`}
+          </p>
+        </div>
+        <div className="flex space-x-2">
+          <button
+            onClick={() => { setDateRange('7d'); setChartDays(7); }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              dateRange === '7d'
+                ? 'bg-primary-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            7 Days
+          </button>
+          <button
+            onClick={() => { setDateRange('30d'); setChartDays(30); }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              dateRange === '30d'
+                ? 'bg-primary-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            30 Days
+          </button>
+          <button
+            onClick={() => { setDateRange('90d'); setChartDays(90); }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              dateRange === '90d'
+                ? 'bg-primary-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            90 Days
+          </button>
+          <button
+            onClick={() => { setDateRange('6m'); setChartDays(180); }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              dateRange === '6m'
+                ? 'bg-primary-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            6 Months
+          </button>
+          <button
+            onClick={() => { setDateRange('1y'); setChartDays(365); }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              dateRange === '1y'
+                ? 'bg-primary-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            1 Year
+          </button>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -251,38 +337,6 @@ const Dashboard = () => {
         <div className="bg-white rounded-lg shadow p-6 border border-gray-200">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-semibold text-gray-900">Sales Trend</h2>
-            <div className="flex space-x-2">
-              <button
-                onClick={() => setChartDays(7)}
-                className={`px-3 py-1 rounded text-sm ${
-                  chartDays === 7
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                7D
-              </button>
-              <button
-                onClick={() => setChartDays(30)}
-                className={`px-3 py-1 rounded text-sm ${
-                  chartDays === 30
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                30D
-              </button>
-              <button
-                onClick={() => setChartDays(90)}
-                className={`px-3 py-1 rounded text-sm ${
-                  chartDays === 90
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                90D
-              </button>
-            </div>
           </div>
           {chartLoading ? (
             <div className="flex items-center justify-center py-12">

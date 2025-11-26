@@ -130,8 +130,8 @@ const PurchaseReturns = () => {
         product_name: item.product?.name,
         original_quantity: parseFloat(item.quantity),
         unit_cost: parseFloat(item.unit_cost),
-        inventory_instance_id: item.inventory_instance_id,
-        instance_code: item.inventory_instance?.instance_code,
+        inventory_batch_id: item.inventory_batch_id,
+        instance_code: item.inventory_batch?.instance_code || item.inventory_batch?.batch_identifier,
         return_quantity: 0
       })) || []
     }));
@@ -155,7 +155,7 @@ const PurchaseReturns = () => {
       .map(item => ({
         purchase_item_id: item.purchase_item_id,
         quantity: item.return_quantity,
-        inventory_instance_id: item.inventory_instance_id
+        inventory_batch_id: item.inventory_batch_id
       }));
 
     if (itemsToReturn.length === 0) {

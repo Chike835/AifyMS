@@ -9,7 +9,7 @@ import {
   Product,
   Branch,
   User,
-  InventoryInstance,
+  InventoryBatch,
   ItemAssignment
 } from '../models/index.js';
 
@@ -278,7 +278,7 @@ export const approveSalesReturn = async (req, res, next) => {
                 {
                   model: ItemAssignment,
                   as: 'assignments',
-                  include: [{ model: InventoryInstance, as: 'inventory_instance' }]
+                  include: [{ model: InventoryBatch, as: 'inventory_batch' }]
                 }
               ]
             }
@@ -313,18 +313,18 @@ export const approveSalesReturn = async (req, res, next) => {
         for (const assignment of assignments) {
           const restoreQty = parseFloat(assignment.quantity_deducted) * ratio;
           
-          if (assignment.inventory_instance) {
-            const instance = await InventoryInstance.findByPk(
-              assignment.inventory_instance.id,
+          if (assignment.inventory_batch) {
+            const batch = await InventoryBatch.findByPk(
+              assignment.inventory_batch.id,
               { lock: transaction.LOCK.UPDATE, transaction }
             );
 
-            if (instance) {
-              instance.remaining_quantity = parseFloat(instance.remaining_quantity) + restoreQty;
-              if (instance.status === 'depleted' && instance.remaining_quantity > 0) {
-                instance.status = 'in_stock';
+            if (batch) {
+              batch.remaining_quantity = parseFloat(batch.remaining_quantity) + restoreQty;
+              if (batch.status === 'depleted' && batch.remaining_quantity > 0) {
+                batch.status = 'in_stock';
               }
-              await instance.save({ transaction });
+              await batch.save({ transaction });
             }
           }
         }

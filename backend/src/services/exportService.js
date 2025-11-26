@@ -1,4 +1,4 @@
-import { Product, InventoryInstance, SalesOrder, Customer, Branch } from '../models/index.js';
+import { Product, InventoryBatch, SalesOrder, Customer, Branch } from '../models/index.js';
 import { Op } from 'sequelize';
 
 /**
@@ -61,7 +61,7 @@ export const exportProducts = async (filters = {}) => {
 /**
  * Export inventory instances to CSV
  */
-export const exportInventoryInstances = async (filters = {}) => {
+export const exportInventoryBatches = async (filters = {}) => {
   const where = {};
 
   if (filters.branch_id) {
@@ -76,7 +76,7 @@ export const exportInventoryInstances = async (filters = {}) => {
     where.status = filters.status;
   }
 
-  const instances = await InventoryInstance.findAll({
+  const batches = await InventoryBatch.findAll({
     where,
     include: [
       { model: Product, as: 'product' },
@@ -85,18 +85,19 @@ export const exportInventoryInstances = async (filters = {}) => {
     order: [['instance_code', 'ASC']]
   });
 
-  const csvData = instances.map(inst => ({
-    instance_code: inst.instance_code,
-    product_sku: inst.product?.sku || '',
-    product_name: inst.product?.name || '',
-    branch_code: inst.branch?.code || '',
-    branch_name: inst.branch?.name || '',
-    initial_quantity: inst.initial_quantity,
-    remaining_quantity: inst.remaining_quantity,
-    status: inst.status
+  const csvData = batches.map(batch => ({
+    instance_code: batch.instance_code || batch.batch_identifier || '',
+    batch_type: batch.batch_type,
+    product_sku: batch.product?.sku || '',
+    product_name: batch.product?.name || '',
+    branch_code: batch.branch?.code || '',
+    branch_name: batch.branch?.name || '',
+    initial_quantity: batch.initial_quantity,
+    remaining_quantity: batch.remaining_quantity,
+    status: batch.status
   }));
 
-  const headers = ['instance_code', 'product_sku', 'product_name', 'branch_code', 'branch_name', 'initial_quantity', 'remaining_quantity', 'status'];
+  const headers = ['instance_code', 'batch_type', 'product_sku', 'product_name', 'branch_code', 'branch_name', 'initial_quantity', 'remaining_quantity', 'status'];
   return arrayToCSV(csvData, headers);
 };
 

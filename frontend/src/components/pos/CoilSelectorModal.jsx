@@ -35,8 +35,8 @@ const CoilSelectorModal = ({ isOpen, onClose, product, quantity, onConfirm }) =>
       setRecipe(recipeData);
 
       // Fetch available coils for the raw product
-      const coilsResponse = await api.get(`/inventory/instances/available/${recipeData.raw_product_id}`);
-      setAvailableCoils(coilsResponse.data.instances || []);
+      const batchesResponse = await api.get(`/inventory/batches/available/${recipeData.raw_product_id}`);
+      setAvailableCoils(batchesResponse.data.batches || []);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to load recipe or available coils');
     } finally {
@@ -46,15 +46,15 @@ const CoilSelectorModal = ({ isOpen, onClose, product, quantity, onConfirm }) =>
 
   const toggleCoilSelection = (coil) => {
     setSelectedCoils((prev) => {
-      const existing = prev.find((c) => c.inventory_instance_id === coil.id);
+      const existing = prev.find((c) => c.inventory_batch_id === coil.id);
       if (existing) {
-        return prev.filter((c) => c.inventory_instance_id !== coil.id);
+        return prev.filter((c) => c.inventory_batch_id !== coil.id);
       } else {
         // Add coil with max available quantity
         return [
           ...prev,
           {
-            inventory_instance_id: coil.id,
+            inventory_batch_id: coil.id,
             instance_code: coil.instance_code,
             available_quantity: parseFloat(coil.remaining_quantity),
             quantity_deducted: parseFloat(coil.remaining_quantity),
@@ -67,7 +67,7 @@ const CoilSelectorModal = ({ isOpen, onClose, product, quantity, onConfirm }) =>
   const updateQuantity = (coilId, quantity) => {
     setSelectedCoils((prev) =>
       prev.map((c) =>
-        c.inventory_instance_id === coilId
+        c.inventory_batch_id === coilId
           ? { ...c, quantity_deducted: Math.max(0, Math.min(parseFloat(quantity), c.available_quantity)) }
           : c
       )
@@ -129,8 +129,8 @@ const CoilSelectorModal = ({ isOpen, onClose, product, quantity, onConfirm }) =>
               ) : (
                 <div className="space-y-3">
                   {availableCoils.map((coil) => {
-                    const isSelected = selectedCoils.some((c) => c.inventory_instance_id === coil.id);
-                    const selectedCoil = selectedCoils.find((c) => c.inventory_instance_id === coil.id);
+                    const isSelected = selectedCoils.some((c) => c.inventory_batch_id === coil.id);
+                    const selectedCoil = selectedCoils.find((c) => c.inventory_batch_id === coil.id);
 
                     return (
                       <div

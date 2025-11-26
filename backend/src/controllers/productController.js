@@ -259,14 +259,14 @@ export const getProductStock = async (req, res, next) => {
       return res.status(400).json({ error: 'Stock tracking is only available for raw_tracked products' });
     }
 
-    const { InventoryInstance, Branch } = await import('../models/index.js');
+    const { InventoryBatch, Branch } = await import('../models/index.js');
     
     const where = { product_id: id };
     if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
       where.branch_id = req.user.branch_id;
     }
 
-    const instances = await InventoryInstance.findAll({
+    const batches = await InventoryBatch.findAll({
       where,
       include: [
         { model: Branch, as: 'branch', attributes: ['id', 'name', 'code'] }
@@ -278,18 +278,18 @@ export const getProductStock = async (req, res, next) => {
     const branchTotals = {};
     let grandTotal = 0;
 
-    instances.forEach(instance => {
-      const branchId = instance.branch_id;
+    batches.forEach(batch => {
+      const branchId = batch.branch_id;
       if (!branchTotals[branchId]) {
         branchTotals[branchId] = {
-          branch: instance.branch,
+          branch: batch.branch,
           total_quantity: 0,
-          instances: []
+          batches: []
         };
       }
-      branchTotals[branchId].total_quantity += parseFloat(instance.remaining_quantity);
-      branchTotals[branchId].instances.push(instance);
-      grandTotal += parseFloat(instance.remaining_quantity);
+      branchTotals[branchId].total_quantity += parseFloat(batch.remaining_quantity);
+      branchTotals[branchId].batches.push(batch);
+      grandTotal += parseFloat(batch.remaining_quantity);
     });
 
     res.json({
@@ -301,7 +301,7 @@ export const getProductStock = async (req, res, next) => {
       },
       branch_totals: Object.values(branchTotals),
       grand_total: grandTotal,
-      instances
+      batches
     });
   } catch (error) {
     next(error);

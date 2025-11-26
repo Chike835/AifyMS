@@ -3,8 +3,11 @@
 @tailwind utilities;
 
 /* Ensure body and root are visible even if Tailwind fails to load */
-body {
+html, body {
   margin: 0;
+  padding: 0;
+  height: 100vh;
+  overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
@@ -15,12 +18,76 @@ body {
 }
 
 #root {
-  min-height: 100vh;
+  height: 100vh;
   display: block; /* Ensure root is visible */
+  overflow: hidden;
 }
 
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
+}
+
+/* Custom Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Firefox Scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #888 #f1f1f1;
+}
+
+/* Print Media Queries */
+@media print {
+  /* Hide sidebar, navigation, and action buttons */
+  aside,
+  nav,
+  button:not(.print-keep),
+  .no-print {
+    display: none !important;
+  }
+
+  /* Full width for main content */
+  main {
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Page setup */
+  @page {
+    margin: 1cm;
+  }
+
+  /* Ensure tables and charts print correctly */
+  table {
+    page-break-inside: avoid;
+  }
+
+  canvas {
+    page-break-inside: avoid;
+  }
+
+  /* Remove background colors for printing */
+  * {
+    background: white !important;
+    color: black !important;
+  }
 }
 

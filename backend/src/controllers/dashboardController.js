@@ -5,7 +5,7 @@ import {
   Payment,
   Product,
   Customer,
-  InventoryInstance,
+  InventoryBatch,
   Purchase,
   Expense,
   Branch,
@@ -60,7 +60,7 @@ export const getDashboardStats = async (req, res, next) => {
     });
 
     // Low stock alerts (instances with remaining_quantity < 10% of initial_quantity)
-    const lowStockInstances = await InventoryInstance.findAll({
+    const lowStockBatches = await InventoryBatch.findAll({
       where: {
         ...where,
         status: 'in_stock'
@@ -70,9 +70,9 @@ export const getDashboardStats = async (req, res, next) => {
       ]
     });
 
-    const lowStockCount = lowStockInstances.filter(instance => {
-      const remaining = parseFloat(instance.remaining_quantity);
-      const initial = parseFloat(instance.initial_quantity);
+    const lowStockCount = lowStockBatches.filter(batch => {
+      const remaining = parseFloat(batch.remaining_quantity);
+      const initial = parseFloat(batch.initial_quantity);
       return remaining > 0 && (remaining / initial) < 0.1;
     }).length;
 
@@ -348,7 +348,7 @@ export const getLowStockAlerts = async (req, res, next) => {
     }
 
     // Get all in-stock instances
-    const instances = await InventoryInstance.findAll({
+    const batches = await InventoryBatch.findAll({
       where,
       include: [
         { model: Product, as: 'product', attributes: ['id', 'name', 'sku', 'type'] },
@@ -357,9 +357,9 @@ export const getLowStockAlerts = async (req, res, next) => {
     });
 
     // Filter for low stock (less than 10% remaining)
-    const lowStockItems = instances
-      .filter(instance => {
-        const remaining = parseFloat(instance.remaining_quantity);
+    const lowStockItems = batches
+      .filter(batch => {
+        const remaining = parseFloat(batch.remaining_quantity);
         const initial = parseFloat(instance.initial_quantity);
         return remaining > 0 && (remaining / initial) < 0.1;
       })
@@ -446,6 +446,7 @@ export const getPendingActions = async (req, res, next) => {
     next(error);
   }
 };
+
 
 
 

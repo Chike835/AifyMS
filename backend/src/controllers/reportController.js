@@ -11,7 +11,7 @@ import {
   Payment,
   Expense,
   ExpenseCategory,
-  InventoryInstance,
+  InventoryBatch,
   Branch,
   User,
   PaymentAccount,
@@ -205,7 +205,7 @@ export const getInventoryValue = async (req, res, next) => {
     }
 
     // Get inventory instances with product info
-    const instances = await InventoryInstance.findAll({
+    const batches = await InventoryBatch.findAll({
       where,
       include: [
         { 
@@ -570,7 +570,7 @@ export const getBalanceSheet = async (req, res, next) => {
     }) || 0;
 
     // - Inventory Value (at cost)
-    const inventoryValue = await InventoryInstance.findAll({
+    const inventoryValue = await InventoryBatch.findAll({
       where: { ...where, status: 'in_stock' },
       include: [{ model: Product, as: 'product', attributes: ['cost_price'] }]
     });
@@ -686,7 +686,7 @@ export const getTrialBalance = async (req, res, next) => {
       where: { ...where, account_type: { [Op.in]: ['cash', 'bank'] }, is_active: true }
     }) || 0;
 
-    const inventoryDebit = await InventoryInstance.findAll({
+    const inventoryDebit = await InventoryBatch.findAll({
       where: { ...where, status: 'in_stock' },
       include: [{ model: Product, as: 'product', attributes: ['cost_price'] }]
     });
@@ -852,8 +852,8 @@ export const getStockAdjustmentReport = async (req, res, next) => {
       where,
       include: [
         {
-          model: InventoryInstance,
-          as: 'inventory_instance',
+          model: InventoryBatch,
+          as: 'inventory_batch',
           where: instanceWhere,
           include: [
             { model: Product, as: 'product', attributes: ['id', 'sku', 'name', 'base_unit'] },
@@ -882,9 +882,9 @@ export const getStockAdjustmentReport = async (req, res, next) => {
       },
       adjustments: adjustments.map(a => ({
         id: a.id,
-        product: a.inventory_instance?.product,
-        branch: a.inventory_instance?.branch,
-        instance_code: a.inventory_instance?.instance_code,
+        product: a.inventory_batch?.product,
+        branch: a.inventory_batch?.branch,
+        instance_code: a.inventory_batch?.instance_code || a.inventory_batch?.batch_identifier,
         old_quantity: parseFloat(a.old_quantity),
         new_quantity: parseFloat(a.new_quantity),
         change: parseFloat(a.new_quantity) - parseFloat(a.old_quantity),

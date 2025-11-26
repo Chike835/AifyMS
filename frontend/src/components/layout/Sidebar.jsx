@@ -58,11 +58,13 @@ const Sidebar = () => {
 
   const menuStructure = [
     {
-      type: 'item',
-      name: 'Dashboard',
-      path: '/',
-      icon: LayoutDashboard,
+      type: 'group',
+      name: 'Home',
+      icon: Home,
       permission: null,
+      items: [
+        { name: 'Dashboard', path: '/', icon: LayoutDashboard, permission: null },
+      ],
     },
     {
       type: 'group',
@@ -96,22 +98,28 @@ const Sidebar = () => {
           type: 'subgroup',
           name: 'Products',
           items: [
-            { name: 'List', path: '/products', icon: List, permission: 'product_view' },
-            { name: 'Add Product', path: '/products', icon: Plus, permission: 'product_add', action: 'add' },
+            { name: 'List Products', path: '/products', icon: List, permission: 'product_view' },
+            { name: 'Add Product', path: '/products/add', icon: Plus, permission: 'product_add' },
             { name: 'Update Price', path: '/products/update-price', icon: DollarSign, permission: 'product_edit' },
             { name: 'Print Labels', path: '/inventory/print-labels', icon: Printer, permission: 'stock_add_opening' },
-            { name: 'Import Products', path: '/inventory/import', icon: Upload, permission: 'data_import' },
+          ],
+        },
+        {
+          type: 'subgroup',
+          name: 'Stock Operations',
+          items: [
             { name: 'Stock Transfer', path: '/inventory/stock-transfer', icon: Truck, permission: 'stock_transfer_init' },
             { name: 'Stock Adjustment', path: '/inventory/stock-adjustment', icon: RotateCcw, permission: 'stock_adjust' },
           ],
         },
         {
           type: 'subgroup',
-          name: 'Inventory Settings',
+          name: 'Settings',
           items: [
             { name: 'Variations', path: '/inventory/settings/variations', icon: Settings, permission: 'product_view' },
             { name: 'Units', path: '/inventory/settings/units', icon: Settings, permission: 'product_view' },
             { name: 'Categories', path: '/inventory/settings/categories', icon: Settings, permission: 'product_view' },
+            { name: 'Batches', path: '/inventory/settings/batches', icon: Settings, permission: 'admin_access' },
             { name: 'Brands', path: '/settings', icon: Settings, permission: 'product_view', action: 'brands' },
             { name: 'Warranties', path: '/inventory/settings/warranties', icon: Settings, permission: 'product_view' },
           ],
@@ -303,6 +311,10 @@ const Sidebar = () => {
 
       if (!hasVisibleItems(item)) return null;
 
+      // Special handling for Reports subgroup - make it scrollable
+      const isReportsSubgroup = item.name === 'Reports';
+      const maxHeight = isReportsSubgroup ? 'max-h-64' : '';
+
       return (
         <div key={subgroupKey} className="space-y-1">
           <button
@@ -321,7 +333,7 @@ const Sidebar = () => {
             )}
           </button>
           {isExpanded && (
-            <div className="ml-4 space-y-1">
+            <div className={`ml-4 space-y-1 ${isReportsSubgroup ? 'overflow-y-auto ' + maxHeight : ''}`}>
               {item.items.map((subItem) => renderMenuItem(subItem, level + 2))}
             </div>
           )}

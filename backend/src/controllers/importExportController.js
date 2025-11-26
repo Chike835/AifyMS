@@ -100,7 +100,7 @@ export const importData = async (req, res, next) => {
         results = await importService.importProducts(data);
         break;
       case 'inventory':
-        results = await importService.importInventoryInstances(data);
+        results = await importService.importInventoryBatches(data);
         break;
       case 'customers':
         results = await importService.importCustomers(data, req.user);
@@ -163,7 +163,7 @@ export const exportData = async (req, res, next) => {
         filename = `products_${new Date().toISOString().split('T')[0]}.csv`;
         break;
       case 'inventory':
-        csvContent = await exportService.exportInventoryInstances(filters);
+        csvContent = await exportService.exportInventoryBatches(filters);
         filename = `inventory_${new Date().toISOString().split('T')[0]}.csv`;
         break;
       case 'sales':

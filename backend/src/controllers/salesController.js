@@ -1,5 +1,5 @@
 import sequelize from '../config/db.js';
-import { SalesOrder, SalesItem, ItemAssignment, Product, InventoryInstance, Recipe, Customer, Branch, User, Agent, AgentCommission } from '../models/index.js';
+import { SalesOrder, SalesItem, ItemAssignment, Product, InventoryBatch, Recipe, Customer, Branch, User, Agent, AgentCommission } from '../models/index.js';
 import { Op } from 'sequelize';
 
 /**
@@ -190,18 +190,18 @@ export const createSale = async (req, res, next) => {
 
         // Process each assignment
         for (const assignment of item_assignments) {
-          const { inventory_instance_id, quantity_deducted } = assignment;
+          const { inventory_batch_id, quantity_deducted } = assignment;
 
-          if (!inventory_instance_id || quantity_deducted === undefined) {
+          if (!inventory_batch_id || quantity_deducted === undefined) {
             await transaction.rollback();
             return res.status(400).json({ 
-              error: 'Each assignment must have inventory_instance_id and quantity_deducted' 
+              error: 'Each assignment must have inventory_batch_id and quantity_deducted' 
             });
           }
 
-          // Get inventory instance with lock (FOR UPDATE)
-          const inventoryInstance = await InventoryInstance.findByPk(
-            inventory_instance_id,
+          // Get inventory batch with lock (FOR UPDATE)
+          const inventoryBatch = await InventoryBatch.findByPk(
+            inventory_batch_id,
             { 
               lock: transaction.LOCK.UPDATE,
               transaction 
@@ -211,12 +211,12 @@ export const createSale = async (req, res, next) => {
           if (!inventoryInstance) {
             await transaction.rollback();
             return res.status(404).json({ 
-              error: `Inventory instance ${inventory_instance_id} not found` 
+              error: `Inventory batch ${inventory_batch_id} not found` 
             });
           }
 
           // Verify it's the correct raw product
-          if (inventoryInstance.product_id !== recipe.raw_product_id) {
+          if (inventoryBatch.product_id !== recipe.raw_product_id) {
             await transaction.rollback();
             return res.status(400).json({ 
               error: `Inventory instance does not match recipe raw product` 
@@ -225,27 +225,27 @@ export const createSale = async (req, res, next) => {
 
           // Check sufficient stock
           const qtyToDeduct = parseFloat(quantity_deducted);
-          if (inventoryInstance.remaining_quantity < qtyToDeduct) {
+          if (inventoryBatch.remaining_quantity < qtyToDeduct) {
             await transaction.rollback();
             return res.status(400).json({ 
-              error: `Insufficient stock in ${inventoryInstance.instance_code}. Available: ${inventoryInstance.remaining_quantity}, Required: ${qtyToDeduct}` 
+              error: `Insufficient stock in ${inventoryBatch.instance_code || inventoryBatch.batch_identifier}. Available: ${inventoryBatch.remaining_quantity}, Required: ${qtyToDeduct}` 
             });
           }
 
           // Deduct from inventory
-          inventoryInstance.remaining_quantity -= qtyToDeduct;
+          inventoryBatch.remaining_quantity -= qtyToDeduct;
           
           // Update status if depleted
-          if (inventoryInstance.remaining_quantity <= 0) {
-            inventoryInstance.status = 'depleted';
+          if (inventoryBatch.remaining_quantity <= 0) {
+            inventoryBatch.status = 'depleted';
           }
 
-          await inventoryInstance.save({ transaction });
+          await inventoryBatch.save({ transaction });
 
           // Create item assignment record
           await ItemAssignment.create({
             sales_item_id: salesItem.id,
-            inventory_instance_id,
+            inventory_batch_id,
             quantity_deducted: qtyToDeduct
           }, { transaction });
         }
@@ -295,8 +295,8 @@ export const createSale = async (req, res, next) => {
               as: 'assignments',
               include: [
                 {
-                  model: InventoryInstance,
-                  as: 'inventory_instance',
+                  model: InventoryBatch,
+                  as: 'inventory_batch',
                   include: [{ model: Product, as: 'product' }]
                 }
               ]
@@ -410,8 +410,8 @@ export const getSaleById = async (req, res, next) => {
               as: 'assignments',
               include: [
                 {
-                  model: InventoryInstance,
-                  as: 'inventory_instance',
+                  model: InventoryBatch,
+                  as: 'inventory_batch',
                   include: [{ model: Product, as: 'product' }]
                 }
               ]
@@ -536,8 +536,8 @@ export const getProductionQueue = async (req, res, next) => {
               as: 'assignments',
               include: [
                 {
-                  model: InventoryInstance,
-                  as: 'inventory_instance',
+                  model: InventoryBatch,
+                  as: 'inventory_batch',
                   include: [{ model: Product, as: 'product' }]
                 }
               ]
@@ -832,40 +832,40 @@ export const convertDraftToInvoice = async (req, res, next) => {
 
         // Process each assignment
         for (const assignment of itemAssignments) {
-          const { inventory_instance_id, quantity_deducted } = assignment;
+          const { inventory_batch_id, quantity_deducted } = assignment;
           totalAssigned += parseFloat(quantity_deducted);
 
           // Get and lock inventory instance
-          const instance = await InventoryInstance.findByPk(inventory_instance_id, {
+          const batch = await InventoryBatch.findByPk(inventory_batch_id, {
             lock: transaction.LOCK.UPDATE,
             transaction
           });
 
-          if (!instance) {
+          if (!batch) {
             await transaction.rollback();
             return res.status(404).json({
-              error: `Inventory instance not found: ${inventory_instance_id}`
+              error: `Inventory batch not found: ${inventory_batch_id}`
             });
           }
 
-          if (instance.remaining_quantity < quantity_deducted) {
+          if (batch.remaining_quantity < quantity_deducted) {
             await transaction.rollback();
             return res.status(400).json({
-              error: `Insufficient stock in ${instance.instance_code}`
+              error: `Insufficient stock in ${batch.instance_code || batch.batch_identifier}`
             });
           }
 
           // Deduct inventory
-          instance.remaining_quantity -= quantity_deducted;
-          if (instance.remaining_quantity <= 0) {
-            instance.status = 'depleted';
+          batch.remaining_quantity -= quantity_deducted;
+          if (batch.remaining_quantity <= 0) {
+            batch.status = 'depleted';
           }
-          await instance.save({ transaction });
+          await batch.save({ transaction });
 
           // Create item assignment
           await ItemAssignment.create({
             sales_item_id: item.id,
-            inventory_instance_id,
+            inventory_batch_id,
             quantity_deducted
           }, { transaction });
         }
@@ -902,7 +902,7 @@ export const convertDraftToInvoice = async (req, res, next) => {
             {
               model: ItemAssignment,
               as: 'assignments',
-              include: [{ model: InventoryInstance, as: 'inventory_instance' }]
+              include: [{ model: InventoryBatch, as: 'inventory_batch' }]
             }
           ]
         }
@@ -1088,40 +1088,40 @@ export const convertQuotationToInvoice = async (req, res, next) => {
 
         // Process each assignment
         for (const assignment of itemAssignments) {
-          const { inventory_instance_id, quantity_deducted } = assignment;
+          const { inventory_batch_id, quantity_deducted } = assignment;
           totalAssigned += parseFloat(quantity_deducted);
 
           // Get and lock inventory instance
-          const instance = await InventoryInstance.findByPk(inventory_instance_id, {
+          const batch = await InventoryBatch.findByPk(inventory_batch_id, {
             lock: transaction.LOCK.UPDATE,
             transaction
           });
 
-          if (!instance) {
+          if (!batch) {
             await transaction.rollback();
             return res.status(404).json({
-              error: `Inventory instance not found: ${inventory_instance_id}`
+              error: `Inventory batch not found: ${inventory_batch_id}`
             });
           }
 
-          if (instance.remaining_quantity < quantity_deducted) {
+          if (batch.remaining_quantity < quantity_deducted) {
             await transaction.rollback();
             return res.status(400).json({
-              error: `Insufficient stock in ${instance.instance_code}`
+              error: `Insufficient stock in ${batch.instance_code || batch.batch_identifier}`
             });
           }
 
           // Deduct inventory
-          instance.remaining_quantity -= quantity_deducted;
-          if (instance.remaining_quantity <= 0) {
-            instance.status = 'depleted';
+          batch.remaining_quantity -= quantity_deducted;
+          if (batch.remaining_quantity <= 0) {
+            batch.status = 'depleted';
           }
-          await instance.save({ transaction });
+          await batch.save({ transaction });
 
           // Create item assignment
           await ItemAssignment.create({
             sales_item_id: item.id,
-            inventory_instance_id,
+            inventory_batch_id,
             quantity_deducted
           }, { transaction });
         }
@@ -1160,7 +1160,7 @@ export const convertQuotationToInvoice = async (req, res, next) => {
             {
               model: ItemAssignment,
               as: 'assignments',
-              include: [{ model: InventoryInstance, as: 'inventory_instance' }]
+              include: [{ model: InventoryBatch, as: 'inventory_batch' }]
             }
           ]
         }
@@ -1252,8 +1252,8 @@ export const cancelSale = async (req, res, next) => {
               as: 'assignments',
               include: [
                 {
-                  model: InventoryInstance,
-                  as: 'inventory_instance'
+                  model: InventoryBatch,
+                  as: 'inventory_batch'
                 }
               ]
             }
@@ -1278,18 +1278,18 @@ export const cancelSale = async (req, res, next) => {
         for (const item of order.items) {
           if (item.assignments && item.assignments.length > 0) {
             for (const assignment of item.assignments) {
-              const instance = await InventoryInstance.findByPk(
-                assignment.inventory_instance_id,
+              const batch = await InventoryBatch.findByPk(
+                assignment.inventory_batch_id,
                 { transaction }
               );
               
-              if (instance) {
+              if (batch) {
                 // Reverse the inventory deduction
-                instance.remaining_quantity += parseFloat(assignment.quantity_deducted);
-                if (instance.status === 'depleted' && instance.remaining_quantity > 0) {
-                  instance.status = 'in_stock';
+                batch.remaining_quantity += parseFloat(assignment.quantity_deducted);
+                if (batch.status === 'depleted' && batch.remaining_quantity > 0) {
+                  batch.status = 'in_stock';
                 }
-                await instance.save({ transaction });
+                await batch.save({ transaction });
               }
             }
           }

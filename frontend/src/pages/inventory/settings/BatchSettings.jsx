@@ -1,0 +1,461 @@
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '../../../context/AuthContext';
+import api from '../../../utils/api';
+import { Package, Plus, Edit, Trash2, X, Check, Search } from 'lucide-react';
+
+const BatchSettings = () => {
+  const { hasPermission } = useAuth();
+  const queryClient = useQueryClient();
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedType, setSelectedType] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [formData, setFormData] = useState({
+    name: '',
+    description: ''
+  });
+
+  // Fetch all batch types
+  const { data: batchTypesData, isLoading: typesLoading } = useQuery({
+    queryKey: ['batchTypes'],
+    queryFn: async () => {
+      const response = await api.get('/settings/batches/types');
+      return response.data.batch_types || [];
+    },
+  });
+
+  // Fetch all categories
+  const { data: categoriesData, isLoading: categoriesLoading } = useQuery({
+    queryKey: ['categories'],
+    queryFn: async () => {
+      const response = await api.get('/categories');
+      return response.data.categories || [];
+    },
+  });
+
+  // Fetch category-batch type assignments
+  const { data: assignmentsData, isLoading: assignmentsLoading } = useQuery({
+    queryKey: ['categoryBatchAssignments'],
+    queryFn: async () => {
+      const response = await api.get('/settings/batches/assignments');
+      return response.data.assignments || [];
+    },
+  });
+
+  // Create batch type mutation
+  const createMutation = useMutation({
+    mutationFn: async (data) => {
+      const response = await api.post('/settings/batches/types', data);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['batchTypes'] });
+      setShowCreateModal(false);
+      resetForm();
+      alert('Batch type created successfully!');
+    },
+    onError: (error) => {
+      alert(error.response?.data?.error || 'Failed to create batch type');
+    },
+  });
+
+  // Update batch type mutation
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }) => {
+      const response = await api.put(`/settings/batches/types/${id}`, data);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['batchTypes'] });
+      setShowEditModal(false);
+      setSelectedType(null);
+      resetForm();
+      alert('Batch type updated successfully!');
+    },
+    onError: (error) => {
+      alert(error.response?.data?.error || 'Failed to update batch type');
+    },
+  });
+
+  // Delete batch type mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (id) => {
+      const response = await api.delete(`/settings/batches/types/${id}`);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['batchTypes'] });
+      queryClient.invalidateQueries({ queryKey: ['categoryBatchAssignments'] });
+      alert('Batch type deleted successfully!');
+    },
+    onError: (error) => {
+      alert(error.response?.data?.error || 'Failed to delete batch type');
+    },
+  });
+
+  // Assign batch type to category mutation
+  const assignMutation = useMutation({
+    mutationFn: async ({ category_id, batch_type_id }) => {
+      const response = await api.post('/settings/batches/assignments', {
+        category_id,
+        batch_type_id
+      });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['categoryBatchAssignments'] });
+      alert('Batch type assigned to category successfully!');
+    },
+    onError: (error) => {
+      alert(error.response?.data?.error || 'Failed to assign batch type');
+    },
+  });
+
+  // Remove batch type from category mutation
+  const removeAssignmentMutation = useMutation({
+    mutationFn: async ({ category_id, batch_type_id }) => {
+      const response = await api.delete(
+        `/settings/batches/assignments?category_id=${category_id}&batch_type_id=${batch_type_id}`
+      );
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['categoryBatchAssignments'] });
+      alert('Batch type removed from category successfully!');
+    },
+    onError: (error) => {
+      alert(error.response?.data?.error || 'Failed to remove assignment');
+    },
+  });
+
+  const resetForm = () => {
+    setFormData({ name: '', description: '' });
+  };
+
+  const handleCreateSubmit = (e) => {
+    e.preventDefault();
+    createMutation.mutate(formData);
+  };
+
+  const handleEdit = (type) => {
+    setSelectedType(type);
+    setFormData({
+      name: type.name,
+      description: type.description || ''
+    });
+    setShowEditModal(true);
+  };
+
+  const handleEditSubmit = (e) => {
+    e.preventDefault();
+    updateMutation.mutate({ id: selectedType.id, data: formData });
+  };
+
+  const handleDelete = (type) => {
+    if (window.confirm(`Are you sure you want to delete batch type "${type.name}"?`)) {
+      deleteMutation.mutate(type.id);
+    }
+  };
+
+  const handleToggleAssignment = (categoryId, batchTypeId, isAssigned) => {
+    if (isAssigned) {
+      if (window.confirm('Remove this batch type from the category?')) {
+        removeAssignmentMutation.mutate({ category_id: categoryId, batch_type_id: batchTypeId });
+      }
+    } else {
+      assignMutation.mutate({ category_id: categoryId, batch_type_id: batchTypeId });
+    }
+  };
+
+  const isAssigned = (categoryId, batchTypeId) => {
+    const assignment = assignmentsData?.find(a => a.category.id === categoryId);
+    return assignment?.batch_types?.some(bt => bt.id === batchTypeId) || false;
+  };
+
+  const batchTypes = batchTypesData || [];
+  const categories = categoriesData || [];
+  const assignments = assignmentsData || [];
+
+  // Filter categories by search term
+  const filteredCategories = categories.filter(cat =>
+    !searchTerm || cat.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  if (typesLoading || categoriesLoading || assignmentsLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Batch Configuration</h1>
+          <p className="text-gray-600 mt-2">Manage batch types and assign them to categories</p>
+        </div>
+        {hasPermission('admin_access') && (
+          <button
+            onClick={() => {
+              resetForm();
+              setShowCreateModal(true);
+            }}
+            className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+          >
+            <Plus className="h-5 w-5" />
+            <span>Create Batch Type</span>
+          </button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Batch Types List */}
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Batch Types</h2>
+          <div className="space-y-3">
+            {batchTypes.length === 0 ? (
+              <p className="text-gray-500 text-center py-8">No batch types found</p>
+            ) : (
+              batchTypes.map((type) => (
+                <div
+                  key={type.id}
+                  className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
+                >
+                  <div className="flex-1">
+                    <div className="font-medium text-gray-900">{type.name}</div>
+                    {type.description && (
+                      <div className="text-sm text-gray-500 mt-1">{type.description}</div>
+                    )}
+                    <div className="flex items-center space-x-2 mt-1">
+                      <span
+                        className={`px-2 py-0.5 text-xs rounded-full ${
+                          type.is_active
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-gray-100 text-gray-800'
+                        }`}
+                      >
+                        {type.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+                  </div>
+                  {hasPermission('admin_access') && (
+                    <div className="flex space-x-2 ml-4">
+                      <button
+                        onClick={() => handleEdit(type)}
+                        className="text-blue-600 hover:text-blue-900"
+                        title="Edit"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(type)}
+                        className="text-red-600 hover:text-red-900"
+                        title="Delete"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Category-Batch Type Assignment Matrix */}
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Category Assignments</h2>
+          
+          {/* Search */}
+          <div className="relative mb-4">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search categories..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+            />
+          </div>
+
+          {/* Assignment Matrix */}
+          <div className="space-y-4 max-h-[600px] overflow-y-auto">
+            {filteredCategories.length === 0 ? (
+              <p className="text-gray-500 text-center py-8">No categories found</p>
+            ) : (
+              filteredCategories.map((category) => (
+                <div key={category.id} className="border border-gray-200 rounded-lg p-4">
+                  <div className="font-medium text-gray-900 mb-3">{category.name}</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {batchTypes.filter(bt => bt.is_active).map((batchType) => {
+                      const assigned = isAssigned(category.id, batchType.id);
+                      return (
+                        <label
+                          key={batchType.id}
+                          className={`flex items-center space-x-2 p-2 rounded cursor-pointer transition-colors ${
+                            assigned
+                              ? 'bg-blue-50 border border-blue-200'
+                              : 'bg-gray-50 border border-gray-200 hover:bg-gray-100'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={assigned}
+                            onChange={() => handleToggleAssignment(category.id, batchType.id, assigned)}
+                            disabled={!hasPermission('admin_access')}
+                            className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                          />
+                          <span className="text-sm text-gray-700">{batchType.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Create Batch Type Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">Create Batch Type</h2>
+              <button
+                onClick={() => {
+                  setShowCreateModal(false);
+                  resetForm();
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="e.g., Carton"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Description
+                </label>
+                <textarea
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Optional description"
+                  rows="3"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+              <div className="flex space-x-4 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCreateModal(false);
+                    resetForm();
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={createMutation.isPending}
+                  className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {createMutation.isPending ? 'Creating...' : 'Create'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Batch Type Modal */}
+      {showEditModal && selectedType && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">Edit Batch Type</h2>
+              <button
+                onClick={() => {
+                  setShowEditModal(false);
+                  setSelectedType(null);
+                  resetForm();
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={handleEditSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Description
+                </label>
+                <textarea
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  rows="3"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+              <div className="flex space-x-4 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setSelectedType(null);
+                    resetForm();
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={updateMutation.isPending}
+                  className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {updateMutation.isPending ? 'Updating...' : 'Update'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default BatchSettings;
+
+

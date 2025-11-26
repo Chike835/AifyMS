@@ -24,6 +24,14 @@ const SalesItem = sequelize.define('SalesItem', {
       key: 'id'
     }
   },
+  inventory_batch_id: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    references: {
+      model: 'inventory_batches',
+      key: 'id'
+    }
+  },
   quantity: {
     type: DataTypes.DECIMAL(15, 3),
     allowNull: false

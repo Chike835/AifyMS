@@ -142,10 +142,13 @@ CREATE TABLE categories (
     name VARCHAR(200) NOT NULL,
     parent_id UUID REFERENCES categories(id),
     description TEXT,
+    unit_type VARCHAR(50),
+    attribute_schema JSONB DEFAULT '[]'::jsonb,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_categories_parent_id ON categories(parent_id);
+CREATE INDEX idx_categories_attribute_schema ON categories USING GIN(attribute_schema);
 
 -- Warranties table
 CREATE TABLE warranties (
@@ -161,19 +164,50 @@ CREATE TABLE warranties (
 ALTER TABLE products ADD COLUMN IF NOT EXISTS warranty_id UUID REFERENCES warranties(id);
 CREATE INDEX idx_products_warranty_id ON products(warranty_id);
 
--- Inventory Instances table (Tracks physical coils/pallets individually)
-CREATE TABLE inventory_instances (
+-- Batch Types table (Dynamic batch type configuration)
+CREATE TABLE batch_types (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(100) NOT NULL UNIQUE,
+    description TEXT,
+    created_by UUID REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT true
+);
+CREATE INDEX idx_batch_types_name ON batch_types(name);
+CREATE INDEX idx_batch_types_active ON batch_types(is_active);
+
+-- Category-Batch Types junction table (Many-to-Many relationship)
+CREATE TABLE category_batch_types (
+    category_id UUID NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+    batch_type_id UUID NOT NULL REFERENCES batch_types(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (category_id, batch_type_id)
+);
+CREATE INDEX idx_category_batch_types_category ON category_batch_types(category_id);
+CREATE INDEX idx_category_batch_types_batch_type ON category_batch_types(batch_type_id);
+
+-- Inventory Batches table (Tracks physical coils/pallets/cartons/loose materials)
+CREATE TABLE inventory_batches (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     product_id UUID NOT NULL REFERENCES products(id),
     branch_id UUID NOT NULL REFERENCES branches(id),
-    instance_code VARCHAR(100) NOT NULL UNIQUE,
+    category_id UUID REFERENCES categories(id),
+    instance_code VARCHAR(100) UNIQUE,
+    batch_type_id UUID NOT NULL REFERENCES batch_types(id),
+    grouped BOOLEAN NOT NULL DEFAULT true,
+    batch_identifier VARCHAR(100),
     initial_quantity DECIMAL(15, 3) NOT NULL,
     remaining_quantity DECIMAL(15, 3) NOT NULL,
     status instance_status DEFAULT 'in_stock',
+    attribute_data JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CHECK (remaining_quantity >= 0),
-    CHECK (remaining_quantity <= initial_quantity)
+    CHECK (remaining_quantity <= initial_quantity),
+    CHECK (
+        (grouped = true AND instance_code IS NOT NULL) OR 
+        (grouped = false)
+    )
 );
 
 -- Recipes table (Conversion rules for Manufacturing)
@@ -222,6 +256,7 @@ CREATE TABLE sales_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     order_id UUID NOT NULL REFERENCES sales_orders(id) ON DELETE CASCADE,
     product_id UUID NOT NULL REFERENCES products(id),
+    inventory_batch_id UUID REFERENCES inventory_batches(id),
     quantity DECIMAL(15, 3) NOT NULL,
     unit_price DECIMAL(15, 2) NOT NULL,
     subtotal DECIMAL(15, 2) NOT NULL,
@@ -231,11 +266,11 @@ CREATE TABLE sales_items (
     CHECK (subtotal >= 0)
 );
 
--- Item Assignments table (Links a sale item to the specific coil used)
+-- Item Assignments table (Links a sale item to the specific batch used)
 CREATE TABLE item_assignments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     sales_item_id UUID NOT NULL REFERENCES sales_items(id) ON DELETE CASCADE,
-    inventory_instance_id UUID NOT NULL REFERENCES inventory_instances(id),
+    inventory_batch_id UUID NOT NULL REFERENCES inventory_batches(id),
     quantity_deducted DECIMAL(15, 3) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CHECK (quantity_deducted > 0)
@@ -280,7 +315,7 @@ CREATE TABLE purchase_items (
     unit_cost DECIMAL(15, 2) NOT NULL,
     subtotal DECIMAL(15, 2) NOT NULL,
     instance_code VARCHAR(100),
-    inventory_instance_id UUID REFERENCES inventory_instances(id),
+    inventory_batch_id UUID REFERENCES inventory_batches(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CHECK (quantity > 0),
     CHECK (unit_cost >= 0),
@@ -290,7 +325,7 @@ CREATE TABLE purchase_items (
 -- Stock Transfers table (tracking inventory movement between branches)
 CREATE TABLE stock_transfers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    inventory_instance_id UUID NOT NULL REFERENCES inventory_instances(id),
+    inventory_batch_id UUID NOT NULL REFERENCES inventory_batches(id),
     from_branch_id UUID NOT NULL REFERENCES branches(id),
     to_branch_id UUID NOT NULL REFERENCES branches(id),
     user_id UUID NOT NULL REFERENCES users(id),
@@ -302,7 +337,7 @@ CREATE TABLE stock_transfers (
 -- Stock Adjustments table (tracking quantity corrections with reasons)
 CREATE TABLE stock_adjustments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    inventory_instance_id UUID NOT NULL REFERENCES inventory_instances(id),
+    inventory_batch_id UUID NOT NULL REFERENCES inventory_batches(id),
     old_quantity DECIMAL(15, 3) NOT NULL,
     new_quantity DECIMAL(15, 3) NOT NULL,
     reason TEXT NOT NULL,
@@ -314,7 +349,7 @@ CREATE TABLE stock_adjustments (
 -- Production Wastage table (tracking manufacturing losses)
 CREATE TABLE production_wastage (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    inventory_instance_id UUID NOT NULL REFERENCES inventory_instances(id),
+    inventory_batch_id UUID NOT NULL REFERENCES inventory_batches(id),
     quantity_wasted DECIMAL(15, 3) NOT NULL,
     reason TEXT NOT NULL,
     user_id UUID NOT NULL REFERENCES users(id),
@@ -595,7 +630,7 @@ CREATE TABLE IF NOT EXISTS purchase_return_items (
     quantity DECIMAL(15, 3) NOT NULL,
     unit_cost DECIMAL(15, 2) NOT NULL,
     subtotal DECIMAL(15, 2) NOT NULL,
-    inventory_instance_id UUID REFERENCES inventory_instances(id),
+    inventory_batch_id UUID REFERENCES inventory_batches(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CHECK (quantity > 0)
 );
@@ -635,15 +670,20 @@ CREATE INDEX idx_products_sku ON products(sku);
 CREATE INDEX idx_products_type ON products(type);
 CREATE INDEX idx_suppliers_branch_id ON suppliers(branch_id);
 CREATE INDEX idx_suppliers_name ON suppliers(name);
-CREATE INDEX idx_inventory_instances_product_id ON inventory_instances(product_id);
-CREATE INDEX idx_inventory_instances_branch_id ON inventory_instances(branch_id);
-CREATE INDEX idx_inventory_instances_status ON inventory_instances(status);
+CREATE INDEX idx_inventory_batches_product_id ON inventory_batches(product_id);
+CREATE INDEX idx_inventory_batches_branch_id ON inventory_batches(branch_id);
+CREATE INDEX idx_inventory_batches_status ON inventory_batches(status);
+CREATE INDEX idx_inventory_batches_category_id ON inventory_batches(category_id);
+CREATE INDEX idx_inventory_batches_batch_type_id ON inventory_batches(batch_type_id);
+CREATE INDEX idx_inventory_batches_grouped ON inventory_batches(grouped);
+CREATE INDEX idx_inventory_batches_attribute_data ON inventory_batches USING GIN(attribute_data);
+CREATE INDEX idx_sales_items_inventory_batch_id ON sales_items(inventory_batch_id);
 CREATE INDEX idx_sales_orders_branch_id ON sales_orders(branch_id);
 CREATE INDEX idx_sales_orders_customer_id ON sales_orders(customer_id);
 CREATE INDEX idx_sales_orders_invoice_number ON sales_orders(invoice_number);
 CREATE INDEX idx_sales_items_order_id ON sales_items(order_id);
 CREATE INDEX idx_item_assignments_sales_item_id ON item_assignments(sales_item_id);
-CREATE INDEX idx_item_assignments_inventory_instance_id ON item_assignments(inventory_instance_id);
+CREATE INDEX idx_item_assignments_inventory_batch_id ON item_assignments(inventory_batch_id);
 CREATE INDEX idx_payments_customer_id ON payments(customer_id);
 CREATE INDEX idx_payments_status ON payments(status);
 CREATE INDEX idx_payments_created_by ON payments(created_by);
@@ -657,11 +697,11 @@ CREATE INDEX idx_purchase_items_product_id ON purchase_items(product_id);
 CREATE INDEX idx_products_brand_id ON products(brand_id);
 CREATE INDEX idx_products_color_id ON products(color_id);
 CREATE INDEX idx_products_gauge_id ON products(gauge_id);
-CREATE INDEX idx_stock_transfers_instance_id ON stock_transfers(inventory_instance_id);
+CREATE INDEX idx_stock_transfers_batch_id ON stock_transfers(inventory_batch_id);
 CREATE INDEX idx_stock_transfers_from_branch ON stock_transfers(from_branch_id);
 CREATE INDEX idx_stock_transfers_to_branch ON stock_transfers(to_branch_id);
-CREATE INDEX idx_stock_adjustments_instance_id ON stock_adjustments(inventory_instance_id);
-CREATE INDEX idx_production_wastage_instance_id ON production_wastage(inventory_instance_id);
+CREATE INDEX idx_stock_adjustments_batch_id ON stock_adjustments(inventory_batch_id);
+CREATE INDEX idx_production_wastage_batch_id ON production_wastage(inventory_batch_id);
 CREATE INDEX idx_sales_orders_production_status ON sales_orders(production_status);
 CREATE INDEX idx_expense_categories_branch_id ON expense_categories(branch_id);
 CREATE INDEX idx_expense_categories_name ON expense_categories(name);
@@ -698,7 +738,7 @@ INSERT INTO permissions (slug, group_name) VALUES
     ('user_delete', 'user_management'),
     ('role_manage', 'user_management');
 
--- Inventory Permissions (9)
+-- Inventory Permissions (13)
 INSERT INTO permissions (slug, group_name) VALUES
     ('product_view', 'inventory'),
     ('product_add', 'inventory'),
@@ -708,7 +748,11 @@ INSERT INTO permissions (slug, group_name) VALUES
     ('stock_add_opening', 'inventory'),
     ('stock_adjust', 'inventory'),
     ('stock_transfer_init', 'inventory'),
-    ('stock_transfer_approve', 'inventory');
+    ('stock_transfer_approve', 'inventory'),
+    ('batch_view', 'inventory'),
+    ('batch_create', 'inventory'),
+    ('batch_edit', 'inventory'),
+    ('batch_delete', 'inventory');
 
 -- Sales & POS Permissions (8)
 INSERT INTO permissions (slug, group_name) VALUES
@@ -849,6 +893,7 @@ WHERE r.name = 'Inventory Manager'
     'product_view', 'product_add', 'product_edit', 'product_delete',
     'product_view_cost', 'stock_add_opening', 'stock_adjust',
     'stock_transfer_init', 'stock_transfer_approve',
+    'batch_view', 'batch_create', 'batch_edit', 'batch_delete',
     'recipe_view', 'report_view_stock_value'
   );
 
@@ -888,6 +933,17 @@ INSERT INTO business_settings (setting_key, setting_value, setting_type, categor
     ('barcode_height', '100', 'number', 'barcode'),
     ('barcode_show_text', 'true', 'boolean', 'barcode'),
     ('barcode_text_position', 'bottom', 'string', 'barcode');
+
+-- ============================================
+-- SEED DATA: BATCH TYPES
+-- ============================================
+
+INSERT INTO batch_types (id, name, description) VALUES
+    (uuid_generate_v4(), 'Coil', 'Rolled materials (e.g., Aluminium coils)'),
+    (uuid_generate_v4(), 'Pallet', 'Stacked materials on pallets'),
+    (uuid_generate_v4(), 'Carton', 'Boxed materials'),
+    (uuid_generate_v4(), 'Loose', 'Untracked bulk materials')
+ON CONFLICT (name) DO NOTHING;
 
 -- ============================================
 -- SEED DATA: TAX RATES
@@ -930,12 +986,21 @@ WHERE r.name = 'Super Admin';
 -- COMMENTS
 -- ============================================
 
-COMMENT ON TABLE inventory_instances IS 'Tracks physical coils/pallets individually with unique instance codes';
-COMMENT ON TABLE item_assignments IS 'Links a sale item to the specific coil used, enabling granular inventory tracking';
+COMMENT ON TABLE inventory_batches IS 'Tracks physical inventory batches (coils, pallets, cartons, or loose materials)';
+COMMENT ON TABLE item_assignments IS 'Links a sale item to the specific batch used, enabling granular inventory tracking';
 COMMENT ON TABLE recipes IS 'Conversion rules for Manufacturing (e.g., 1 Meter Longspan = 0.8 KG Coil)';
-COMMENT ON COLUMN inventory_instances.instance_code IS 'Unique identifier for physical coil/pallet (e.g., COIL-001)';
-COMMENT ON COLUMN inventory_instances.remaining_quantity IS 'Current available quantity for this specific instance';
-COMMENT ON COLUMN item_assignments.quantity_deducted IS 'Amount of raw material deducted from the specific inventory instance';
+COMMENT ON TABLE batch_types IS 'Dynamic batch type configuration (replaces hardcoded enum)';
+COMMENT ON TABLE category_batch_types IS 'Junction table linking categories to allowed batch types (Many-to-Many)';
+COMMENT ON COLUMN inventory_batches.batch_type_id IS 'Reference to batch_types table (replaces enum)';
+COMMENT ON COLUMN inventory_batches.grouped IS 'True for tracked items (e.g., Pallet #504), false for loose materials';
+COMMENT ON COLUMN inventory_batches.batch_identifier IS 'Human-readable identifier (e.g., "Pallet #504") when grouped=true';
+COMMENT ON COLUMN inventory_batches.instance_code IS 'Unique code for grouped batches, nullable for loose materials';
+COMMENT ON COLUMN inventory_batches.category_id IS 'Reference to product category';
+COMMENT ON COLUMN inventory_batches.attribute_data IS 'JSONB field storing category-specific attributes (Gauge, Color, Supplier, etc.)';
+COMMENT ON COLUMN inventory_batches.remaining_quantity IS 'Current available quantity for this specific batch';
+COMMENT ON COLUMN categories.unit_type IS 'Default unit type for products in this category';
+COMMENT ON COLUMN categories.attribute_schema IS 'JSONB array defining required/optional attributes for products in this category';
+COMMENT ON COLUMN item_assignments.quantity_deducted IS 'Amount of raw material deducted from the specific inventory batch';
 COMMENT ON TABLE expense_categories IS 'Branch-scoped expense categories for organizing business expenses';
 COMMENT ON TABLE expenses IS 'Individual expense records tied to branches, categories, and users';
 COMMENT ON TABLE payroll_records IS 'Monthly payroll records for employees, scoped by branch';

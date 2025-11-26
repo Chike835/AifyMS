@@ -1,4 +1,4 @@
-import { SalesOrder, DeliveryNoteTemplate, Customer, SalesItem, Product, InventoryInstance, Branch } from '../models/index.js';
+import { SalesOrder, DeliveryNoteTemplate, Customer, SalesItem, Product, InventoryBatch, Branch } from '../models/index.js';
 import { Op } from 'sequelize';
 import * as pdfService from '../services/pdfService.js';
 
@@ -250,22 +250,22 @@ Thank you for your business!`;
 
 /**
  * POST /api/print/labels
- * Generate and return labels PDF for inventory instances
+ * Generate and return labels PDF for inventory batches
  */
 export const printLabels = async (req, res, next) => {
   try {
-    const { instance_ids, format = 'a4', columns = 3, show_barcode = true } = req.body;
+    const { batch_ids, format = 'a4', columns = 3, show_barcode = true } = req.body;
 
-    if (!instance_ids || !Array.isArray(instance_ids) || instance_ids.length === 0) {
+    if (!batch_ids || !Array.isArray(batch_ids) || batch_ids.length === 0) {
       return res.status(400).json({ 
-        error: 'instance_ids array is required and must not be empty' 
+        error: 'batch_ids array is required and must not be empty' 
       });
     }
 
-    // Fetch instances with product and branch info
-    const instances = await InventoryInstance.findAll({
+    // Fetch batches with product and branch info
+    const batches = await InventoryBatch.findAll({
       where: {
-        id: { [Op.in]: instance_ids }
+        id: { [Op.in]: batch_ids }
       },
       include: [
         { model: Product, as: 'product', attributes: ['id', 'name', 'sku', 'type'] },
@@ -273,29 +273,29 @@ export const printLabels = async (req, res, next) => {
       ]
     });
 
-    if (instances.length === 0) {
-      return res.status(404).json({ error: 'No instances found' });
+    if (batches.length === 0) {
+      return res.status(404).json({ error: 'No batches found' });
     }
 
     // Branch access check
     if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
-      const invalidInstances = instances.filter(inst => inst.branch_id !== req.user.branch_id);
-      if (invalidInstances.length > 0) {
+      const invalidBatches = batches.filter(batch => batch.branch_id !== req.user.branch_id);
+      if (invalidBatches.length > 0) {
         return res.status(403).json({ 
-          error: 'You do not have permission to print labels for instances from other branches' 
+          error: 'You do not have permission to print labels for batches from other branches' 
         });
       }
     }
 
     // Generate label data
-    const labels = instances.map(instance => ({
-      instance_id: instance.id,
-      instance_code: instance.instance_code,
-      product_name: instance.product?.name || 'N/A',
-      product_sku: instance.product?.sku || 'N/A',
-      remaining_quantity: parseFloat(instance.remaining_quantity),
-      branch_name: instance.branch?.name || 'N/A',
-      label_template: instance.branch?.label_template || null
+    const labels = batches.map(batch => ({
+      batch_id: batch.id,
+      instance_code: batch.instance_code || batch.batch_identifier || 'N/A',
+      product_name: batch.product?.name || 'N/A',
+      product_sku: batch.product?.sku || 'N/A',
+      remaining_quantity: parseFloat(batch.remaining_quantity),
+      branch_name: batch.branch?.name || 'N/A',
+      label_template: batch.branch?.label_template || null
     }));
 
     // Build label HTML

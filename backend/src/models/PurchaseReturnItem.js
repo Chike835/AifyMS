@@ -46,10 +46,11 @@ const PurchaseReturnItem = sequelize.define('PurchaseReturnItem', {
     type: DataTypes.DECIMAL(15, 2),
     allowNull: false
   },
-  inventory_instance_id: {
+  inventory_batch_id: {
     type: DataTypes.UUID,
+    allowNull: true,
     references: {
-      model: 'inventory_instances',
+      model: 'inventory_batches',
       key: 'id'
     }
   }

@@ -526,10 +526,10 @@ const AddSale = () => {
                   {isManuf && item.item_assignments.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1">
                       {item.item_assignments.map((assignment, aIdx) => {
-                        const coil = instances.find(i => i.id === assignment.inventory_instance_id);
+                        const batch = instances.find(i => i.id === assignment.inventory_batch_id);
                         return (
                           <span key={aIdx} className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">
-                            {coil?.instance_code}: {parseFloat(assignment.quantity_deducted).toFixed(3)}
+                            {batch?.instance_code || batch?.batch_identifier}: {parseFloat(assignment.quantity_deducted).toFixed(3)}
                           </span>
                         );
                       })}

@@ -8,7 +8,7 @@ import Product from './Product.js';
 import ProductBrand from './ProductBrand.js';
 import ProductColor from './ProductColor.js';
 import ProductGauge from './ProductGauge.js';
-import InventoryInstance from './InventoryInstance.js';
+import InventoryBatch from './InventoryBatch.js';
 import StockTransfer from './StockTransfer.js';
 import StockAdjustment from './StockAdjustment.js';
 import Wastage from './Wastage.js';
@@ -41,6 +41,8 @@ import ProductVariationValue from './ProductVariationValue.js';
 import Unit from './Unit.js';
 import Category from './Category.js';
 import Warranty from './Warranty.js';
+import BatchType from './BatchType.js';
+import CategoryBatchType from './CategoryBatchType.js';
 
 // Define all associations
 export const associateModels = () => {
@@ -121,12 +123,12 @@ export const associateModels = () => {
     as: 'branch'
   });
 
-  // Branch - InventoryInstance (One-to-Many)
-  Branch.hasMany(InventoryInstance, {
+  // Branch - InventoryBatch (One-to-Many)
+  Branch.hasMany(InventoryBatch, {
     foreignKey: 'branch_id',
-    as: 'inventory_instances'
+    as: 'inventory_batches'
   });
-  InventoryInstance.belongsTo(Branch, {
+  InventoryBatch.belongsTo(Branch, {
     foreignKey: 'branch_id',
     as: 'branch'
   });
@@ -151,12 +153,12 @@ export const associateModels = () => {
     as: 'customer'
   });
 
-  // Product - InventoryInstance (One-to-Many: Raw Material)
-  Product.hasMany(InventoryInstance, {
+  // Product - InventoryBatch (One-to-Many: Raw Material)
+  Product.hasMany(InventoryBatch, {
     foreignKey: 'product_id',
-    as: 'inventory_instances'
+    as: 'inventory_batches'
   });
-  InventoryInstance.belongsTo(Product, {
+  InventoryBatch.belongsTo(Product, {
     foreignKey: 'product_id',
     as: 'product'
   });
@@ -213,14 +215,24 @@ export const associateModels = () => {
     as: 'sales_item'
   });
 
-  // InventoryInstance - ItemAssignment (One-to-Many)
-  InventoryInstance.hasMany(ItemAssignment, {
-    foreignKey: 'inventory_instance_id',
+  // InventoryBatch - ItemAssignment (One-to-Many)
+  InventoryBatch.hasMany(ItemAssignment, {
+    foreignKey: 'inventory_batch_id',
     as: 'assignments'
   });
-  ItemAssignment.belongsTo(InventoryInstance, {
-    foreignKey: 'inventory_instance_id',
-    as: 'inventory_instance'
+  ItemAssignment.belongsTo(InventoryBatch, {
+    foreignKey: 'inventory_batch_id',
+    as: 'inventory_batch'
+  });
+
+  // SalesItem - InventoryBatch (Many-to-One: Direct link for anti-theft)
+  SalesItem.belongsTo(InventoryBatch, {
+    foreignKey: 'inventory_batch_id',
+    as: 'inventory_batch'
+  });
+  InventoryBatch.hasMany(SalesItem, {
+    foreignKey: 'inventory_batch_id',
+    as: 'sales_items'
   });
 
   // Product - ProductBrand (Many-to-One)
@@ -253,14 +265,14 @@ export const associateModels = () => {
     as: 'products'
   });
 
-  // InventoryInstance - StockTransfer (One-to-Many)
-  InventoryInstance.hasMany(StockTransfer, {
-    foreignKey: 'inventory_instance_id',
+  // InventoryBatch - StockTransfer (One-to-Many)
+  InventoryBatch.hasMany(StockTransfer, {
+    foreignKey: 'inventory_batch_id',
     as: 'transfers'
   });
-  StockTransfer.belongsTo(InventoryInstance, {
-    foreignKey: 'inventory_instance_id',
-    as: 'inventory_instance'
+  StockTransfer.belongsTo(InventoryBatch, {
+    foreignKey: 'inventory_batch_id',
+    as: 'inventory_batch'
   });
 
   // Branch - StockTransfer (One-to-Many: From)
@@ -293,14 +305,14 @@ export const associateModels = () => {
     as: 'user'
   });
 
-  // InventoryInstance - StockAdjustment (One-to-Many)
-  InventoryInstance.hasMany(StockAdjustment, {
-    foreignKey: 'inventory_instance_id',
+  // InventoryBatch - StockAdjustment (One-to-Many)
+  InventoryBatch.hasMany(StockAdjustment, {
+    foreignKey: 'inventory_batch_id',
     as: 'adjustments'
   });
-  StockAdjustment.belongsTo(InventoryInstance, {
-    foreignKey: 'inventory_instance_id',
-    as: 'inventory_instance'
+  StockAdjustment.belongsTo(InventoryBatch, {
+    foreignKey: 'inventory_batch_id',
+    as: 'inventory_batch'
   });
 
   // User - StockAdjustment (One-to-Many)
@@ -313,14 +325,14 @@ export const associateModels = () => {
     as: 'user'
   });
 
-  // InventoryInstance - Wastage (One-to-Many)
-  InventoryInstance.hasMany(Wastage, {
-    foreignKey: 'inventory_instance_id',
+  // InventoryBatch - Wastage (One-to-Many)
+  InventoryBatch.hasMany(Wastage, {
+    foreignKey: 'inventory_batch_id',
     as: 'wastage_records'
   });
-  Wastage.belongsTo(InventoryInstance, {
-    foreignKey: 'inventory_instance_id',
-    as: 'inventory_instance'
+  Wastage.belongsTo(InventoryBatch, {
+    foreignKey: 'inventory_batch_id',
+    as: 'inventory_batch'
   });
 
   // User - Wastage (One-to-Many)
@@ -394,13 +406,13 @@ export const associateModels = () => {
     as: 'purchase_items'
   });
 
-  // PurchaseItem - InventoryInstance (Many-to-One)
-  PurchaseItem.belongsTo(InventoryInstance, {
-    foreignKey: 'inventory_instance_id',
-    as: 'inventory_instance'
+  // PurchaseItem - InventoryBatch (Many-to-One)
+  PurchaseItem.belongsTo(InventoryBatch, {
+    foreignKey: 'inventory_batch_id',
+    as: 'inventory_batch'
   });
-  InventoryInstance.hasMany(PurchaseItem, {
-    foreignKey: 'inventory_instance_id',
+  InventoryBatch.hasMany(PurchaseItem, {
+    foreignKey: 'inventory_batch_id',
     as: 'purchase_items'
   });
 
@@ -602,10 +614,10 @@ export const associateModels = () => {
     as: 'product'
   });
 
-  // PurchaseReturnItem - InventoryInstance (Many-to-One)
-  PurchaseReturnItem.belongsTo(InventoryInstance, {
-    foreignKey: 'inventory_instance_id',
-    as: 'inventory_instance'
+  // PurchaseReturnItem - InventoryBatch (Many-to-One)
+  PurchaseReturnItem.belongsTo(InventoryBatch, {
+    foreignKey: 'inventory_batch_id',
+    as: 'inventory_batch'
   });
 
   // PriceHistory - Product (Many-to-One)
@@ -755,6 +767,50 @@ export const associateModels = () => {
     as: 'children'
   });
 
+  // Category - InventoryBatch (One-to-Many)
+  Category.hasMany(InventoryBatch, {
+    foreignKey: 'category_id',
+    as: 'inventory_batches'
+  });
+  InventoryBatch.belongsTo(Category, {
+    foreignKey: 'category_id',
+    as: 'category'
+  });
+
+  // BatchType - InventoryBatch (One-to-Many)
+  BatchType.hasMany(InventoryBatch, {
+    foreignKey: 'batch_type_id',
+    as: 'inventory_batches'
+  });
+  InventoryBatch.belongsTo(BatchType, {
+    foreignKey: 'batch_type_id',
+    as: 'batch_type'
+  });
+
+  // Category - BatchType (Many-to-Many through category_batch_types)
+  Category.belongsToMany(BatchType, {
+    through: CategoryBatchType,
+    foreignKey: 'category_id',
+    otherKey: 'batch_type_id',
+    as: 'batch_types'
+  });
+  BatchType.belongsToMany(Category, {
+    through: CategoryBatchType,
+    foreignKey: 'batch_type_id',
+    otherKey: 'category_id',
+    as: 'categories'
+  });
+
+  // User - BatchType (One-to-Many: Creator)
+  User.hasMany(BatchType, {
+    foreignKey: 'created_by',
+    as: 'batch_types_created'
+  });
+  BatchType.belongsTo(User, {
+    foreignKey: 'created_by',
+    as: 'creator'
+  });
+
   // Warranty - Product (One-to-Many)
   Warranty.hasMany(Product, {
     foreignKey: 'warranty_id',
@@ -778,7 +834,7 @@ export {
   ProductBrand,
   ProductColor,
   ProductGauge,
-  InventoryInstance,
+  InventoryBatch,
   StockTransfer,
   StockAdjustment,
   Wastage,
@@ -810,6 +866,8 @@ export {
   ProductVariationValue,
   Unit,
   Category,
-  Warranty
+  Warranty,
+  BatchType,
+  CategoryBatchType
 };
 
