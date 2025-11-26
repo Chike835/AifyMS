@@ -46,6 +46,16 @@ const CustomerLedger = () => {
     enabled: !!id
   });
 
+  // Fetch ledger summary
+  const { data: summaryData } = useQuery({
+    queryKey: ['customerLedgerSummary', id],
+    queryFn: async () => {
+      const response = await api.get(`/ledger/customer/${id}/summary`);
+      return response.data;
+    },
+    enabled: !!id
+  });
+
   const handleDateChange = (range) => {
     setDateRange({
       startDate: range.startDate,
@@ -165,6 +175,42 @@ const CustomerLedger = () => {
                 {parseFloat(currentBalance) >= 0 ? 'Customer owes' : 'Customer credit'}
               </p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Summary Cards */}
+      {summaryData && (
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+          <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
+            <p className="text-sm text-gray-500 mb-1">Opening Balance</p>
+            <p className="text-2xl font-bold text-gray-900">
+              {formatCurrency(summaryData.opening_balance || 0)}
+            </p>
+          </div>
+          <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
+            <p className="text-sm text-gray-500 mb-1">Total Invoiced</p>
+            <p className="text-2xl font-bold text-red-600">
+              {formatCurrency(summaryData.total_invoiced || 0)}
+            </p>
+          </div>
+          <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
+            <p className="text-sm text-gray-500 mb-1">Total Paid</p>
+            <p className="text-2xl font-bold text-green-600">
+              {formatCurrency(summaryData.total_paid || 0)}
+            </p>
+          </div>
+          <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
+            <p className="text-sm text-gray-500 mb-1">Advance Balance</p>
+            <p className="text-2xl font-bold text-blue-600">
+              {formatCurrency(summaryData.advance_balance || 0)}
+            </p>
+          </div>
+          <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
+            <p className="text-sm text-gray-500 mb-1">Balance Due</p>
+            <p className="text-2xl font-bold text-orange-600">
+              {formatCurrency(summaryData.balance_due || 0)}
+            </p>
           </div>
         </div>
       )}

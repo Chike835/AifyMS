@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { Ruler, Plus, Edit, Trash2, X } from 'lucide-react';
+import DataControlBar from '../components/settings/DataControlBar';
 
 const Units = () => {
   const { hasPermission } = useAuth();
@@ -192,6 +193,16 @@ const Units = () => {
           </button>
         )}
       </div>
+
+      <DataControlBar
+        importEndpoint="/api/units/import"
+        exportEndpoint="/api/units/export"
+        entityName="Units"
+        onImportSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['units'] });
+          queryClient.invalidateQueries({ queryKey: ['baseUnits'] });
+        }}
+      />
 
       {units.length === 0 ? (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-12 text-center">

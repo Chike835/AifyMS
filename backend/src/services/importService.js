@@ -3,10 +3,147 @@ import { Op } from 'sequelize';
 import XLSX from 'xlsx';
 
 /**
+ * Normalize CSV headers to handle case sensitivity, BOM characters, and common aliases
+ * @param {string} header - Raw header string from CSV
+ * @returns {string} - Normalized header key
+ */
+const normalizeHeader = (header) => {
+  if (!header || typeof header !== 'string') {
+    return '';
+  }
+
+  // Strip BOM (Byte Order Mark) characters - common in UTF-8 files
+  let normalized = header.replace(/^\uFEFF/, '').trim();
+
+  // Convert to lowercase
+  normalized = normalized.toLowerCase();
+
+  // Remove extra whitespace and replace spaces/underscores with underscores
+  normalized = normalized.replace(/\s+/g, '_').replace(/_+/g, '_');
+
+  // Remove leading/trailing underscores
+  normalized = normalized.replace(/^_+|_+$/g, '');
+
+  return normalized;
+};
+
+/**
+ * Header alias mapping for product imports
+ * Maps common CSV header variations to expected field names
+ */
+const PRODUCT_HEADER_ALIASES = {
+  'product_name': 'name',
+  'productname': 'name',
+  'item_name': 'name',
+  'itemname': 'name',
+  'product': 'name',
+  'product_sku': 'sku',
+  'productsku': 'sku',
+  'item_sku': 'sku',
+  'itemsku': 'sku',
+  'code': 'sku',
+  'product_code': 'sku',
+  'productcode': 'sku',
+  'sale_price': 'sale_price',
+  'selling_price': 'sale_price',
+  'sellingprice': 'sale_price',
+  'price': 'sale_price',
+  'unit_price': 'sale_price',
+  'unitprice': 'sale_price',
+  'retail_price': 'sale_price',
+  'retailprice': 'sale_price',
+  'cost_price': 'cost_price',
+  'costprice': 'cost_price',
+  'purchase_price': 'cost_price',
+  'purchaseprice': 'cost_price',
+  'buying_price': 'cost_price',
+  'buyingprice': 'cost_price',
+  'base_unit': 'base_unit',
+  'baseunit': 'base_unit',
+  'unit': 'base_unit',
+  'unit_of_measure': 'base_unit',
+  'unitofmeasure': 'base_unit',
+  'uom': 'base_unit',
+  'product_type': 'type',
+  'producttype': 'type',
+  'type': 'type',
+  'item_type': 'type',
+  'itemtype': 'type',
+  'tax_rate': 'tax_rate',
+  'taxrate': 'tax_rate',
+  'tax': 'tax_rate',
+  'vat_rate': 'tax_rate',
+  'vatrate': 'tax_rate',
+  'brand': 'brand',
+  'product_brand': 'brand',
+  'productbrand': 'brand',
+  'category': 'category',
+  'product_category': 'category',
+  'productcategory': 'category',
+  'item_category': 'category',
+  'itemcategory': 'category'
+};
+
+/**
+ * Normalize an array of CSV row objects by normalizing their keys
+ * @param {Array<Object>} rows - Array of row objects with potentially mismatched headers
+ * @param {Object} aliasMap - Optional alias mapping object (defaults to PRODUCT_HEADER_ALIASES)
+ * @returns {Array<Object>} - Array of row objects with normalized keys
+ */
+export const normalizeCSVHeaders = (rows, aliasMap = PRODUCT_HEADER_ALIASES) => {
+  if (!rows || rows.length === 0) {
+    return rows;
+  }
+
+  // Get the first row to inspect headers
+  const firstRow = rows[0];
+  if (!firstRow || typeof firstRow !== 'object') {
+    return rows;
+  }
+
+  // Build mapping from raw headers to normalized headers
+  const headerMap = {};
+  const rawHeaders = Object.keys(firstRow);
+
+  console.log('[HeaderNormalization] Raw headers detected:', rawHeaders);
+
+  rawHeaders.forEach(rawHeader => {
+    const normalized = normalizeHeader(rawHeader);
+    const finalKey = aliasMap[normalized] || normalized;
+    headerMap[rawHeader] = finalKey;
+  });
+
+  console.log('[HeaderNormalization] Header mapping:', headerMap);
+
+  // Apply mapping to all rows
+  const normalizedRows = rows.map((row, index) => {
+    const normalizedRow = {};
+    
+    Object.keys(row).forEach(rawKey => {
+      const normalizedKey = headerMap[rawKey];
+      if (normalizedKey) {
+        normalizedRow[normalizedKey] = row[rawKey];
+      }
+    });
+
+    // Log first row sample for debugging
+    if (index === 0) {
+      console.log('[HeaderNormalization] First row sample (raw):', row);
+      console.log('[HeaderNormalization] First row sample (normalized):', normalizedRow);
+    }
+
+    return normalizedRow;
+  });
+
+  return normalizedRows;
+};
+
+/**
  * Import products from CSV/JSON data
  * Expected columns: sku, name, type, base_unit, sale_price, cost_price, tax_rate, brand, category
  */
 export const importProducts = async (data, errors = []) => {
+  console.log('[ImportProducts] Starting import with', data.length, 'rows');
   const results = {
     created: 0,
     updated: 0,
@@ -19,11 +156,41 @@ export const importProducts = async (data, errors = []) => {
     const rowNum = i + 2; // +2 because row 1 is header, and arrays are 0-indexed
 
     try {
-      // Validate required fields
-      if (!row.sku || !row.name || !row.type || !row.base_unit || row.sale_price === undefined) {
+      // Debug: Log available keys in row for troubleshooting
+      if (i === 0) {
+        console.log(`[ImportProducts] First row keys:`, Object.keys(row));
+      }
+      
+      console.log(`[ImportProducts] Processing row ${rowNum}:`, { 
+        sku: row.sku, 
+        name: row.name,
+        type: row.type,
+        base_unit: row.base_unit,
+        sale_price: row.sale_price
+      });
+      
+      // Validate required fields with detailed error reporting
+      const missingFields = [];
+      if (!row.sku || (typeof row.sku === 'string' && row.sku.trim() === '')) {
+        missingFields.push('sku');
+      }
+      if (!row.name || (typeof row.name === 'string' && row.name.trim() === '')) {
+        missingFields.push('name');
+      }
+      if (!row.type || (typeof row.type === 'string' && row.type.trim() === '')) {
+        missingFields.push('type');
+      }
+      if (!row.base_unit || (typeof row.base_unit === 'string' && row.base_unit.trim() === '')) {
+        missingFields.push('base_unit');
+      }
+      if (row.sale_price === undefined || row.sale_price === null || row.sale_price === '') {
+        missingFields.push('sale_price');
+      }
+
+      if (missingFields.length > 0) {
         results.errors.push({
           row: rowNum,
-          error: 'Missing required fields: sku, name, type, base_unit, sale_price'
+          error: `Missing required fields: ${missingFields.join(', ')}. Available keys: ${Object.keys(row).join(', ')}`
         });
         results.skipped++;
         continue;
@@ -40,45 +207,73 @@ export const importProducts = async (data, errors = []) => {
         continue;
       }
 
-      // Parse numeric values
+      // Parse numeric values with defensive checks
       const salePrice = parseFloat(row.sale_price);
-      const costPrice = row.cost_price ? parseFloat(row.cost_price) : null;
-      const taxRate = row.tax_rate ? parseFloat(row.tax_rate) : 0;
+      const costPrice = (row.cost_price !== undefined && row.cost_price !== null && row.cost_price !== '') 
+        ? parseFloat(row.cost_price) 
+        : null;
+      const taxRate = (row.tax_rate !== undefined && row.tax_rate !== null && row.tax_rate !== '') 
+        ? parseFloat(row.tax_rate) 
+        : 0;
 
       if (isNaN(salePrice) || salePrice < 0) {
         results.errors.push({
           row: rowNum,
-          error: 'Invalid sale_price. Must be a non-negative number'
+          error: `Invalid sale_price: "${row.sale_price}". Must be a non-negative number`
+        });
+        results.skipped++;
+        continue;
+      }
+
+      // Validate cost_price if provided
+      if (costPrice !== null && (isNaN(costPrice) || costPrice < 0)) {
+        results.errors.push({
+          row: rowNum,
+          error: `Invalid cost_price: "${row.cost_price}". Must be a non-negative number`
+        });
+        results.skipped++;
+        continue;
+      }
+
+      // Validate tax_rate if provided
+      if (isNaN(taxRate) || taxRate < 0 || taxRate > 100) {
+        results.errors.push({
+          row: rowNum,
+          error: `Invalid tax_rate: "${row.tax_rate}". Must be a number between 0 and 100`
         });
         results.skipped++;
         continue;
       }
 
       // Check if product exists
-      const existingProduct = await Product.findOne({ where: { sku: row.sku } });
+      const existingProduct = await Product.findOne({ where: { sku: row.sku.trim() } });
 
       const productData = {
-        sku: row.sku.trim(),
-        name: row.name.trim(),
-        type: row.type,
-        base_unit: row.base_unit.trim(),
+        sku: String(row.sku).trim(),
+        name: String(row.name).trim(),
+        type: String(row.type).trim(),
+        base_unit: String(row.base_unit).trim(),
         sale_price: salePrice,
         cost_price: costPrice,
         tax_rate: taxRate,
-        brand: row.brand ? row.brand.trim() : null,
-        category: row.category ? row.category.trim() : null
+        brand: (row.brand && String(row.brand).trim() !== '') ? String(row.brand).trim() : null,
+        category: (row.category && String(row.category).trim() !== '') ? String(row.category).trim() : null
       };
 
       if (existingProduct) {
         // Update existing product
+        console.log(`[ImportProducts] Updating existing product: ${row.sku}`);
         await existingProduct.update(productData);
         results.updated++;
       } else {
         // Create new product
+        console.log(`[ImportProducts] Creating new product: ${row.sku}`);
         await Product.create(productData);
         results.created++;
       }
+      console.log(`[ImportProducts] Successfully processed row ${rowNum}`);
     } catch (error) {
+      console.error(`[ImportProducts] Error processing row ${rowNum}:`, error.message);
       results.errors.push({
         row: rowNum,
         error: error.message || 'Unknown error'
@@ -87,6 +282,7 @@ export const importProducts = async (data, errors = []) => {
     }
   }
 
+  console.log('[ImportProducts] Import completed:', results);
   return results;
 };
 

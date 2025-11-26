@@ -1,7 +1,8 @@
 import sequelize from '../config/db.js';
-import { Payment, Customer, User, SalesOrder } from '../models/index.js';
+import { Op } from 'sequelize';
+import { Payment, Customer, User, SalesOrder, PaymentAccount, AccountTransaction } from '../models/index.js';
 import { logActivitySync } from '../middleware/activityLogger.js';
-import { createLedgerEntry } from '../services/ledgerService.js';
+import { createLedgerEntry, calculateAdvanceBalance } from '../services/ledgerService.js';
 
 /**
  * Helper function to format currency
@@ -155,7 +156,7 @@ export const confirmPayment = async (req, res, next) => {
         payment.customer_id,
         'customer',
         {
-          transaction_date: new Date(),
+          transaction_date: payment.created_at || new Date(),
           transaction_type: 'PAYMENT',
           transaction_id: payment.id,
           description: `Payment ${payment.method}`,
@@ -220,17 +221,31 @@ export const getPayments = async (req, res, next) => {
     }
 
     // Apply branch filter if user is not Super Admin
+    // Payments don't have branch_id, so filter by creator's branch_id
     if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id) {
-      where.branch_id = req.user.branch_id;
+      // Get all user IDs from the same branch
+      const branchUsers = await User.findAll({
+        where: { branch_id: req.user.branch_id },
+        attributes: ['id']
+      });
+      where.created_by = {
+        [Op.in]: branchUsers.map(u => u.id)
+      };
     } else if (branch_id) {
-      where.branch_id = branch_id;
+      const branchUsers = await User.findAll({
+        where: { branch_id: branch_id },
+        attributes: ['id']
+      });
+      where.created_by = {
+        [Op.in]: branchUsers.map(u => u.id)
+      };
     }
 
     const payments = await Payment.findAll({
       where,
       include: [
         { model: Customer, as: 'customer' },
-        { model: User, as: 'creator', attributes: ['id', 'full_name', 'email'] },
+        { model: User, as: 'creator', attributes: ['id', 'full_name', 'email', 'branch_id'] },
         { model: User, as: 'confirmer', attributes: ['id', 'full_name', 'email'] }
       ],
       order: [['created_at', 'DESC']],
@@ -269,17 +284,31 @@ export const getRecentPayments = async (req, res, next) => {
     }
 
     // Apply branch filter if user is not Super Admin
+    // Payments don't have branch_id, so filter by creator's branch_id
     if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id) {
-      where.branch_id = req.user.branch_id;
+      // Get all user IDs from the same branch
+      const branchUsers = await User.findAll({
+        where: { branch_id: req.user.branch_id },
+        attributes: ['id']
+      });
+      where.created_by = {
+        [Op.in]: branchUsers.map(u => u.id)
+      };
     } else if (branch_id) {
-      where.branch_id = branch_id;
+      const branchUsers = await User.findAll({
+        where: { branch_id: branch_id },
+        attributes: ['id']
+      });
+      where.created_by = {
+        [Op.in]: branchUsers.map(u => u.id)
+      };
     }
 
     const payments = await Payment.findAll({
       where,
       include: [
         { model: Customer, as: 'customer', attributes: ['id', 'name', 'phone'] },
-        { model: User, as: 'creator', attributes: ['id', 'full_name', 'email'] },
+        { model: User, as: 'creator', attributes: ['id', 'full_name', 'email', 'branch_id'] },
         { model: User, as: 'confirmer', attributes: ['id', 'full_name', 'email'] }
       ],
       order: [['created_at', 'DESC']],
@@ -301,21 +330,379 @@ export const getPendingPayments = async (req, res, next) => {
     const where = { status: 'pending_confirmation' };
 
     // Apply branch filter if user is not Super Admin
+    // Payments don't have branch_id, so filter by creator's branch_id
     if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id) {
-      where.branch_id = req.user.branch_id;
+      // Get all user IDs from the same branch
+      const branchUsers = await User.findAll({
+        where: { branch_id: req.user.branch_id },
+        attributes: ['id']
+      });
+      where.created_by = {
+        [Op.in]: branchUsers.map(u => u.id)
+      };
     }
 
     const payments = await Payment.findAll({
       where,
       include: [
         { model: Customer, as: 'customer' },
-        { model: User, as: 'creator', attributes: ['id', 'full_name', 'email'] }
+        { model: User, as: 'creator', attributes: ['id', 'full_name', 'email', 'branch_id'] }
       ],
       order: [['created_at', 'ASC']]
     });
 
     res.json({ payments });
   } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/payments/advance
+ * Create an advance payment (payment without invoice linkage)
+ * Uses maker-checker workflow: creates payment with pending_confirmation status
+ */
+export const addAdvance = async (req, res, next) => {
+  try {
+    const {
+      customer_id,
+      amount,
+      method,
+      reference_note
+    } = req.body;
+
+    // Validation
+    if (!customer_id || amount === undefined || !method) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: customer_id, amount, method' 
+      });
+    }
+
+    if (amount <= 0) {
+      return res.status(400).json({ error: 'Amount must be greater than 0' });
+    }
+
+    const validMethods = ['cash', 'transfer', 'pos'];
+    if (!validMethods.includes(method)) {
+      return res.status(400).json({ 
+        error: `Invalid method. Must be one of: ${validMethods.join(', ')}` 
+      });
+    }
+
+    // Verify customer exists
+    const customer = await Customer.findByPk(customer_id);
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    // Create payment with pending_confirmation status
+    const payment = await Payment.create({
+      customer_id,
+      amount,
+      method,
+      status: 'pending_confirmation',
+      created_by: req.user.id,
+      reference_note: reference_note || null
+    });
+
+    // Load with associations
+    const paymentWithDetails = await Payment.findByPk(payment.id, {
+      include: [
+        { model: Customer, as: 'customer' },
+        { model: User, as: 'creator', attributes: ['id', 'full_name', 'email'] }
+      ]
+    });
+
+    // Log activity
+    await logActivitySync(
+      'CREATE',
+      'payments',
+      `Created advance payment of ${formatCurrency(amount)} for customer ${customer.name}`,
+      req,
+      'payment',
+      payment.id
+    );
+
+    res.status(201).json({
+      message: 'Advance payment logged successfully. Awaiting confirmation.',
+      payment: paymentWithDetails
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PUT /api/payments/:id/confirm-advance
+ * Confirm advance payment and create ledger entry with ADVANCE_PAYMENT type
+ */
+export const confirmAdvancePayment = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+  
+  try {
+    const { id } = req.params;
+
+    // Get payment with lock
+    const payment = await Payment.findByPk(id, {
+      lock: transaction.LOCK.UPDATE,
+      transaction
+    });
+
+    if (!payment) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+
+    // Check if already confirmed
+    if (payment.status === 'confirmed') {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Payment is already confirmed' });
+    }
+
+    // Get customer with lock
+    const customer = await Customer.findByPk(payment.customer_id, {
+      lock: transaction.LOCK.UPDATE,
+      transaction
+    });
+
+    if (!customer) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    // Update payment status
+    payment.status = 'confirmed';
+    payment.confirmed_by = req.user.id;
+    payment.confirmed_at = new Date();
+    await payment.save({ transaction });
+
+    // Update customer ledger balance (decrease - customer paid advance)
+    customer.ledger_balance = parseFloat(customer.ledger_balance) - parseFloat(payment.amount);
+    await customer.save({ transaction });
+
+    // Commit transaction first before creating ledger entry (ledger service doesn't support transactions yet)
+    await transaction.commit();
+
+    // Create ledger entry with ADVANCE_PAYMENT type (outside transaction)
+    try {
+      const recentSale = await SalesOrder.findOne({
+        where: { customer_id: payment.customer_id },
+        order: [['created_at', 'DESC']]
+      });
+
+      await createLedgerEntry(
+        payment.customer_id,
+        'customer',
+        {
+          transaction_date: payment.created_at || new Date(),
+          transaction_type: 'ADVANCE_PAYMENT',
+          transaction_id: payment.id,
+          description: `Advance Payment ${payment.method}`,
+          debit_amount: 0,
+          credit_amount: parseFloat(payment.amount),
+          branch_id: recentSale?.branch_id || req.user.branch_id,
+          created_by: req.user.id
+        }
+      );
+    } catch (ledgerError) {
+      console.error('Error creating ledger entry:', ledgerError);
+      // Log error but don't fail since payment is already confirmed
+    }
+
+    // Fetch updated payment with associations
+    const updatedPayment = await Payment.findByPk(id, {
+      include: [
+        { model: Customer, as: 'customer' },
+        { model: User, as: 'creator', attributes: ['id', 'full_name', 'email'] },
+        { model: User, as: 'confirmer', attributes: ['id', 'full_name', 'email'] }
+      ]
+    });
+
+    // Log activity
+    await logActivitySync(
+      'CONFIRM',
+      'payments',
+      `Confirmed advance payment of ${formatCurrency(payment.amount)} for customer ${customer.name}`,
+      req,
+      'payment',
+      payment.id
+    );
+
+    res.json({
+      message: 'Advance payment confirmed and ledger updated successfully',
+      payment: updatedPayment
+    });
+  } catch (error) {
+    await transaction.rollback();
+    next(error);
+  }
+};
+
+/**
+ * POST /api/payments/refund
+ * Process refund of advance balance with withdrawal fee
+ * Creates two ledger entries: REFUND and REFUND_FEE
+ */
+export const processRefund = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+  
+  try {
+    const {
+      customer_id,
+      refund_amount,
+      withdrawal_fee = 0,
+      method,
+      reference_note,
+      payment_account_id
+    } = req.body;
+
+    // Validation
+    if (!customer_id || refund_amount === undefined || !method) {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        error: 'Missing required fields: customer_id, refund_amount, method' 
+      });
+    }
+
+    if (refund_amount <= 0) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Refund amount must be greater than 0' });
+    }
+
+    if (withdrawal_fee < 0) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Withdrawal fee cannot be negative' });
+    }
+
+    // Verify customer exists and lock the record
+    const customer = await Customer.findByPk(customer_id, {
+      lock: transaction.LOCK.UPDATE,
+      transaction
+    });
+
+    if (!customer) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    // Check advance balance AFTER acquiring lock to prevent race conditions
+    // Recalculate balance within transaction context to ensure accuracy
+    const advanceBalance = await calculateAdvanceBalance(customer_id);
+    const totalRefundAmount = parseFloat(refund_amount) + parseFloat(withdrawal_fee || 0);
+
+    if (totalRefundAmount > advanceBalance) {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        error: `Insufficient advance balance. Available: ${formatCurrency(advanceBalance)}, Requested: ${formatCurrency(totalRefundAmount)}` 
+      });
+    }
+
+    // Update customer ledger balance
+    // Refund DECREASES what customer owes (credit to customer), fee INCREASES debt
+    customer.ledger_balance = parseFloat(customer.ledger_balance) - parseFloat(refund_amount) + parseFloat(withdrawal_fee || 0);
+    await customer.save({ transaction });
+
+    // Create payment account transaction (withdrawal) if payment_account_id provided
+    if (payment_account_id) {
+      const paymentAccount = await PaymentAccount.findByPk(payment_account_id, {
+        lock: transaction.LOCK.UPDATE,
+        transaction
+      });
+
+      if (paymentAccount) {
+        // Record withdrawal from payment account
+        await AccountTransaction.create({
+          account_id: payment_account_id,
+          transaction_type: 'withdrawal',
+          amount: parseFloat(refund_amount),
+          reference_type: 'customer_refund',
+          reference_id: customer_id,
+          notes: `Refund to ${customer.name}${reference_note ? ` - ${reference_note}` : ''}`,
+          user_id: req.user.id
+        }, { transaction });
+
+        // Update payment account balance
+        paymentAccount.current_balance = parseFloat(paymentAccount.current_balance || 0) - parseFloat(refund_amount);
+        await paymentAccount.save({ transaction });
+      }
+    }
+
+    // Commit transaction
+    await transaction.commit();
+
+    // Create ledger entries (outside transaction - ledger service doesn't support transactions yet)
+    try {
+      const recentSale = await SalesOrder.findOne({
+        where: { customer_id: customer_id },
+        order: [['created_at', 'DESC']]
+      });
+      const branchId = recentSale?.branch_id || req.user.branch_id;
+
+      // Create Ledger Entry 1: REFUND - Credit Customer (decreases what they owe), Debit Cash (payout)
+      const refundEntry = await createLedgerEntry(
+        customer_id,
+        'customer',
+        {
+          transaction_date: new Date(),
+          transaction_type: 'REFUND',
+          transaction_id: null,
+          description: `Refund ${method}${reference_note ? ` - ${reference_note}` : ''}`,
+          debit_amount: 0,
+          credit_amount: parseFloat(refund_amount),
+          branch_id: branchId,
+          created_by: req.user.id
+        }
+      );
+
+      // Create Ledger Entry 2: REFUND_FEE - Debit Customer, Credit Revenue
+      let feeEntry = null;
+      if (parseFloat(withdrawal_fee || 0) > 0) {
+        feeEntry = await createLedgerEntry(
+          customer_id,
+          'customer',
+          {
+            transaction_date: new Date(),
+            transaction_type: 'REFUND_FEE',
+            transaction_id: null,
+            description: `Withdrawal Fee${reference_note ? ` - ${reference_note}` : ''}`,
+            debit_amount: parseFloat(withdrawal_fee),
+            credit_amount: 0,
+            branch_id: branchId,
+            created_by: req.user.id
+          }
+        );
+      }
+
+      // Log activity
+      await logActivitySync(
+        'CREATE',
+        'payments',
+        `Processed refund of ${formatCurrency(refund_amount)}${withdrawal_fee > 0 ? ` with fee of ${formatCurrency(withdrawal_fee)}` : ''} for customer ${customer.name}`,
+        req,
+        'payment',
+        null
+      );
+
+      res.json({
+        message: 'Refund processed successfully',
+        refund_entry: refundEntry,
+        fee_entry: feeEntry,
+        total_refunded: parseFloat(refund_amount),
+        fee_charged: parseFloat(withdrawal_fee || 0),
+        net_refund: parseFloat(refund_amount) - parseFloat(withdrawal_fee || 0)
+      });
+    } catch (ledgerError) {
+      console.error('Error creating ledger entries:', ledgerError);
+      // Return success but warn about ledger entry error
+      res.json({
+        message: 'Refund processed but ledger entry creation failed. Please check logs.',
+        warning: ledgerError.message,
+        total_refunded: parseFloat(refund_amount),
+        fee_charged: parseFloat(withdrawal_fee || 0)
+      });
+    }
+  } catch (error) {
+    await transaction.rollback();
     next(error);
   }
 };

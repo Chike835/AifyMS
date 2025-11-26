@@ -14,8 +14,21 @@ CREATE TYPE payment_status AS ENUM ('pending_confirmation', 'confirmed', 'voided
 CREATE TYPE production_status AS ENUM ('queue', 'produced', 'delivered', 'na');
 CREATE TYPE instance_status AS ENUM ('in_stock', 'depleted', 'scrapped');
 CREATE TYPE contact_type AS ENUM ('customer', 'supplier');
-CREATE TYPE transaction_type AS ENUM ('INVOICE', 'PAYMENT', 'RETURN', 'ADJUSTMENT', 'OPENING_BALANCE');
+CREATE TYPE transaction_type AS ENUM ('INVOICE', 'PAYMENT', 'RETURN', 'ADJUSTMENT', 'OPENING_BALANCE', 'ADVANCE_PAYMENT', 'REFUND', 'REFUND_FEE');
 CREATE TYPE action_type AS ENUM ('LOGIN', 'CREATE', 'UPDATE', 'DELETE', 'PRINT', 'CONFIRM', 'VOID');
+
+-- ============================================
+-- ALTER ENUMS FOR EXISTING DATABASES
+-- ============================================
+-- For existing databases, run these ALTER statements to add new enum values
+-- Note: These will fail silently if the values already exist in newer PostgreSQL versions
+-- Uncomment and run these if you're upgrading an existing database:
+-- DO $$ BEGIN
+--   ALTER TYPE transaction_type ADD VALUE IF NOT EXISTS 'ADVANCE_PAYMENT';
+--   ALTER TYPE transaction_type ADD VALUE IF NOT EXISTS 'REFUND';
+--   ALTER TYPE transaction_type ADD VALUE IF NOT EXISTS 'REFUND_FEE';
+-- EXCEPTION WHEN duplicate_object THEN null;
+-- END $$;
 
 -- ============================================
 -- TABLES

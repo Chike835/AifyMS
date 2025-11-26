@@ -4,10 +4,13 @@ import {
   getUnitById,
   createUnit,
   updateUnit,
-  deleteUnit
+  deleteUnit,
+  importUnits,
+  exportUnits
 } from '../controllers/unitController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { requirePermission } from '../middleware/permissionMiddleware.js';
+import { uploadMiddleware } from '../controllers/importExportController.js';
 
 const router = express.Router();
 
@@ -19,6 +22,12 @@ router.get('/', requirePermission('product_view'), getUnits);
 
 // POST /api/units - Create unit (requires product_add)
 router.post('/', requirePermission('product_add'), createUnit);
+
+// POST /api/units/import - Import units from CSV/Excel
+router.post('/import', requirePermission('product_add'), uploadMiddleware, importUnits);
+
+// GET /api/units/export - Export units to CSV
+router.get('/export', requirePermission('product_view'), exportUnits);
 
 // GET /api/units/:id - Get unit by ID (requires product_view)
 router.get('/:id', requirePermission('product_view'), getUnitById);

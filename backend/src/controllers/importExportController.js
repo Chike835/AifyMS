@@ -36,14 +36,37 @@ export const uploadMiddleware = (req, res, next) => {
  */
 const parseCSV = (buffer) => {
   return new Promise((resolve, reject) => {
+    if (!buffer || buffer.length === 0) {
+      return reject(new Error('CSV buffer is empty'));
+    }
+
     const results = [];
-    const stream = Readable.from(buffer.toString());
+    // Create readable stream directly from buffer
+    // Using Readable.from() with a string iterates character-by-character, breaking CSV parsing
+    // Instead, create a stream from the buffer array to preserve line structure
+    const stream = Buffer.isBuffer(buffer)
+      ? Readable.from([buffer])
+      : Readable.from([Buffer.from(buffer, 'utf8')]);
 
     stream
-      .pipe(csv())
-      .on('data', (data) => results.push(data))
-      .on('end', () => resolve(results))
-      .on('error', (error) => reject(error));
+      .pipe(csv({
+        skipEmptyLines: true,
+        skipLinesWithError: false
+      }))
+      .on('data', (data) => {
+        // Only push non-empty rows
+        if (data && Object.keys(data).length > 0) {
+          results.push(data);
+        }
+      })
+      .on('end', () => {
+        console.log(`[CSV Parse] Successfully parsed ${results.length} rows`);
+        resolve(results);
+      })
+      .on('error', (error) => {
+        console.error('[CSV Parse Error]', error);
+        reject(new Error(`Failed to parse CSV: ${error.message}`));
+      });
   });
 };
 
@@ -69,47 +92,92 @@ const getFileType = (file) => {
  */
 export const importData = async (req, res, next) => {
   try {
+    console.log('[Import] Request received:', {
+      entity: req.params.entity,
+      hasFile: !!req.file,
+      fileSize: req.file?.size,
+      fileName: req.file?.originalname,
+      fileMimeType: req.file?.mimetype
+    });
+
     if (!req.file) {
+      console.error('[Import] No file uploaded');
       return res.status(400).json({ error: 'No file uploaded' });
     }
-
 
     const { entity } = req.params;
     const validEntities = ['products', 'inventory', 'customers', 'suppliers'];
 
     if (!validEntities.includes(entity)) {
+      console.error('[Import] Invalid entity:', entity);
       return res.status(400).json({
         error: `Invalid entity. Must be one of: ${validEntities.join(', ')}`
       });
     }
 
+    console.log('[Import] Parsing file...');
     const fileType = getFileType(req.file);
-    const data = fileType === 'excel'
-      ? importService.parseExcel(req.file.buffer)
-      : await parseCSV(req.file.buffer);
+    console.log('[Import] File type detected:', fileType);
 
-    if (data.length === 0) {
+    let data;
+    try {
+      if (fileType === 'excel') {
+        data = importService.parseExcel(req.file.buffer);
+      } else {
+        data = await parseCSV(req.file.buffer);
+      }
+      console.log('[Import] Parsed rows:', data.length);
+      
+      // Debug: Log raw headers from first row
+      if (data && data.length > 0) {
+        console.log('[Import] Raw headers from first row:', Object.keys(data[0]));
+        console.log('[Import] First row sample (raw):', data[0]);
+      }
+    } catch (parseError) {
+      console.error('[Import] Parse error:', parseError);
+      return res.status(400).json({ 
+        error: `Failed to parse file: ${parseError.message}` 
+      });
+    }
+
+    if (!data || data.length === 0) {
+      console.error('[Import] No data parsed from file');
       return res.status(400).json({ error: 'CSV file is empty or invalid' });
     }
 
+    // Normalize headers for product imports
+    if (entity === 'products') {
+      console.log('[Import] Normalizing headers for products...');
+      data = importService.normalizeCSVHeaders(data);
+      console.log('[Import] Headers normalized. First row sample (normalized):', data[0]);
+    }
+
+    console.log('[Import] Starting import for entity:', entity);
     let results;
 
     // Import based on entity type
-    switch (entity) {
-      case 'products':
-        results = await importService.importProducts(data);
-        break;
-      case 'inventory':
-        results = await importService.importInventoryBatches(data);
-        break;
-      case 'customers':
-        results = await importService.importCustomers(data, req.user);
-        break;
-      case 'suppliers':
-        results = await importService.importSuppliers(data, req.user);
-        break;
-      default:
-        return res.status(400).json({ error: 'Invalid entity type' });
+    try {
+      switch (entity) {
+        case 'products':
+          results = await importService.importProducts(data);
+          break;
+        case 'inventory':
+          results = await importService.importInventoryBatches(data);
+          break;
+        case 'customers':
+          results = await importService.importCustomers(data, req.user);
+          break;
+        case 'suppliers':
+          results = await importService.importSuppliers(data, req.user);
+          break;
+        default:
+          return res.status(400).json({ error: 'Invalid entity type' });
+      }
+
+      console.log('[Import] Import completed:', results);
+    } catch (importError) {
+      console.error('[Import] Import error:', importError);
+      throw importError;
     }
 
     res.json({
@@ -120,6 +188,7 @@ export const importData = async (req, res, next) => {
       }
     });
   } catch (error) {
+    console.error('[Import] Unhandled error:', error);
     next(error);
   }
 };

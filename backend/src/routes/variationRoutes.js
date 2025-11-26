@@ -4,10 +4,13 @@ import {
   getVariationById,
   createVariation,
   updateVariation,
-  deleteVariation
+  deleteVariation,
+  importVariations,
+  exportVariations
 } from '../controllers/variationController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { requirePermission } from '../middleware/permissionMiddleware.js';
+import { uploadMiddleware } from '../controllers/importExportController.js';
 
 const router = express.Router();
 
@@ -19,6 +22,12 @@ router.get('/', requirePermission('product_view'), getVariations);
 
 // POST /api/variations - Create variation (requires product_add)
 router.post('/', requirePermission('product_add'), createVariation);
+
+// POST /api/variations/import - Import variations from CSV/Excel
+router.post('/import', requirePermission('product_add'), uploadMiddleware, importVariations);
+
+// GET /api/variations/export - Export variations to CSV
+router.get('/export', requirePermission('product_view'), exportVariations);
 
 // GET /api/variations/:id - Get variation by ID (requires product_view)
 router.get('/:id', requirePermission('product_view'), getVariationById);

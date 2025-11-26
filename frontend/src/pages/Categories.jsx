@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { FolderTree, Plus, Edit, Trash2, X } from 'lucide-react';
+import DataControlBar from '../components/settings/DataControlBar';
 
 const Categories = () => {
   const { hasPermission } = useAuth();
@@ -165,6 +166,13 @@ const Categories = () => {
           </button>
         )}
       </div>
+
+      <DataControlBar
+        importEndpoint="/api/categories/import"
+        exportEndpoint="/api/categories/export"
+        entityName="Categories"
+        onImportSuccess={() => queryClient.invalidateQueries({ queryKey: ['categories'] })}
+      />
 
       {categories.length === 0 ? (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-12 text-center">

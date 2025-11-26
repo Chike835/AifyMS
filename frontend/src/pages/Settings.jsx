@@ -4,6 +4,7 @@ import api from '../utils/api';
 import BrandForm from '../components/settings/BrandForm';
 import ColorForm from '../components/settings/ColorForm';
 import GaugeForm from '../components/settings/GaugeForm';
+import DataControlBar from '../components/settings/DataControlBar';
 
 const tabs = [
   { id: 'brands', label: 'Brands', component: BrandForm, dataKey: 'brands' },
@@ -89,6 +90,15 @@ const Settings = () => {
           ))}
         </nav>
       </div>
+
+      {activeTab === 'brands' && (
+        <DataControlBar
+          importEndpoint="/api/attributes/brands/import"
+          exportEndpoint="/api/attributes/brands/export"
+          entityName="Brands"
+          onImportSuccess={() => queryClient.invalidateQueries({ queryKey: ['attributes'] })}
+        />
+      )}
 
       <ActiveComponent
         items={items}

@@ -1,5 +1,6 @@
 import { Warranty, Product } from '../models/index.js';
 import { Op } from 'sequelize';
+import * as settingsImportExportService from '../services/settingsImportExportService.js';
 
 /**
  * GET /api/warranties
@@ -143,6 +144,96 @@ export const deleteWarranty = async (req, res, next) => {
     await warranty.destroy();
 
     res.json({ message: 'Warranty deleted successfully' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/warranties/import
+ * Import warranties from CSV/Excel file
+ */
+export const importWarranties = async (req, res, next) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    // Transform row
+    const transformRow = async (row, rowNum) => {
+      const processedRow = {
+        name: row.name ? String(row.name).trim() : null,
+        duration_months: row.duration_months !== undefined && row.duration_months !== ''
+          ? parseInt(row.duration_months, 10)
+          : null,
+        description: row.description ? String(row.description).trim() : null,
+        is_active: row.is_active !== undefined
+          ? (String(row.is_active).toLowerCase() === 'true' || row.is_active === '1' || row.is_active === 1)
+          : true
+      };
+
+      return processedRow;
+    };
+
+    // Validate row
+    const validateRow = (row, rowNum) => {
+      if (!row.name || String(row.name).trim() === '') {
+        return 'Name is required';
+      }
+      if (row.duration_months === undefined || row.duration_months === '') {
+        return 'Duration (duration_months) is required';
+      }
+      const duration = parseInt(row.duration_months, 10);
+      if (isNaN(duration) || duration < 0) {
+        return 'Duration must be a non-negative integer';
+      }
+      return null;
+    };
+
+    const results = await settingsImportExportService.importFromCsv(
+      Warranty,
+      req.file.buffer,
+      ['name'],
+      {
+        requiredFields: ['name', 'duration_months'],
+        transformRow,
+        validateRow,
+        updateOnDuplicate: false
+      }
+    );
+
+    res.json({
+      message: 'Import completed',
+      results: {
+        ...results,
+        total: results.created + results.updated + results.skipped
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/warranties/export
+ * Export warranties to CSV
+ */
+export const exportWarranties = async (req, res, next) => {
+  try {
+    const csvContent = await settingsImportExportService.exportToCsv(
+      Warranty,
+      ['name', 'duration_months', 'description', 'is_active'],
+      {},
+      {
+        order: [['name', 'ASC']]
+      }
+    );
+
+    const filename = `warranties_${new Date().toISOString().split('T')[0]}.csv`;
+    
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csvContent);
   } catch (error) {
     next(error);
   }

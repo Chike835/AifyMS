@@ -5,7 +5,8 @@ import {
   getCustomerLedger,
   getSupplierLedger,
   exportLedger,
-  triggerBackfill
+  triggerBackfill,
+  getCustomerLedgerSummary
 } from '../controllers/ledgerController.js';
 
 const router = express.Router();
@@ -26,6 +27,13 @@ router.post('/backfill', requirePermission('settings_manage'), triggerBackfill);
  * Permission: payment_view
  */
 router.get('/customer/:id', requirePermission('payment_view'), getCustomerLedger);
+
+/**
+ * GET /api/ledger/customer/:id/summary
+ * Get customer ledger summary
+ * Permission: payment_view
+ */
+router.get('/customer/:id/summary', requirePermission('payment_view'), getCustomerLedgerSummary);
 
 /**
  * GET /api/ledger/supplier/:id

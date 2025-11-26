@@ -4,10 +4,13 @@ import {
   getWarrantyById,
   createWarranty,
   updateWarranty,
-  deleteWarranty
+  deleteWarranty,
+  importWarranties,
+  exportWarranties
 } from '../controllers/warrantyController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { requirePermission } from '../middleware/permissionMiddleware.js';
+import { uploadMiddleware } from '../controllers/importExportController.js';
 
 const router = express.Router();
 
@@ -19,6 +22,12 @@ router.get('/', requirePermission('product_view'), getWarranties);
 
 // POST /api/warranties - Create warranty (requires product_add)
 router.post('/', requirePermission('product_add'), createWarranty);
+
+// POST /api/warranties/import - Import warranties from CSV/Excel
+router.post('/import', requirePermission('product_add'), uploadMiddleware, importWarranties);
+
+// GET /api/warranties/export - Export warranties to CSV
+router.get('/export', requirePermission('product_view'), exportWarranties);
 
 // GET /api/warranties/:id - Get warranty by ID (requires product_view)
 router.get('/:id', requirePermission('product_view'), getWarrantyById);

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { Shield, Plus, Edit, Trash2, X } from 'lucide-react';
+import DataControlBar from '../components/settings/DataControlBar';
 
 const Warranties = () => {
   const { hasPermission } = useAuth();
@@ -174,6 +175,13 @@ const Warranties = () => {
           </button>
         )}
       </div>
+
+      <DataControlBar
+        importEndpoint="/api/warranties/import"
+        exportEndpoint="/api/warranties/export"
+        entityName="Warranties"
+        onImportSuccess={() => queryClient.invalidateQueries({ queryKey: ['warranties'] })}
+      />
 
       {warranties.length === 0 ? (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-12 text-center">

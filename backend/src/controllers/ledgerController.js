@@ -1,5 +1,6 @@
-import { getLedger, backfillHistoricalLedger } from '../services/ledgerService.js';
-import { Customer, Supplier } from '../models/index.js';
+import { getLedger, backfillHistoricalLedger, calculateAdvanceBalance } from '../services/ledgerService.js';
+import { Customer, Supplier, LedgerEntry, SalesOrder } from '../models/index.js';
+import { Op } from 'sequelize';
 
 /**
  * GET /api/ledger/customer/:id
@@ -210,6 +211,78 @@ const arrayToCSV = (data, headers) => {
   }
 
   return csvRows.join('\n');
+};
+
+/**
+ * GET /api/ledger/customer/:id/summary
+ * Get customer ledger summary with opening balance, total invoiced, total paid, advance balance, and balance due
+ */
+export const getCustomerLedgerSummary = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // Verify customer exists
+    const customer = await Customer.findByPk(id);
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    // Get opening balance (sum of OPENING_BALANCE transactions)
+    const openingBalanceEntries = await LedgerEntry.findAll({
+      where: {
+        contact_id: id,
+        contact_type: 'customer',
+        transaction_type: 'OPENING_BALANCE'
+      }
+    });
+    const openingBalance = openingBalanceEntries.reduce((sum, entry) => {
+      return sum + parseFloat(entry.debit_amount || 0) - parseFloat(entry.credit_amount || 0);
+    }, 0);
+
+    // Get total invoiced (sum of INVOICE debit_amount)
+    const totalInvoiced = await LedgerEntry.sum('debit_amount', {
+      where: {
+        contact_id: id,
+        contact_type: 'customer',
+        transaction_type: 'INVOICE'
+      }
+    }) || 0;
+
+    // Get total paid (sum of PAYMENT + ADVANCE_PAYMENT credit_amount)
+    const totalPaid = await LedgerEntry.sum('credit_amount', {
+      where: {
+        contact_id: id,
+        contact_type: 'customer',
+        transaction_type: {
+          [Op.in]: ['PAYMENT', 'ADVANCE_PAYMENT']
+        }
+      }
+    }) || 0;
+
+    // Calculate advance balance
+    const advanceBalance = await calculateAdvanceBalance(id);
+
+    // Calculate balance due and advance balance
+    const totalInvoicedNum = parseFloat(totalInvoiced);
+    const totalPaidNum = parseFloat(totalPaid);
+    const advanceBalanceNum = parseFloat(advanceBalance);
+
+    // Advance Balance = max(0, Total Paid - Total Invoiced)
+    const calculatedAdvanceBalance = Math.max(0, totalPaidNum - totalInvoicedNum);
+    
+    // Balance Due = max(0, Total Invoiced - Total Paid)
+    const balanceDue = Math.max(0, totalInvoicedNum - totalPaidNum);
+
+    res.json({
+      opening_balance: parseFloat(openingBalance),
+      total_invoiced: totalInvoicedNum,
+      total_paid: totalPaidNum,
+      advance_balance: calculatedAdvanceBalance,
+      balance_due: balanceDue
+    });
+  } catch (error) {
+    next(error);
+  }
 };
 
 /**

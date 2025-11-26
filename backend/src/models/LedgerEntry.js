@@ -20,7 +20,7 @@ const LedgerEntry = sequelize.define('LedgerEntry', {
     allowNull: false
   },
   transaction_type: {
-    type: DataTypes.ENUM('INVOICE', 'PAYMENT', 'RETURN', 'ADJUSTMENT', 'OPENING_BALANCE'),
+    type: DataTypes.ENUM('INVOICE', 'PAYMENT', 'RETURN', 'ADJUSTMENT', 'OPENING_BALANCE', 'ADVANCE_PAYMENT', 'REFUND', 'REFUND_FEE'),
     allowNull: false
   },
   transaction_id: {

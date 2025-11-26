@@ -1,0 +1,233 @@
+{
+  "projectSpecification": {
+    "projectName": "Aify Global ERP (POS, Manufacturing & Accounting)",
+    "version": "2.0.0",
+    "context": "Bespoke ERP for a Nigerian Aluminum & Building Materials company with 4 branches. Key focus on manufacturing conversion (Coil to Roofing), granular inventory tracking, and strict financial security.",
+    "prd": {
+      "documentVersion": "1.5",
+      "userPersonas": [
+        {
+          "role": "Super Admin",
+          "description": "Owner. Full access. Can manage all branches, confirm payments, view global P&L, and configure manufacturing recipes."
+        },
+        {
+          "role": "Branch Manager",
+          "description": "Oversees specific branch operations, approves stock transfers, confirms payments."
+        },
+        {
+          "role": "Sales Representative",
+          "description": "Creates quotes and invoices. Cannot receive payments or see cost prices."
+        },
+        {
+          "role": "Cashier",
+          "description": "Logs payments into the system. Cannot confirm payments or edit prices."
+        },
+        {
+          "role": "Inventory Manager",
+          "description": "Manages physical stock, registers new coils/pallets, handles wastage."
+        },
+        {
+          "role": "Production Worker",
+          "description": "View-only access to Production Queue. Updates status to 'Produced'."
+        }
+      ],
+      "coreModules": [
+        {
+          "name": "User & Security",
+          "requirements": [
+            "Granular Permission System (RBAC).",
+            "Multi-branch data segregation.",
+            "Maker-Checker workflow for sensitive financial actions."
+          ]
+        },
+        {
+          "name": "Inventory Management",
+          "requirements": [
+            "Track 4 Product Types: Standard, Compound, Raw Material (Tracked), Manufactured (Virtual).",
+            "Inventory Instances: Track specific Coil IDs/Pallet IDs with unique serial numbers.",
+            "Stock Transfers: Branch-to-Branch movement with approval step.",
+            "Wastage Management: Record scrap during production."
+          ]
+        },
+        {
+          "name": "Manufacturing Engine",
+          "requirements": [
+            "Recipes: Define conversion math (e.g., 1 Meter Longspan = 0.8 KG Coil).",
+            "Just-in-Time Production: Sales trigger production queues.",
+            "Material Assignment: Force user to select specific Coil ID to deduct stock from at point of sale."
+          ]
+        },
+        {
+          "name": "Sales & POS",
+          "requirements": [
+            "Dynamic Pricing: Per-customer or manual override (permission based).",
+            "Credit Sales: Allow finalizing invoices as 'Unpaid' (permission based).",
+            "Workflow: Quote -> Invoice -> Production -> Dispatch."
+          ]
+        },
+        {
+          "name": "Financials (Maker-Checker)",
+          "requirements": [
+            "Payment Logging: Cashier logs payment -> Status 'Pending Confirmation'.",
+            "Payment Confirmation: Manager verifies funds -> Status 'Confirmed' -> Ledger Updates.",
+            "Ledgers: Per-customer accounting. Supports deposits and partial payments."
+          ]
+        },
+        {
+          "name": "Data Management",
+          "requirements": [
+            "Import: Bulk upload via CSV/Excel for Products, Customers, Opening Stock, Legacy Sales.",
+            "Export: Download financial reports and operational data to Excel/CSV.",
+            "Validation: Pre-flight check for duplicates and data type errors."
+          ]
+        }
+      ],
+      "permissionsList": {
+        "user_management": ["user_view", "user_view_global", "user_add", "user_edit", "user_delete", "role_manage"],
+        "inventory": ["product_view", "product_add", "product_edit", "product_delete", "product_view_cost", "stock_add_opening", "stock_adjust", "stock_transfer_init", "stock_transfer_approve"],
+        "sales_pos": ["pos_access", "sale_view_own", "sale_view_all", "sale_edit_price", "sale_discount", "sale_credit", "quote_manage", "draft_manage"],
+        "payments": ["payment_view", "payment_receive", "payment_confirm", "payment_delete_unconfirmed", "payment_void_confirmed"],
+        "manufacturing": ["recipe_view", "recipe_manage", "production_view_queue", "production_update_status"],
+        "data_management": ["data_import", "data_export_operational", "data_export_financial"],
+        "reports": ["report_view_register", "report_view_stock_value", "report_view_financial", "report_view_sales"]
+      }
+    },
+    "technicalSpecification": {
+      "stack": {
+        "frontend": "React (Vite), Tailwind CSS, React Query, Axios",
+        "backend": "Node.js, Express.js",
+        "database": "PostgreSQL 15+ (Required for complex relationships)",
+        "fileHandling": "Multer (Uploads), ExcelJS (Import/Export Parsing)",
+        "containerization": "Docker & Docker Compose"
+      },
+      "databaseSchema": {
+        "tables": [
+          {
+            "name": "users",
+            "columns": [
+              "id (UUID, PK)", "email (VARCHAR, UNIQUE)", "password_hash", "full_name", "role_id (FK)", "branch_id (FK)", "is_active (BOOL)"
+            ]
+          },
+          {
+            "name": "roles",
+            "columns": ["id (UUID, PK)", "name (VARCHAR)", "description"]
+          },
+          {
+            "name": "permissions",
+            "columns": ["id (UUID, PK)", "slug (VARCHAR, UNIQUE, e.g., 'payment_confirm')", "group_name"]
+          },
+          {
+            "name": "role_permissions",
+            "columns": ["role_id (FK)", "permission_id (FK)"]
+          },
+          {
+            "name": "branches",
+            "columns": ["id (UUID, PK)", "name", "code (VARCHAR, e.g., 'OWR')", "address"]
+          },
+          {
+            "name": "customers",
+            "columns": ["id (UUID, PK)", "name", "phone", "email", "address", "ledger_balance (DECIMAL, Default 0)", "created_at"]
+          },
+          {
+            "name": "products",
+            "columns": [
+              "id (UUID, PK)", "sku (VARCHAR, UNIQUE)", "name", 
+              "type (ENUM: 'standard', 'compound', 'raw_tracked', 'manufactured_virtual')",
+              "base_unit (VARCHAR)", "sale_price (DECIMAL)", "cost_price (DECIMAL)", 
+              "tax_rate (DECIMAL)", "brand", "category"
+            ]
+          },
+          {
+            "name": "inventory_instances",
+            "description": "Tracks physical coils/pallets individually",
+            "columns": [
+              "id (UUID, PK)", "product_id (FK - Raw Material)", "branch_id (FK)", 
+              "instance_code (VARCHAR, UNIQUE, e.g., 'COIL-001')", 
+              "initial_quantity (DECIMAL)", "remaining_quantity (DECIMAL)", 
+              "status (ENUM: 'in_stock', 'depleted', 'scrapped')"
+            ]
+          },
+          {
+            "name": "recipes",
+            "description": "Conversion rules for Manufacturing",
+            "columns": [
+              "id (UUID, PK)", "name", "virtual_product_id (FK)", 
+              "raw_product_id (FK)", "conversion_factor (DECIMAL, e.g., 0.8)"
+            ]
+          },
+          {
+            "name": "sales_orders",
+            "columns": [
+              "id (UUID, PK)", "invoice_number (VARCHAR, UNIQUE)", "customer_id (FK)", "branch_id (FK)", 
+              "user_id (FK - Creator)", "total_amount (DECIMAL)", 
+              "payment_status (ENUM: 'unpaid', 'partial', 'paid')", 
+              "production_status (ENUM: 'queue', 'produced', 'delivered', 'na')",
+              "is_legacy (BOOL, Default false)", "created_at"
+            ]
+          },
+          {
+            "name": "sales_items",
+            "columns": [
+              "id (UUID, PK)", "order_id (FK)", "product_id (FK)", "quantity", "unit_price", "subtotal"
+            ]
+          },
+          {
+            "name": "item_assignments",
+            "description": "Links a sale item to the specific coil used",
+            "columns": [
+              "id (UUID, PK)", "sales_item_id (FK)", "inventory_instance_id (FK)", "quantity_deducted"
+            ]
+          },
+          {
+            "name": "payments",
+            "columns": [
+              "id (UUID, PK)", "customer_id (FK)", "amount (DECIMAL)", "method (ENUM: 'cash', 'transfer', 'pos')",
+              "status (ENUM: 'pending_confirmation', 'confirmed', 'voided')",
+              "created_by (FK - Cashier)", "confirmed_by (FK - Admin, Nullable)", 
+              "confirmed_at (TIMESTAMP)", "reference_note", "created_at"
+            ]
+          }
+        ]
+      },
+      "apiEndpoints": [
+        { "method": "POST", "path": "/api/auth/login" },
+        { "method": "GET", "path": "/api/users", "permission": "user_view" },
+        { "method": "POST", "path": "/api/products", "permission": "product_add" },
+        { "method": "POST", "path": "/api/sales", "permission": "pos_access", "desc": "Create Invoice" },
+        { "method": "POST", "path": "/api/payments", "permission": "payment_receive", "desc": "Log pending payment" },
+        { "method": "PUT", "path": "/api/payments/:id/confirm", "permission": "payment_confirm", "desc": "Confirm payment & update ledger" },
+        { "method": "POST", "path": "/api/data/import/:entity", "permission": "data_import", "desc": "Upload CSV" },
+        { "method": "GET", "path": "/api/data/export/:entity", "permission": "data_export_operational", "desc": "Download CSV" }
+      ],
+      "folderStructure": {
+        "root": {
+          "backend": {
+            "src": {
+              "config": ["db.js", "env.js"],
+              "controllers": ["authController.js", "salesController.js", "paymentController.js", "dataController.js"],
+              "models": ["User.js", "Product.js", "Payment.js", "Inventory.js"],
+              "routes": ["authRoutes.js", "salesRoutes.js", "paymentRoutes.js", "dataRoutes.js"],
+              "middleware": ["authMiddleware.js", "permissionMiddleware.js", "uploadMiddleware.js"],
+              "services": ["ledgerService.js", "inventoryService.js", "importService.js"]
+            },
+            "files": ["server.js", "package.json", "Dockerfile"]
+          },
+          "frontend": {
+            "src": {
+              "components": {
+                "common": ["Button.jsx", "Modal.jsx", "Table.jsx"],
+                "pos": ["POSCart.jsx", "ProductSearch.jsx", "CoilSelector.jsx"],
+                "admin": ["PaymentApprovalTable.jsx", "ImportWizard.jsx"]
+              },
+              "pages": ["Dashboard.jsx", "POS.jsx", "Inventory.jsx", "Payments.jsx"],
+              "context": ["AuthContext.jsx", "CartContext.jsx"],
+              "hooks": ["usePermissions.js"]
+            },
+            "files": ["App.jsx", "main.jsx", "package.json", "Dockerfile"]
+          },
+          "database": ["init.sql"]
+        }
+      }
+    }
+  }
+}

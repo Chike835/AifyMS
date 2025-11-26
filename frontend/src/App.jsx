@@ -364,6 +364,16 @@ function App() {
               }
             />
             <Route
+              path="/reports"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Reports />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/accounts/reports"
               element={
                 <ProtectedRoute>

@@ -9,7 +9,7 @@ const entityLabels = {
   customers: 'Customers'
 };
 
-const ImportModal = ({ isOpen, onClose, entity, title = 'Import Data', onSuccess }) => {
+const ImportModal = ({ isOpen, onClose, entity, title = 'Import Data', onSuccess, targetEndpoint }) => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -61,7 +61,9 @@ const ImportModal = ({ isOpen, onClose, entity, title = 'Import Data', onSuccess
       setIsSubmitting(true);
       setError(null);
 
-      const response = await api.post(`/import/${entity}`, formData, {
+      // Use targetEndpoint if provided, otherwise fall back to default pattern
+      const endpoint = targetEndpoint || `/import/${entity}`;
+      const response = await api.post(endpoint, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
@@ -81,7 +83,9 @@ const ImportModal = ({ isOpen, onClose, entity, title = 'Import Data', onSuccess
         <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
           <div>
             <h2 className="text-xl font-semibold text-gray-900">{title}</h2>
-            <p className="text-sm text-gray-500">Upload CSV or Excel file with {entityLabel.toLowerCase()}.</p>
+            <p className="text-sm text-gray-500">
+              {entity ? `Upload CSV or Excel file with ${entityLabel.toLowerCase()}.` : 'Upload CSV or Excel file to import data.'}
+            </p>
           </div>
           <button
             onClick={() => {

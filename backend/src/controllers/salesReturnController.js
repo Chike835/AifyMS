@@ -331,8 +331,9 @@ export const approveSalesReturn = async (req, res, next) => {
       }
     }
 
-    // Update customer ledger if refund method is credit
-    if (salesReturn.refund_method === 'credit' && salesReturn.customer) {
+    // Update customer ledger balance for all refunds
+    // All refunds reduce what the customer owes us, regardless of refund method
+    if (salesReturn.customer) {
       const customer = await Customer.findByPk(salesReturn.customer.id, { 
         lock: transaction.LOCK.UPDATE, 
         transaction 
@@ -352,8 +353,9 @@ export const approveSalesReturn = async (req, res, next) => {
 
     await transaction.commit();
 
-    // Create ledger entry for credit refunds
-    if (salesReturn.refund_method === 'credit' && salesReturn.customer_id && salesReturn.total_amount > 0) {
+    // Create ledger entry for all approved sales returns
+    // All refunds reduce what the customer owes us, regardless of refund method (credit, cash, POS)
+    if (salesReturn.customer_id && salesReturn.total_amount > 0) {
       try {
         const { createLedgerEntry } = await import('../services/ledgerService.js');
         await createLedgerEntry(
@@ -363,7 +365,7 @@ export const approveSalesReturn = async (req, res, next) => {
             transaction_date: salesReturn.approved_at || new Date(),
             transaction_type: 'RETURN',
             transaction_id: salesReturn.id,
-            description: `Sales Return ${salesReturn.return_number}`,
+            description: `Sales Return ${salesReturn.return_number} (${salesReturn.refund_method})`,
             debit_amount: 0,
             credit_amount: salesReturn.total_amount,
             branch_id: salesReturn.branch_id,

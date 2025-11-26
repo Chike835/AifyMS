@@ -4,7 +4,10 @@ import {
   confirmPayment, 
   getPayments,
   getPendingPayments,
-  getRecentPayments
+  getRecentPayments,
+  addAdvance,
+  confirmAdvancePayment,
+  processRefund
 } from '../controllers/paymentController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { requirePermission } from '../middleware/permissionMiddleware.js';
@@ -28,6 +31,15 @@ router.post('/', requirePermission('payment_receive'), createPayment);
 
 // PUT /api/payments/:id/confirm - Confirm payment (requires payment_confirm)
 router.put('/:id/confirm', requirePermission('payment_confirm'), confirmPayment);
+
+// POST /api/payments/advance - Create advance payment (requires payment_receive)
+router.post('/advance', requirePermission('payment_receive'), addAdvance);
+
+// PUT /api/payments/:id/confirm-advance - Confirm advance payment (requires payment_confirm)
+router.put('/:id/confirm-advance', requirePermission('payment_confirm'), confirmAdvancePayment);
+
+// POST /api/payments/refund - Process refund (requires payment_confirm)
+router.post('/refund', requirePermission('payment_confirm'), processRefund);
 
 export default router;
 

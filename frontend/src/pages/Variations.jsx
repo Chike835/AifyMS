@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { Settings, Plus, Edit, Trash2, X } from 'lucide-react';
+import DataControlBar from '../components/settings/DataControlBar';
 
 const Variations = () => {
   const { hasPermission } = useAuth();
@@ -184,6 +185,13 @@ const Variations = () => {
           </button>
         )}
       </div>
+
+      <DataControlBar
+        importEndpoint="/api/variations/import"
+        exportEndpoint="/api/variations/export"
+        entityName="Variations"
+        onImportSuccess={() => queryClient.invalidateQueries({ queryKey: ['variations'] })}
+      />
 
       {variations.length === 0 ? (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-12 text-center">

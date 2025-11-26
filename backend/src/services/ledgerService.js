@@ -15,10 +15,12 @@ import { Op } from 'sequelize';
 
 /**
  * Calculate running balance for a contact
- * Formula: Opening Balance + (Sum Debits - Sum Credits) up to transaction_date
+ * Formula: Sum of all entries (debits - credits) up to transaction_date
+ * Note: We start from 0 and sum all entries because ledger_balance already includes all entries.
+ * If an OPENING_BALANCE entry exists, it will be included in the sum.
  */
 const calculateRunningBalance = async (contactId, contactType, transactionDate, branchId = null) => {
-  // Get opening balance (current ledger_balance from contact table)
+  // Verify contact exists
   let contact;
   if (contactType === 'customer') {
     contact = await Customer.findByPk(contactId);
@@ -30,9 +32,9 @@ const calculateRunningBalance = async (contactId, contactType, transactionDate, 
     throw new Error(`${contactType} not found`);
   }
 
-  const openingBalance = parseFloat(contact.ledger_balance || 0);
-
   // Get all ledger entries up to this transaction date
+  // Note: We do NOT use ledger_balance as starting point because it already includes all entries
+  // Starting from 0 and summing all entries ensures we don't double-count
   const where = {
     contact_id: contactId,
     contact_type: contactType,
@@ -50,8 +52,9 @@ const calculateRunningBalance = async (contactId, contactType, transactionDate, 
     order: [['transaction_date', 'ASC'], ['created_at', 'ASC']]
   });
 
-  // Calculate running balance
-  let runningBalance = openingBalance;
+  // Calculate running balance starting from 0
+  // All entries (including OPENING_BALANCE if present) are summed
+  let runningBalance = 0;
   for (const entry of previousEntries) {
     const debit = parseFloat(entry.debit_amount || 0);
     const credit = parseFloat(entry.credit_amount || 0);
@@ -186,6 +189,36 @@ export const getLedger = async (contactId, contactType, startDate = null, endDat
   });
 
   return entries;
+};
+
+/**
+ * Calculate advance balance for a customer
+ * Advance balance = Sum of ADVANCE_PAYMENT credits - Sum of REFUND debits
+ * @param {string} customerId - Customer ID
+ * @returns {Promise<number>} Advance balance amount
+ */
+export const calculateAdvanceBalance = async (customerId) => {
+  // Sum of all ADVANCE_PAYMENT credits
+  const advancePayments = await LedgerEntry.sum('credit_amount', {
+    where: {
+      contact_id: customerId,
+      contact_type: 'customer',
+      transaction_type: 'ADVANCE_PAYMENT'
+    }
+  }) || 0;
+
+  // Sum of all REFUND credits (refunds reduce advance balance by decreasing credits)
+  // Refunds are credits that decrease what customer owes, which also reduces their advance
+  const refunds = await LedgerEntry.sum('credit_amount', {
+    where: {
+      contact_id: customerId,
+      contact_type: 'customer',
+      transaction_type: 'REFUND'
+    }
+  }) || 0;
+
+  const advanceBalance = parseFloat(advancePayments) - parseFloat(refunds);
+  return Math.max(0, advanceBalance); // Return 0 if negative
 };
 
 /**

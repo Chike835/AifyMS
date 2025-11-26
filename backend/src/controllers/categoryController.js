@@ -1,5 +1,6 @@
 import { Category } from '../models/index.js';
 import { Op } from 'sequelize';
+import * as settingsImportExportService from '../services/settingsImportExportService.js';
 
 /**
  * GET /api/categories
@@ -177,6 +178,153 @@ export const deleteCategory = async (req, res, next) => {
     await category.destroy();
 
     res.json({ message: 'Category deleted successfully' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/categories/import
+ * Import categories from CSV/Excel file
+ */
+export const importCategories = async (req, res, next) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    // Transform row to handle parent_id lookup by name
+    const transformRow = async (row, rowNum) => {
+      const processedRow = {
+        name: row.name ? String(row.name).trim() : null,
+        description: row.description ? String(row.description).trim() : null,
+        is_active: row.is_active !== undefined 
+          ? (String(row.is_active).toLowerCase() === 'true' || row.is_active === '1' || row.is_active === 1)
+          : true,
+        parent_id: null
+      };
+
+      // Handle parent_id - can be UUID or parent category name
+      if (row.parent_id && String(row.parent_id).trim() !== '') {
+        const parentValue = String(row.parent_id).trim();
+        
+        // Check if it's a UUID
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (uuidRegex.test(parentValue)) {
+          // It's a UUID, validate it exists
+          const parent = await Category.findByPk(parentValue);
+          if (!parent) {
+            throw new Error(`Parent category with ID "${parentValue}" not found`);
+          }
+          processedRow.parent_id = parentValue;
+        } else {
+          // It's a name, look it up
+          // Prefer top-level categories (parent_id IS NULL) to avoid ambiguity
+          // If multiple categories have the same name, prefer the one without a parent
+          let parent = await Category.findOne({ 
+            where: { 
+              name: parentValue,
+              parent_id: null  // Prefer top-level categories
+            } 
+          });
+          
+          // If no top-level category found, try any category with that name
+          if (!parent) {
+            const allMatches = await Category.findAll({ 
+              where: { name: parentValue },
+              attributes: ['id', 'name', 'parent_id']
+            });
+            
+            if (allMatches.length === 0) {
+              throw new Error(`Parent category with name "${parentValue}" not found`);
+            } else if (allMatches.length === 1) {
+              parent = allMatches[0];
+            } else {
+              // Multiple categories with same name - require UUID for disambiguation
+              throw new Error(
+                `Multiple categories found with name "${parentValue}". ` +
+                `Please use the category UUID instead. Found IDs: ${allMatches.map(c => c.id).join(', ')}`
+              );
+            }
+          }
+          
+          processedRow.parent_id = parent.id;
+        }
+      }
+
+      return processedRow;
+    };
+
+    // Validate row
+    const validateRow = (row, rowNum) => {
+      if (!row.name || String(row.name).trim() === '') {
+        return 'Name is required';
+      }
+      return null;
+    };
+
+    const results = await settingsImportExportService.importFromCsv(
+      Category,
+      req.file.buffer,
+      ['name'], // Unique on name (though parent_id can make same name valid)
+      {
+        requiredFields: ['name'],
+        transformRow,
+        validateRow,
+        updateOnDuplicate: false
+      }
+    );
+
+    res.json({
+      message: 'Import completed',
+      results: {
+        ...results,
+        total: results.created + results.updated + results.skipped
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/categories/export
+ * Export categories to CSV
+ */
+export const exportCategories = async (req, res, next) => {
+  try {
+    const csvContent = await settingsImportExportService.exportToCsv(
+      Category,
+      ['name', 'parent_id', 'description', 'is_active'],
+      {},
+      {
+        include: [
+          {
+            model: Category,
+            as: 'parent',
+            attributes: ['id', 'name'],
+            required: false
+          }
+        ],
+        transformRow: (row, record) => {
+          // Include parent name if available
+          return {
+            name: row.name,
+            parent_name: record.parent ? record.parent.name : '',
+            parent_id: row.parent_id || '',
+            description: row.description || '',
+            is_active: row.is_active ? 'true' : 'false'
+          };
+        },
+        order: [['name', 'ASC']]
+      }
+    );
+
+    const filename = `categories_${new Date().toISOString().split('T')[0]}.csv`;
+    
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csvContent);
   } catch (error) {
     next(error);
   }
