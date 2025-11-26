@@ -20,24 +20,16 @@ export const authenticate = async (req, res, next) => {
     // Verify token
     const decoded = jwt.verify(token, config.jwtSecret);
 
-    // Fetch user with role and permissions
+    // Lightweight query: Only check if user exists and is active
+    // Use JWT payload for role_id, branch_id, permissions to avoid heavy joins
     const user = await User.findByPk(decoded.userId, {
+      attributes: ['id', 'email', 'full_name', 'is_active', 'role_id', 'branch_id'],
       include: [
-        {
-          model: Role,
-          as: 'role',
-          include: [
-            {
-              model: Permission,
-              as: 'permissions',
-              attributes: ['id', 'slug', 'group_name']
-            }
-          ]
-        },
         {
           model: Branch,
           as: 'branch',
-          attributes: ['id', 'name', 'code']
+          attributes: ['id', 'name', 'code'],
+          required: false // LEFT JOIN - branch may be null
         }
       ]
     });
@@ -46,17 +38,18 @@ export const authenticate = async (req, res, next) => {
       return res.status(401).json({ error: 'User not found or inactive' });
     }
 
-    // Extract permission slugs for easy checking
-    const permissions = user.role?.permissions?.map(p => p.slug) || [];
+    // Use permissions from JWT payload (faster, but may be stale if permissions changed)
+    // If permissions need to be fresh, we can add a lightweight permission check here
+    const permissions = decoded.permissions || [];
 
     // Attach user data to request
     req.user = {
       id: user.id,
       email: user.email,
       full_name: user.full_name,
-      role_id: user.role_id,
-      role_name: user.role?.name,
-      branch_id: user.branch_id,
+      role_id: decoded.role_id || user.role_id,
+      role_name: decoded.role_name,
+      branch_id: decoded.branch_id || user.branch_id,
       branch: user.branch,
       permissions: permissions
     };
@@ -90,36 +83,28 @@ export const optionalAuth = async (req, res, next) => {
     const token = authHeader.substring(7);
     const decoded = jwt.verify(token, config.jwtSecret);
 
+    // Lightweight query for optional auth
     const user = await User.findByPk(decoded.userId, {
+      attributes: ['id', 'email', 'full_name', 'is_active', 'role_id', 'branch_id'],
       include: [
-        {
-          model: Role,
-          as: 'role',
-          include: [
-            {
-              model: Permission,
-              as: 'permissions',
-              attributes: ['id', 'slug', 'group_name']
-            }
-          ]
-        },
         {
           model: Branch,
           as: 'branch',
-          attributes: ['id', 'name', 'code']
+          attributes: ['id', 'name', 'code'],
+          required: false
         }
       ]
     });
 
     if (user && user.is_active) {
-      const permissions = user.role?.permissions?.map(p => p.slug) || [];
+      const permissions = decoded.permissions || [];
       req.user = {
         id: user.id,
         email: user.email,
         full_name: user.full_name,
-        role_id: user.role_id,
-        role_name: user.role?.name,
-        branch_id: user.branch_id,
+        role_id: decoded.role_id || user.role_id,
+        role_name: decoded.role_name,
+        branch_id: decoded.branch_id || user.branch_id,
         branch: user.branch,
         permissions: permissions
       };

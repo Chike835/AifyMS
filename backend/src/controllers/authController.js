@@ -62,9 +62,16 @@ export const login = async (req, res, next) => {
     // Extract permissions
     const permissions = user.role?.permissions?.map(p => p.slug) || [];
 
-    // Generate JWT token
+    // Generate JWT token with essential user data to reduce DB queries
     const token = jwt.sign(
-      { userId: user.id, email: user.email },
+      { 
+        userId: user.id, 
+        email: user.email,
+        role_id: user.role_id,
+        role_name: user.role?.name,
+        branch_id: user.branch_id,
+        permissions: permissions
+      },
       config.jwtSecret,
       { expiresIn: config.jwtExpiresIn }
     );

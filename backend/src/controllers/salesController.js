@@ -1,11 +1,15 @@
 import sequelize from '../config/db.js';
 import { SalesOrder, SalesItem, ItemAssignment, Product, InventoryBatch, Recipe, Customer, Branch, User, Agent, AgentCommission } from '../models/index.js';
 import { Op } from 'sequelize';
+import { multiply, add, subtract, sum, equals, lessThan, lessThanOrEqual, greaterThan, percentage } from '../utils/mathUtils.js';
+import { processManufacturedVirtualItem, processManufacturedVirtualItemForConversion } from '../services/inventoryService.js';
 
 /**
- * Generate unique invoice number
+ * Generate unique invoice number with transaction lock to prevent race conditions
+ * @param {Object} transaction - Sequelize transaction object
+ * @returns {Promise<string>} Unique invoice number
  */
-const generateInvoiceNumber = async () => {
+const generateInvoiceNumber = async (transaction) => {
   const prefix = 'INV';
   const date = new Date();
   const year = date.getFullYear();
@@ -13,14 +17,23 @@ const generateInvoiceNumber = async () => {
   const day = String(date.getDate()).padStart(2, '0');
   const dateStr = `${year}${month}${day}`;
   
-  // Find the last invoice for today
+  // Use advisory lock to prevent concurrent invoice number generation
+  // PostgreSQL advisory locks are automatically released when transaction ends
+  const lockKey = `invoice_${dateStr}`.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  
+  // Acquire advisory lock (blocks until available)
+  await sequelize.query(`SELECT pg_advisory_xact_lock(${lockKey})`, { transaction });
+  
+  // Find the last invoice for today with lock
   const lastOrder = await SalesOrder.findOne({
     where: {
       invoice_number: {
         [Op.like]: `${prefix}-${dateStr}-%`
       }
     },
-    order: [['invoice_number', 'DESC']]
+    order: [['invoice_number', 'DESC']],
+    lock: transaction.LOCK.UPDATE,
+    transaction
   });
 
   let sequence = 1;
@@ -65,15 +78,14 @@ export const createSale = async (req, res, next) => {
       return res.status(400).json({ error: 'branch_id is required' });
     }
 
-    // Generate invoice number
-    const invoiceNumber = await generateInvoiceNumber();
+    // Generate invoice number (within transaction for locking)
+    const invoiceNumber = await generateInvoiceNumber(transaction);
 
-    // Calculate total amount
-    let totalAmount = 0;
-    for (const item of items) {
-      const subtotal = parseFloat(item.quantity) * parseFloat(item.unit_price);
-      totalAmount += subtotal;
-    }
+    // Calculate total amount using precision math
+    const itemSubtotals = items.map(item => 
+      multiply(item.quantity, item.unit_price)
+    );
+    const totalAmount = sum(itemSubtotals);
 
     // Determine if inventory should be deducted (only for actual invoices)
     const shouldDeductInventory = order_type === 'invoice';
@@ -135,7 +147,7 @@ export const createSale = async (req, res, next) => {
         return res.status(404).json({ error: `Product ${product_id} not found` });
       }
 
-      const subtotal = parseFloat(quantity) * parseFloat(unit_price);
+      const subtotal = multiply(quantity, unit_price);
 
       // Create sales item
       const salesItem = await SalesItem.create({
@@ -151,103 +163,18 @@ export const createSale = async (req, res, next) => {
       if (product.type === 'manufactured_virtual' && shouldDeductInventory) {
         hasManufacturedItems = true;
 
-        // Validate that item_assignments exist
-        if (!item_assignments || !Array.isArray(item_assignments) || item_assignments.length === 0) {
-          await transaction.rollback();
-          return res.status(400).json({ 
-            error: `Manufactured product ${product.name} requires item_assignments array` 
-          });
-        }
-
-        // Get recipe for this virtual product
-        const recipe = await Recipe.findOne({
-          where: { virtual_product_id: product_id },
+        // Use centralized inventory service
+        const result = await processManufacturedVirtualItem({
+          product,
+          quantity,
+          itemAssignments: item_assignments,
+          salesItem,
           transaction
         });
 
-        if (!recipe) {
+        if (!result.success) {
           await transaction.rollback();
-          return res.status(404).json({ 
-            error: `No recipe found for manufactured product ${product.name}` 
-          });
-        }
-
-        // Calculate total raw material needed
-        const totalRawMaterialNeeded = parseFloat(quantity) * parseFloat(recipe.conversion_factor);
-
-        // Verify total assigned quantity matches requirement
-        let totalAssigned = 0;
-        for (const assignment of item_assignments) {
-          totalAssigned += parseFloat(assignment.quantity_deducted || 0);
-        }
-
-        if (Math.abs(totalAssigned - totalRawMaterialNeeded) > 0.001) {
-          await transaction.rollback();
-          return res.status(400).json({ 
-            error: `Total assigned quantity (${totalAssigned}) does not match required (${totalRawMaterialNeeded}) for product ${product.name}` 
-          });
-        }
-
-        // Process each assignment
-        for (const assignment of item_assignments) {
-          const { inventory_batch_id, quantity_deducted } = assignment;
-
-          if (!inventory_batch_id || quantity_deducted === undefined) {
-            await transaction.rollback();
-            return res.status(400).json({ 
-              error: 'Each assignment must have inventory_batch_id and quantity_deducted' 
-            });
-          }
-
-          // Get inventory batch with lock (FOR UPDATE)
-          const inventoryBatch = await InventoryBatch.findByPk(
-            inventory_batch_id,
-            { 
-              lock: transaction.LOCK.UPDATE,
-              transaction 
-            }
-          );
-
-          if (!inventoryInstance) {
-            await transaction.rollback();
-            return res.status(404).json({ 
-              error: `Inventory batch ${inventory_batch_id} not found` 
-            });
-          }
-
-          // Verify it's the correct raw product
-          if (inventoryBatch.product_id !== recipe.raw_product_id) {
-            await transaction.rollback();
-            return res.status(400).json({ 
-              error: `Inventory instance does not match recipe raw product` 
-            });
-          }
-
-          // Check sufficient stock
-          const qtyToDeduct = parseFloat(quantity_deducted);
-          if (inventoryBatch.remaining_quantity < qtyToDeduct) {
-            await transaction.rollback();
-            return res.status(400).json({ 
-              error: `Insufficient stock in ${inventoryBatch.instance_code || inventoryBatch.batch_identifier}. Available: ${inventoryBatch.remaining_quantity}, Required: ${qtyToDeduct}` 
-            });
-          }
-
-          // Deduct from inventory
-          inventoryBatch.remaining_quantity -= qtyToDeduct;
-          
-          // Update status if depleted
-          if (inventoryBatch.remaining_quantity <= 0) {
-            inventoryBatch.status = 'depleted';
-          }
-
-          await inventoryBatch.save({ transaction });
-
-          // Create item assignment record
-          await ItemAssignment.create({
-            sales_item_id: salesItem.id,
-            inventory_batch_id,
-            quantity_deducted: qtyToDeduct
-          }, { transaction });
+          return res.status(400).json({ error: result.error });
         }
       } else if (product.type === 'manufactured_virtual' && !shouldDeductInventory) {
         // For drafts/quotations, just mark that it has manufactured items (for display purposes)
@@ -263,14 +190,14 @@ export const createSale = async (req, res, next) => {
 
     // Create agent commission if agent is assigned (only for actual invoices)
     if (agent && shouldDeductInventory && agent.commission_rate > 0) {
-      const commissionAmount = (total_amount * parseFloat(agent.commission_rate)) / 100;
+      const commissionAmount = percentage(totalAmount, agent.commission_rate);
       
       await AgentCommission.create({
         agent_id: agent.id,
         sales_order_id: salesOrder.id,
         commission_amount: commissionAmount,
         commission_rate: agent.commission_rate,
-        order_amount: total_amount,
+        order_amount: totalAmount,
         payment_status: 'pending'
       }, { transaction });
     }
@@ -732,34 +659,60 @@ export const updateDraft = async (req, res, next) => {
       return res.status(400).json({ error: 'Only drafts can be updated' });
     }
 
-    // Delete existing items
-    await SalesItem.destroy({
+    // Get existing items
+    const existingItems = await SalesItem.findAll({
       where: { order_id: id },
       transaction
     });
 
-    // Calculate new total
-    let totalAmount = 0;
-    for (const item of items) {
-      const subtotal = parseFloat(item.quantity) * parseFloat(item.unit_price);
-      totalAmount += subtotal;
-    }
+    // Calculate new total using precision math
+    const itemSubtotals = items.map(item => 
+      multiply(item.quantity, item.unit_price)
+    );
+    const totalAmount = sum(itemSubtotals);
 
     // Update draft
     draft.customer_id = customer_id || null;
     draft.total_amount = totalAmount;
     await draft.save({ transaction });
 
-    // Create new items
+    // Update or create items efficiently
+    // Match existing items by product_id and update, or create new ones
+    const existingItemsMap = new Map(existingItems.map(item => [item.product_id, item]));
+    const newItemProductIds = new Set(items.map(item => item.product_id));
+
+    // Delete items that are no longer in the new items list
+    const itemsToDelete = existingItems.filter(item => !newItemProductIds.has(item.product_id));
+    if (itemsToDelete.length > 0) {
+      await SalesItem.destroy({
+        where: {
+          id: { [Op.in]: itemsToDelete.map(item => item.id) }
+        },
+        transaction
+      });
+    }
+
+    // Update existing items or create new ones
     for (const item of items) {
-      const subtotal = parseFloat(item.quantity) * parseFloat(item.unit_price);
-      await SalesItem.create({
-        order_id: id,
-        product_id: item.product_id,
-        quantity: item.quantity,
-        unit_price: item.unit_price,
-        subtotal
-      }, { transaction });
+      const subtotal = multiply(item.quantity, item.unit_price);
+      const existingItem = existingItemsMap.get(item.product_id);
+
+      if (existingItem) {
+        // Update existing item
+        existingItem.quantity = item.quantity;
+        existingItem.unit_price = item.unit_price;
+        existingItem.subtotal = subtotal;
+        await existingItem.save({ transaction });
+      } else {
+        // Create new item
+        await SalesItem.create({
+          order_id: id,
+          product_id: item.product_id,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          subtotal
+        }, { transaction });
+      }
     }
 
     await transaction.commit();
@@ -829,76 +782,19 @@ export const convertDraftToInvoice = async (req, res, next) => {
         
         // Find assignments for this item
         const itemAssignments = item_assignments?.[item.id];
-        if (!itemAssignments || itemAssignments.length === 0) {
-          await transaction.rollback();
-          return res.status(400).json({
-            error: `Coil assignments required for manufactured product: ${item.product.name}`
-          });
-        }
-
-        // Get recipe
-        const recipe = await Recipe.findOne({
-          where: { virtual_product_id: item.product_id },
+        
+        // Use centralized inventory service
+        const result = await processManufacturedVirtualItemForConversion({
+          salesItem: item,
+          product: item.product,
+          quantity: item.quantity,
+          itemAssignments,
           transaction
         });
 
-        if (!recipe) {
+        if (!result.success) {
           await transaction.rollback();
-          return res.status(404).json({
-            error: `No recipe found for product: ${item.product.name}`
-          });
-        }
-
-        // Calculate required quantity
-        const requiredQty = parseFloat(item.quantity) * parseFloat(recipe.conversion_factor);
-        let totalAssigned = 0;
-
-        // Process each assignment
-        for (const assignment of itemAssignments) {
-          const { inventory_batch_id, quantity_deducted } = assignment;
-          totalAssigned += parseFloat(quantity_deducted);
-
-          // Get and lock inventory instance
-          const batch = await InventoryBatch.findByPk(inventory_batch_id, {
-            lock: transaction.LOCK.UPDATE,
-            transaction
-          });
-
-          if (!batch) {
-            await transaction.rollback();
-            return res.status(404).json({
-              error: `Inventory batch not found: ${inventory_batch_id}`
-            });
-          }
-
-          if (batch.remaining_quantity < quantity_deducted) {
-            await transaction.rollback();
-            return res.status(400).json({
-              error: `Insufficient stock in ${batch.instance_code || batch.batch_identifier}`
-            });
-          }
-
-          // Deduct inventory
-          batch.remaining_quantity -= quantity_deducted;
-          if (batch.remaining_quantity <= 0) {
-            batch.status = 'depleted';
-          }
-          await batch.save({ transaction });
-
-          // Create item assignment
-          await ItemAssignment.create({
-            sales_item_id: item.id,
-            inventory_batch_id,
-            quantity_deducted
-          }, { transaction });
-        }
-
-        // Verify total assigned
-        if (Math.abs(totalAssigned - requiredQty) > 0.001) {
-          await transaction.rollback();
-          return res.status(400).json({
-            error: `Assigned quantity mismatch for ${item.product.name}`
-          });
+          return res.status(400).json({ error: result.error });
         }
       }
     }
@@ -1085,76 +981,19 @@ export const convertQuotationToInvoice = async (req, res, next) => {
         hasManufacturedItems = true;
         
         const itemAssignments = item_assignments?.[item.id];
-        if (!itemAssignments || itemAssignments.length === 0) {
-          await transaction.rollback();
-          return res.status(400).json({
-            error: `Coil assignments required for manufactured product: ${item.product.name}`
-          });
-        }
-
-        // Get recipe
-        const recipe = await Recipe.findOne({
-          where: { virtual_product_id: item.product_id },
+        
+        // Use centralized inventory service
+        const result = await processManufacturedVirtualItemForConversion({
+          salesItem: item,
+          product: item.product,
+          quantity: item.quantity,
+          itemAssignments,
           transaction
         });
 
-        if (!recipe) {
+        if (!result.success) {
           await transaction.rollback();
-          return res.status(404).json({
-            error: `No recipe found for product: ${item.product.name}`
-          });
-        }
-
-        // Calculate required quantity
-        const requiredQty = parseFloat(item.quantity) * parseFloat(recipe.conversion_factor);
-        let totalAssigned = 0;
-
-        // Process each assignment
-        for (const assignment of itemAssignments) {
-          const { inventory_batch_id, quantity_deducted } = assignment;
-          totalAssigned += parseFloat(quantity_deducted);
-
-          // Get and lock inventory instance
-          const batch = await InventoryBatch.findByPk(inventory_batch_id, {
-            lock: transaction.LOCK.UPDATE,
-            transaction
-          });
-
-          if (!batch) {
-            await transaction.rollback();
-            return res.status(404).json({
-              error: `Inventory batch not found: ${inventory_batch_id}`
-            });
-          }
-
-          if (batch.remaining_quantity < quantity_deducted) {
-            await transaction.rollback();
-            return res.status(400).json({
-              error: `Insufficient stock in ${batch.instance_code || batch.batch_identifier}`
-            });
-          }
-
-          // Deduct inventory
-          batch.remaining_quantity -= quantity_deducted;
-          if (batch.remaining_quantity <= 0) {
-            batch.status = 'depleted';
-          }
-          await batch.save({ transaction });
-
-          // Create item assignment
-          await ItemAssignment.create({
-            sales_item_id: item.id,
-            inventory_batch_id,
-            quantity_deducted
-          }, { transaction });
-        }
-
-        // Verify total assigned
-        if (Math.abs(totalAssigned - requiredQty) > 0.001) {
-          await transaction.rollback();
-          return res.status(400).json({
-            error: `Assigned quantity mismatch for ${item.product.name}`
-          });
+          return res.status(400).json({ error: result.error });
         }
       }
     }
@@ -1307,9 +1146,9 @@ export const cancelSale = async (req, res, next) => {
               );
               
               if (batch) {
-                // Reverse the inventory deduction
-                batch.remaining_quantity += parseFloat(assignment.quantity_deducted);
-                if (batch.status === 'depleted' && batch.remaining_quantity > 0) {
+                // Reverse the inventory deduction using precision math
+                batch.remaining_quantity = add(batch.remaining_quantity, assignment.quantity_deducted);
+                if (batch.status === 'depleted' && greaterThan(batch.remaining_quantity, 0)) {
                   batch.status = 'in_stock';
                 }
                 await batch.save({ transaction });
