@@ -24,3 +24,4 @@ COMMENT ON COLUMN categories.attribute_schema IS 'JSONB array defining required/
 -- ============================================
 
 
+

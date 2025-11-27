@@ -614,6 +614,24 @@ ALTER TABLE products
     ADD COLUMN IF NOT EXISTS gauge_id UUID REFERENCES product_attributes_gauges(id),
     ADD COLUMN IF NOT EXISTS tax_rate_id UUID REFERENCES tax_rates(id);
 
+-- Add new product fields for Add Product form
+ALTER TABLE products
+    ADD COLUMN IF NOT EXISTS unit_id UUID REFERENCES units(id),
+    ADD COLUMN IF NOT EXISTS cost_price_inc_tax DECIMAL(15, 2),
+    ADD COLUMN IF NOT EXISTS is_taxable BOOLEAN DEFAULT false,
+    ADD COLUMN IF NOT EXISTS selling_price_tax_type VARCHAR(20) DEFAULT 'exclusive' CHECK (selling_price_tax_type IN ('inclusive', 'exclusive')),
+    ADD COLUMN IF NOT EXISTS profit_margin DECIMAL(5, 2) DEFAULT 25.00,
+    ADD COLUMN IF NOT EXISTS category_id UUID REFERENCES categories(id),
+    ADD COLUMN IF NOT EXISTS sub_category_id UUID REFERENCES categories(id),
+    ADD COLUMN IF NOT EXISTS weight DECIMAL(10, 4),
+    ADD COLUMN IF NOT EXISTS manage_stock BOOLEAN DEFAULT true,
+    ADD COLUMN IF NOT EXISTS not_for_selling BOOLEAN DEFAULT false,
+    ADD COLUMN IF NOT EXISTS image_url VARCHAR(500);
+
+CREATE INDEX IF NOT EXISTS idx_products_unit_id ON products(unit_id);
+CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);
+CREATE INDEX IF NOT EXISTS idx_products_sub_category_id ON products(sub_category_id);
+
 -- Add dispatcher fields to sales_orders table
 ALTER TABLE sales_orders
     ADD COLUMN IF NOT EXISTS dispatcher_name VARCHAR(200),

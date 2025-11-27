@@ -10,6 +10,7 @@ import POS from './pages/POS';
 import Inventory from './pages/Inventory';
 import InventoryBatches from './pages/InventoryBatches';
 import Products from './pages/Products';
+import AddProduct from './pages/AddProduct';
 import Payments from './pages/Payments';
 import Customers from './pages/Customers';
 import Suppliers from './pages/Suppliers';
@@ -319,6 +320,16 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <Products />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/products/add"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <AddProduct />
                   </Layout>
                 </ProtectedRoute>
               }

@@ -97,3 +97,4 @@ const ExpenseChart = ({ data, title = 'Expenses by Category' }) => {
 export default ExpenseChart;
 
 
+

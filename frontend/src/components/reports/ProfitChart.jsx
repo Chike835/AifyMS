@@ -103,3 +103,4 @@ const ProfitChart = ({ data, title = 'Profit Distribution' }) => {
 export default ProfitChart;
 
 
+

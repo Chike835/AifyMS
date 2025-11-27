@@ -33,3 +33,4 @@ const CategoryBatchType = sequelize.define('CategoryBatchType', {
 export default CategoryBatchType;
 
 
+

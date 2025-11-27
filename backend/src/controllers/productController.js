@@ -13,11 +13,25 @@ export const createProduct = async (req, res, next) => {
       name,
       type,
       base_unit,
+      unit_id,
       sale_price,
       cost_price,
+      cost_price_inc_tax,
       tax_rate,
+      tax_rate_id,
+      is_taxable,
+      selling_price_tax_type,
+      profit_margin,
       brand,
-      category
+      brand_id,
+      category,
+      category_id,
+      sub_category_id,
+      weight,
+      manage_stock,
+      not_for_selling,
+      image_url,
+      business_location_ids
     } = req.body;
 
     // Validation
@@ -35,6 +49,13 @@ export const createProduct = async (req, res, next) => {
       });
     }
 
+    // Validate selling price tax type if provided
+    if (selling_price_tax_type && !['inclusive', 'exclusive'].includes(selling_price_tax_type)) {
+      return res.status(400).json({
+        error: 'Invalid selling_price_tax_type. Must be one of: inclusive, exclusive'
+      });
+    }
+
     // Check if SKU already exists
     const existingProduct = await Product.findOne({ where: { sku } });
     if (existingProduct) {
@@ -47,12 +68,28 @@ export const createProduct = async (req, res, next) => {
       name,
       type,
       base_unit,
+      unit_id: unit_id || null,
       sale_price,
       cost_price: cost_price || null,
+      cost_price_inc_tax: cost_price_inc_tax || null,
       tax_rate: tax_rate || 0,
+      tax_rate_id: tax_rate_id || null,
+      is_taxable: is_taxable || false,
+      selling_price_tax_type: selling_price_tax_type || 'exclusive',
+      profit_margin: profit_margin || 25.00,
       brand: brand || null,
-      category: category || null
+      brand_id: brand_id || null,
+      category: category || null,
+      category_id: category_id || null,
+      sub_category_id: sub_category_id || null,
+      weight: weight || null,
+      manage_stock: manage_stock !== undefined ? manage_stock : true,
+      not_for_selling: not_for_selling || false,
+      image_url: image_url || null
     });
+
+    // Note: business_location_ids would require a separate junction table
+    // For now we store the product and can add location associations later
 
     res.status(201).json({
       message: 'Product created successfully',

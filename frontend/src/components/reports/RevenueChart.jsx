@@ -93,3 +93,4 @@ const RevenueChart = ({ data, title = 'Revenue Trend' }) => {
 export default RevenueChart;
 
 
+

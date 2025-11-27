@@ -41,3 +41,4 @@ const BatchType = sequelize.define('BatchType', {
 export default BatchType;
 
 
+

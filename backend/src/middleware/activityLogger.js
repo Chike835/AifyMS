@@ -105,3 +105,4 @@ export const logActivitySync = async (actionType, module, description, req, refe
   await logActivity(actionType, module, description, req, referenceType, referenceId);
 };
 
+

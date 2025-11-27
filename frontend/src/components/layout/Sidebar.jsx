@@ -97,7 +97,7 @@ const Sidebar = () => {
           name: 'Products',
           items: [
             { name: 'List Products', path: '/products', icon: List, permission: 'product_view' },
-            { name: 'Add Product', path: '/products', icon: Plus, permission: 'product_add' },
+            { name: 'Add Product', path: '/products/add', icon: Plus, permission: 'product_add' },
             { name: 'Update Price', path: '/products/update-price', icon: DollarSign, permission: 'product_edit' },
             { name: 'Print Labels', path: '/inventory/print-labels', icon: Printer, permission: 'stock_add_opening' },
           ],

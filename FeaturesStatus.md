@@ -42,6 +42,7 @@
 | Feature Category | Sub-Feature | Built (AI) | Working (User) |
 |-----------------|-------------|------------|----------------|
 | **Inventory** | Product types implementation (Standard, Compound, Raw Tracked, Manufactured Virtual) | [x] | [ ] |
+| **Inventory** | Add Product page with full form (/products/add) | [x] | [ ] |
 | **Inventory** | Stock transfer functionality | [x] | [ ] |
 | **Inventory** | Stock adjustment with reasons | [x] | [ ] |
 | **Inventory** | Print labels for inventory instances | [x] | [ ] |
@@ -230,8 +231,8 @@
 
 ## Summary Statistics
 
-**Total Features:** 95  
-**Built (AI):** 95  
+**Total Features:** 96  
+**Built (AI):** 96  
 **Not Built:** 0  
 **Working (User):** 0 (pending user confirmation)
 
