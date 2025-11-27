@@ -113,7 +113,7 @@ export const getUserById = async (req, res, next) => {
  */
 export const createUser = async (req, res, next) => {
   try {
-    const { email, password, full_name, role_id, branch_id: targetBranchId, is_active } = req.body;
+    const { email, password, full_name, role_id, branch_id: targetBranchId, is_active, base_salary } = req.body;
     const { branch_id: creatorBranchId, role_name } = req.user;
 
     // Validate required fields
@@ -166,6 +166,15 @@ export const createUser = async (req, res, next) => {
       }
     }
 
+    // Validate base_salary if provided
+    let validatedBaseSalary = 0;
+    if (base_salary !== undefined && base_salary !== null) {
+      validatedBaseSalary = parseFloat(base_salary);
+      if (isNaN(validatedBaseSalary) || validatedBaseSalary < 0) {
+        return res.status(400).json({ error: 'Base salary must be a non-negative number' });
+      }
+    }
+
     // Create user (password will be hashed by model hook)
     const user = await User.create({
       email: email.toLowerCase(),
@@ -173,6 +182,7 @@ export const createUser = async (req, res, next) => {
       full_name: full_name.trim(),
       role_id,
       branch_id: assignedBranchId,
+      base_salary: validatedBaseSalary,
       is_active: is_active !== undefined ? is_active : true
     });
 
@@ -199,7 +209,7 @@ export const createUser = async (req, res, next) => {
 export const updateUser = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { email, password, full_name, role_id, branch_id: targetBranchId, is_active } = req.body;
+    const { email, password, full_name, role_id, branch_id: targetBranchId, is_active, base_salary } = req.body;
     const { branch_id: editorBranchId, role_name, id: editorId } = req.user;
 
     const user = await User.findByPk(id, {
@@ -259,6 +269,14 @@ export const updateUser = async (req, res, next) => {
       assignedBranchId = null;
     }
 
+    // Validate base_salary if provided
+    if (base_salary !== undefined && base_salary !== null) {
+      const parsedSalary = parseFloat(base_salary);
+      if (isNaN(parsedSalary) || parsedSalary < 0) {
+        return res.status(400).json({ error: 'Base salary must be a non-negative number' });
+      }
+    }
+
     // Build update object
     const updateData = {};
     if (email) updateData.email = email.toLowerCase();
@@ -269,6 +287,7 @@ export const updateUser = async (req, res, next) => {
       updateData.branch_id = assignedBranchId;
     }
     if (is_active !== undefined) updateData.is_active = is_active;
+    if (base_salary !== undefined) updateData.base_salary = parseFloat(base_salary) || 0;
 
     await user.update(updateData);
 

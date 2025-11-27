@@ -75,6 +75,7 @@ CREATE TABLE users (
     full_name VARCHAR(200) NOT NULL,
     role_id UUID NOT NULL REFERENCES roles(id),
     branch_id UUID REFERENCES branches(id),
+    base_salary DECIMAL(15, 2) DEFAULT 0,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

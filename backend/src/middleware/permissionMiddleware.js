@@ -20,7 +20,8 @@ export const requirePermission = (requiredPermission, options = {}) => {
     }
 
     // Super Admin bypass (has all permissions)
-    if (req.user.role_name === 'Super Admin') {
+    // Case-insensitive check for robustness
+    if (req.user.role_name && req.user.role_name.toLowerCase() === 'super admin') {
       return next();
     }
 
@@ -62,7 +63,7 @@ export const requireBranchAccess = (req, res, next) => {
   }
 
   // Super Admin can access all branches
-  if (req.user.role_name === 'Super Admin') {
+  if (req.user.role_name && req.user.role_name.toLowerCase() === 'super admin') {
     return next();
   }
 
@@ -86,7 +87,7 @@ export const requireGlobalAccess = (req, res, next) => {
   }
 
   // Check for global view permission
-  if (req.user.role_name === 'Super Admin' || 
+  if ((req.user.role_name && req.user.role_name.toLowerCase() === 'super admin') || 
       req.user.permissions.includes('user_view_global')) {
     return next();
   }

@@ -1,4 +1,5 @@
 import { getLedger, backfillHistoricalLedger, calculateAdvanceBalance } from '../services/ledgerService.js';
+import { generateLedgerPDF } from '../services/pdfService.js';
 import { Customer, Supplier, LedgerEntry, SalesOrder } from '../models/index.js';
 import { Op } from 'sequelize';
 
@@ -174,11 +175,15 @@ export const exportLedger = async (req, res, next) => {
       res.setHeader('Content-Disposition', `attachment; filename="${type}_ledger_${id}.csv"`);
       res.send(csv);
     } else if (format === 'pdf') {
-      // For PDF, we'll return JSON for now (PDF generation can be added later)
-      return res.status(501).json({ 
-        error: 'PDF export not yet implemented',
-        message: 'Please use CSV format for now'
+      // Generate PDF using the pdfService
+      const pdfBuffer = await generateLedgerPDF(contact, type, entries, {
+        startDate: start_date,
+        endDate: end_date
       });
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${type}_ledger_${contact.name || id}.pdf"`);
+      res.send(pdfBuffer);
     } else {
       return res.status(400).json({ error: 'Invalid format. Must be csv or pdf' });
     }
@@ -259,25 +264,23 @@ export const getCustomerLedgerSummary = async (req, res, next) => {
       }
     }) || 0;
 
-    // Calculate advance balance
+    // Calculate advance balance using the dedicated helper (accounts for ADVANCE_PAYMENT and REFUND)
     const advanceBalance = await calculateAdvanceBalance(id);
 
-    // Calculate balance due and advance balance
+    // Calculate summary values
     const totalInvoicedNum = parseFloat(totalInvoiced);
     const totalPaidNum = parseFloat(totalPaid);
     const advanceBalanceNum = parseFloat(advanceBalance);
 
-    // Advance Balance = max(0, Total Paid - Total Invoiced)
-    const calculatedAdvanceBalance = Math.max(0, totalPaidNum - totalInvoicedNum);
-    
-    // Balance Due = max(0, Total Invoiced - Total Paid)
-    const balanceDue = Math.max(0, totalInvoicedNum - totalPaidNum);
+    // Balance Due = max(0, Total Invoiced + Opening Balance - Total Paid)
+    // This represents outstanding amount the customer owes
+    const balanceDue = Math.max(0, totalInvoicedNum + parseFloat(openingBalance) - totalPaidNum);
 
     res.json({
       opening_balance: parseFloat(openingBalance),
       total_invoiced: totalInvoicedNum,
       total_paid: totalPaidNum,
-      advance_balance: calculatedAdvanceBalance,
+      advance_balance: advanceBalanceNum, // Use the calculated value from ADVANCE_PAYMENT/REFUND entries
       balance_due: balanceDue
     });
   } catch (error) {

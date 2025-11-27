@@ -141,6 +141,7 @@ export const normalizeCSVHeaders = (rows, aliasMap = PRODUCT_HEADER_ALIASES) => 
 /**
  * Import products from CSV/JSON data
  * Expected columns: sku, name, type, base_unit, sale_price, cost_price, tax_rate, brand, category
+ * Optimized with bulk operations to eliminate N+1 query problem
  */
 export const importProducts = async (data, errors = []) => {
   console.log('[ImportProducts] Starting import with', data.length, 'rows');
@@ -151,6 +152,11 @@ export const importProducts = async (data, errors = []) => {
     errors: []
   };
 
+  const validTypes = ['standard', 'compound', 'raw_tracked', 'manufactured_virtual'];
+  const validRows = [];
+  const rowNumMap = new Map(); // Map to track row numbers for error reporting
+
+  // PHASE 1: Validate all rows and collect valid data
   for (let i = 0; i < data.length; i++) {
     const row = data[i];
     const rowNum = i + 2; // +2 because row 1 is header, and arrays are 0-indexed
@@ -160,14 +166,6 @@ export const importProducts = async (data, errors = []) => {
       if (i === 0) {
         console.log(`[ImportProducts] First row keys:`, Object.keys(row));
       }
-      
-      console.log(`[ImportProducts] Processing row ${rowNum}:`, { 
-        sku: row.sku, 
-        name: row.name,
-        type: row.type,
-        base_unit: row.base_unit,
-        sale_price: row.sale_price
-      });
       
       // Validate required fields with detailed error reporting
       const missingFields = [];
@@ -197,7 +195,6 @@ export const importProducts = async (data, errors = []) => {
       }
 
       // Validate product type
-      const validTypes = ['standard', 'compound', 'raw_tracked', 'manufactured_virtual'];
       if (!validTypes.includes(row.type)) {
         results.errors.push({
           row: rowNum,
@@ -245,9 +242,7 @@ export const importProducts = async (data, errors = []) => {
         continue;
       }
 
-      // Check if product exists
-      const existingProduct = await Product.findOne({ where: { sku: row.sku.trim() } });
-
+      // Store valid row data
       const productData = {
         sku: String(row.sku).trim(),
         name: String(row.name).trim(),
@@ -260,25 +255,87 @@ export const importProducts = async (data, errors = []) => {
         category: (row.category && String(row.category).trim() !== '') ? String(row.category).trim() : null
       };
 
-      if (existingProduct) {
-        // Update existing product
-        console.log(`[ImportProducts] Updating existing product: ${row.sku}`);
-        await existingProduct.update(productData);
-        results.updated++;
-      } else {
-        // Create new product
-        console.log(`[ImportProducts] Creating new product: ${row.sku}`);
-        await Product.create(productData);
-        results.created++;
-      }
-      console.log(`[ImportProducts] Successfully processed row ${rowNum}`);
+      validRows.push(productData);
+      rowNumMap.set(productData.sku, rowNum);
     } catch (error) {
-      console.error(`[ImportProducts] Error processing row ${rowNum}:`, error.message);
+      console.error(`[ImportProducts] Error validating row ${rowNum}:`, error.message);
       results.errors.push({
         row: rowNum,
         error: error.message || 'Unknown error'
       });
       results.skipped++;
+    }
+  }
+
+  if (validRows.length === 0) {
+    console.log('[ImportProducts] No valid rows to import');
+    return results;
+  }
+
+  // PHASE 2: Batch fetch existing products (eliminate N+1 queries)
+  const skus = validRows.map(row => row.sku);
+  console.log(`[ImportProducts] Batch fetching ${skus.length} products by SKU`);
+  const existingProducts = await Product.findAll({
+    where: { sku: { [Op.in]: skus } }
+  });
+
+  // PHASE 3: Create in-memory Map for O(1) lookups
+  const productMap = new Map(existingProducts.map(p => [p.sku, p]));
+
+  // PHASE 4: Separate into creates and updates
+  const toCreate = [];
+  const toUpdate = [];
+
+  for (const productData of validRows) {
+    const existing = productMap.get(productData.sku);
+    if (existing) {
+      // Mark for update (we'll use bulkCreate with updateOnDuplicate)
+      toUpdate.push(productData);
+    } else {
+      toCreate.push(productData);
+    }
+  }
+
+  // PHASE 5: Bulk operations
+  try {
+    // Use bulkCreate with updateOnDuplicate for both creates and updates
+    // This handles both new products and updates in a single operation
+    const allProducts = [...toCreate, ...toUpdate];
+    
+    if (allProducts.length > 0) {
+      console.log(`[ImportProducts] Bulk creating/updating ${allProducts.length} products`);
+      await Product.bulkCreate(allProducts, {
+        updateOnDuplicate: ['name', 'type', 'base_unit', 'sale_price', 'cost_price', 'tax_rate', 'brand', 'category'],
+        validate: true
+      });
+
+      // Count results based on whether product existed
+      results.created = toCreate.length;
+      results.updated = toUpdate.length;
+    }
+  } catch (error) {
+    console.error('[ImportProducts] Bulk operation error:', error);
+    // Fallback: try individual operations for better error reporting
+    console.log('[ImportProducts] Falling back to individual operations for error reporting');
+    
+    for (const productData of validRows) {
+      const rowNum = rowNumMap.get(productData.sku);
+      try {
+        const existing = productMap.get(productData.sku);
+        if (existing) {
+          await existing.update(productData);
+          results.updated++;
+        } else {
+          await Product.create(productData);
+          results.created++;
+        }
+      } catch (individualError) {
+        results.errors.push({
+          row: rowNum,
+          error: individualError.message || 'Unknown error'
+        });
+        results.skipped++;
+      }
     }
   }
 

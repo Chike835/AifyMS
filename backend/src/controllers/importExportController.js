@@ -92,6 +92,17 @@ const getFileType = (file) => {
  */
 export const importData = async (req, res, next) => {
   try {
+    // CRITICAL: Validate entity FIRST (fail fast - before any file processing)
+    const { entity } = req.params;
+    const validEntities = ['products', 'inventory', 'customers', 'suppliers'];
+
+    if (!entity || !validEntities.includes(entity)) {
+      console.error('[Import] Invalid entity:', entity);
+      return res.status(400).json({
+        error: `Invalid entity "${entity}". Must be one of: ${validEntities.join(', ')}`
+      });
+    }
+
     console.log('[Import] Request received:', {
       entity: req.params.entity,
       hasFile: !!req.file,
@@ -103,16 +114,6 @@ export const importData = async (req, res, next) => {
     if (!req.file) {
       console.error('[Import] No file uploaded');
       return res.status(400).json({ error: 'No file uploaded' });
-    }
-
-    const { entity } = req.params;
-    const validEntities = ['products', 'inventory', 'customers', 'suppliers'];
-
-    if (!validEntities.includes(entity)) {
-      console.error('[Import] Invalid entity:', entity);
-      return res.status(400).json({
-        error: `Invalid entity. Must be one of: ${validEntities.join(', ')}`
-      });
     }
 
     console.log('[Import] Parsing file...');

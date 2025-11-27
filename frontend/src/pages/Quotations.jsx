@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { FileText, Eye, Trash2, ArrowRight, Search, X, Plus, Clock, AlertCircle } from 'lucide-react';
+import ManufacturedItemSelector from '../components/sales/ManufacturedItemSelector';
 
 const Quotations = () => {
   const navigate = useNavigate();
@@ -15,6 +16,8 @@ const Quotations = () => {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteId, setDeleteId] = useState(null);
+  const [showCoilSelector, setShowCoilSelector] = useState(false);
+  const [quotationToConvert, setQuotationToConvert] = useState(null);
 
   // Fetch quotations
   const { data, isLoading, error } = useQuery({
@@ -111,12 +114,30 @@ const Quotations = () => {
     const hasManufactured = quotation.items?.some(item => item.product?.type === 'manufactured_virtual');
     
     if (hasManufactured) {
-      alert('This quotation contains manufactured products. Please contact support to convert with coil selection.');
+      // Show coil selection modal for manufactured items
+      setQuotationToConvert(quotation);
+      setShowCoilSelector(true);
       return;
     }
 
     // No manufactured products, convert directly
     convertMutation.mutate({ id: quotation.id, item_assignments: {} });
+  };
+
+  const handleCoilSelectionConfirm = (itemAssignments) => {
+    if (quotationToConvert) {
+      convertMutation.mutate({ 
+        id: quotationToConvert.id, 
+        item_assignments: itemAssignments 
+      });
+    }
+    setShowCoilSelector(false);
+    setQuotationToConvert(null);
+  };
+
+  const handleCoilSelectionCancel = () => {
+    setShowCoilSelector(false);
+    setQuotationToConvert(null);
   };
 
   if (isLoading) {
@@ -514,6 +535,14 @@ const Quotations = () => {
           </div>
         </div>
       )}
+
+      {/* Coil Selection Modal for Manufactured Items */}
+      <ManufacturedItemSelector
+        isOpen={showCoilSelector}
+        items={quotationToConvert?.items || []}
+        onConfirm={handleCoilSelectionConfirm}
+        onCancel={handleCoilSelectionCancel}
+      />
     </div>
   );
 };

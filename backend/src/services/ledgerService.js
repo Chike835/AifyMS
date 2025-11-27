@@ -18,14 +18,20 @@ import { Op } from 'sequelize';
  * Formula: Sum of all entries (debits - credits) up to transaction_date
  * Note: We start from 0 and sum all entries because ledger_balance already includes all entries.
  * If an OPENING_BALANCE entry exists, it will be included in the sum.
+ * @param {string} contactId - Customer or Supplier ID
+ * @param {string} contactType - 'customer' or 'supplier'
+ * @param {Date} transactionDate - Transaction date
+ * @param {string} branchId - Branch ID (optional)
+ * @param {object} transaction - Sequelize transaction object (optional)
+ * @returns {Promise<number>} Running balance
  */
-const calculateRunningBalance = async (contactId, contactType, transactionDate, branchId = null) => {
+const calculateRunningBalance = async (contactId, contactType, transactionDate, branchId = null, transaction = null) => {
   // Verify contact exists
   let contact;
   if (contactType === 'customer') {
-    contact = await Customer.findByPk(contactId);
+    contact = await Customer.findByPk(contactId, { transaction });
   } else {
-    contact = await Supplier.findByPk(contactId);
+    contact = await Supplier.findByPk(contactId, { transaction });
   }
 
   if (!contact) {
@@ -49,7 +55,8 @@ const calculateRunningBalance = async (contactId, contactType, transactionDate, 
 
   const previousEntries = await LedgerEntry.findAll({
     where,
-    order: [['transaction_date', 'ASC'], ['created_at', 'ASC']]
+    order: [['transaction_date', 'ASC'], ['created_at', 'ASC']],
+    transaction
   });
 
   // Calculate running balance starting from 0
@@ -69,9 +76,10 @@ const calculateRunningBalance = async (contactId, contactType, transactionDate, 
  * @param {string} contactId - Customer or Supplier ID
  * @param {string} contactType - 'customer' or 'supplier'
  * @param {object} transactionData - Transaction details
+ * @param {object} transaction - Sequelize transaction object (optional, for ACID compliance)
  * @returns {Promise<LedgerEntry>}
  */
-export const createLedgerEntry = async (contactId, contactType, transactionData) => {
+export const createLedgerEntry = async (contactId, contactType, transactionData, transaction = null) => {
   const {
     transaction_date,
     transaction_type,
@@ -91,18 +99,19 @@ export const createLedgerEntry = async (contactId, contactType, transactionData)
     throw new Error('Either debit_amount or credit_amount must be greater than zero');
   }
 
-  // Calculate running balance
+  // Calculate running balance (pass transaction for consistency)
   const runningBalance = await calculateRunningBalance(
     contactId,
     contactType,
     transaction_date,
-    branch_id
+    branch_id,
+    transaction
   );
 
   // Add current transaction to running balance
   const finalBalance = runningBalance + parseFloat(debit_amount) - parseFloat(credit_amount);
 
-  // Create ledger entry
+  // Create ledger entry (within transaction if provided)
   const ledgerEntry = await LedgerEntry.create({
     contact_id: contactId,
     contact_type: contactType,
@@ -115,20 +124,20 @@ export const createLedgerEntry = async (contactId, contactType, transactionData)
     running_balance: finalBalance,
     branch_id,
     created_by
-  });
+  }, { transaction });
 
-  // Update contact's ledger_balance
+  // Update contact's ledger_balance (within transaction if provided)
   if (contactType === 'customer') {
-    const customer = await Customer.findByPk(contactId);
+    const customer = await Customer.findByPk(contactId, { transaction });
     if (customer) {
       customer.ledger_balance = finalBalance;
-      await customer.save();
+      await customer.save({ transaction });
     }
   } else {
-    const supplier = await Supplier.findByPk(contactId);
+    const supplier = await Supplier.findByPk(contactId, { transaction });
     if (supplier) {
       supplier.ledger_balance = finalBalance;
-      await supplier.save();
+      await supplier.save({ transaction });
     }
   }
 

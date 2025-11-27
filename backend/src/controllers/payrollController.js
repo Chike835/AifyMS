@@ -372,9 +372,8 @@ export const calculatePayroll = async (req, res, next) => {
           continue;
         }
 
-        // Get base salary (default to 0 if not in settings)
-        // In a real system, this would come from User model or settings
-        const baseSalary = 0; // TODO: Get from user settings or User model if base_salary field is added
+        // Get base salary from user record (defaults to 0 if not set)
+        const baseSalary = parseFloat(user.base_salary || 0);
 
         // Find Agent linked to this user (by email or name matching)
         let agent = null;

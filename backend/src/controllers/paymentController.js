@@ -3,14 +3,15 @@ import { Op } from 'sequelize';
 import { Payment, Customer, User, SalesOrder, PaymentAccount, AccountTransaction } from '../models/index.js';
 import { logActivitySync } from '../middleware/activityLogger.js';
 import { createLedgerEntry, calculateAdvanceBalance } from '../services/ledgerService.js';
+import { getLocale, getCurrency } from '../config/locale.js';
 
 /**
  * Helper function to format currency
  */
 const formatCurrency = (amount) => {
-  return new Intl.NumberFormat('en-NG', {
+  return new Intl.NumberFormat(getLocale(), {
     style: 'currency',
-    currency: 'NGN'
+    currency: getCurrency()
   }).format(amount || 0);
 };
 
@@ -143,35 +144,31 @@ export const confirmPayment = async (req, res, next) => {
     customer.ledger_balance = parseFloat(customer.ledger_balance) - parseFloat(payment.amount);
     await customer.save({ transaction });
 
-    // Create ledger entry
-    try {
-      // Get branch from customer's most recent sale or use user's branch
-      const recentSale = await SalesOrder.findOne({
-        where: { customer_id: payment.customer_id },
-        order: [['created_at', 'DESC']],
-        transaction
-      });
+    // Create ledger entry (within transaction - must succeed or entire payment rolls back)
+    // Get branch from customer's most recent sale or use user's branch
+    const recentSale = await SalesOrder.findOne({
+      where: { customer_id: payment.customer_id },
+      order: [['created_at', 'DESC']],
+      transaction
+    });
 
-      await createLedgerEntry(
-        payment.customer_id,
-        'customer',
-        {
-          transaction_date: payment.created_at || new Date(),
-          transaction_type: 'PAYMENT',
-          transaction_id: payment.id,
-          description: `Payment ${payment.method}`,
-          debit_amount: 0,
-          credit_amount: parseFloat(payment.amount),
-          branch_id: recentSale?.branch_id || req.user.branch_id,
-          created_by: req.user.id
-        }
-      );
-    } catch (ledgerError) {
-      console.error('Error creating ledger entry:', ledgerError);
-      // Don't fail the payment confirmation if ledger entry fails
-    }
+    await createLedgerEntry(
+      payment.customer_id,
+      'customer',
+      {
+        transaction_date: payment.created_at || new Date(),
+        transaction_type: 'PAYMENT',
+        transaction_id: payment.id,
+        description: `Payment ${payment.method}`,
+        debit_amount: 0,
+        credit_amount: parseFloat(payment.amount),
+        branch_id: recentSale?.branch_id || req.user.branch_id,
+        created_by: req.user.id
+      },
+      transaction
+    );
 
-    // Commit transaction
+    // Commit transaction (only after all operations succeed, including ledger entry)
     await transaction.commit();
 
     // Fetch updated payment with associations
@@ -480,34 +477,31 @@ export const confirmAdvancePayment = async (req, res, next) => {
     customer.ledger_balance = parseFloat(customer.ledger_balance) - parseFloat(payment.amount);
     await customer.save({ transaction });
 
-    // Commit transaction first before creating ledger entry (ledger service doesn't support transactions yet)
+    // Create ledger entry with ADVANCE_PAYMENT type (within transaction - must succeed or entire payment rolls back)
+    const recentSale = await SalesOrder.findOne({
+      where: { customer_id: payment.customer_id },
+      order: [['created_at', 'DESC']],
+      transaction
+    });
+
+    await createLedgerEntry(
+      payment.customer_id,
+      'customer',
+      {
+        transaction_date: payment.created_at || new Date(),
+        transaction_type: 'ADVANCE_PAYMENT',
+        transaction_id: payment.id,
+        description: `Advance Payment ${payment.method}`,
+        debit_amount: 0,
+        credit_amount: parseFloat(payment.amount),
+        branch_id: recentSale?.branch_id || req.user.branch_id,
+        created_by: req.user.id
+      },
+      transaction
+    );
+
+    // Commit transaction (only after all operations succeed, including ledger entry)
     await transaction.commit();
-
-    // Create ledger entry with ADVANCE_PAYMENT type (outside transaction)
-    try {
-      const recentSale = await SalesOrder.findOne({
-        where: { customer_id: payment.customer_id },
-        order: [['created_at', 'DESC']]
-      });
-
-      await createLedgerEntry(
-        payment.customer_id,
-        'customer',
-        {
-          transaction_date: payment.created_at || new Date(),
-          transaction_type: 'ADVANCE_PAYMENT',
-          transaction_id: payment.id,
-          description: `Advance Payment ${payment.method}`,
-          debit_amount: 0,
-          credit_amount: parseFloat(payment.amount),
-          branch_id: recentSale?.branch_id || req.user.branch_id,
-          created_by: req.user.id
-        }
-      );
-    } catch (ledgerError) {
-      console.error('Error creating ledger entry:', ledgerError);
-      // Log error but don't fail since payment is already confirmed
-    }
 
     // Fetch updated payment with associations
     const updatedPayment = await Payment.findByPk(id, {
@@ -599,7 +593,8 @@ export const processRefund = async (req, res, next) => {
 
     // Update customer ledger balance
     // Refund DECREASES what customer owes (credit to customer), fee INCREASES debt
-    customer.ledger_balance = parseFloat(customer.ledger_balance) - parseFloat(refund_amount) + parseFloat(withdrawal_fee || 0);
+    // For negative balances (advance), adding refund_amount reduces the advance
+    customer.ledger_balance = parseFloat(customer.ledger_balance) + parseFloat(refund_amount) + parseFloat(withdrawal_fee || 0);
     await customer.save({ transaction });
 
     // Create payment account transaction (withdrawal) if payment_account_id provided
@@ -627,80 +622,72 @@ export const processRefund = async (req, res, next) => {
       }
     }
 
-    // Commit transaction
-    await transaction.commit();
+    // Create ledger entries (within transaction - must succeed or entire refund rolls back)
+    const recentSale = await SalesOrder.findOne({
+      where: { customer_id: customer_id },
+      order: [['created_at', 'DESC']],
+      transaction
+    });
+    const branchId = recentSale?.branch_id || req.user.branch_id;
 
-    // Create ledger entries (outside transaction - ledger service doesn't support transactions yet)
-    try {
-      const recentSale = await SalesOrder.findOne({
-        where: { customer_id: customer_id },
-        order: [['created_at', 'DESC']]
-      });
-      const branchId = recentSale?.branch_id || req.user.branch_id;
+    // Create Ledger Entry 1: REFUND - Credit Customer (decreases what they owe), Debit Cash (payout)
+    const refundEntry = await createLedgerEntry(
+      customer_id,
+      'customer',
+      {
+        transaction_date: new Date(),
+        transaction_type: 'REFUND',
+        transaction_id: null,
+        description: `Refund ${method}${reference_note ? ` - ${reference_note}` : ''}`,
+        debit_amount: 0,
+        credit_amount: parseFloat(refund_amount),
+        branch_id: branchId,
+        created_by: req.user.id
+      },
+      transaction
+    );
 
-      // Create Ledger Entry 1: REFUND - Credit Customer (decreases what they owe), Debit Cash (payout)
-      const refundEntry = await createLedgerEntry(
+    // Create Ledger Entry 2: REFUND_FEE - Debit Customer, Credit Revenue
+    let feeEntry = null;
+    if (parseFloat(withdrawal_fee || 0) > 0) {
+      feeEntry = await createLedgerEntry(
         customer_id,
         'customer',
         {
           transaction_date: new Date(),
-          transaction_type: 'REFUND',
+          transaction_type: 'REFUND_FEE',
           transaction_id: null,
-          description: `Refund ${method}${reference_note ? ` - ${reference_note}` : ''}`,
-          debit_amount: 0,
-          credit_amount: parseFloat(refund_amount),
+          description: `Withdrawal Fee${reference_note ? ` - ${reference_note}` : ''}`,
+          debit_amount: parseFloat(withdrawal_fee),
+          credit_amount: 0,
           branch_id: branchId,
           created_by: req.user.id
-        }
+        },
+        transaction
       );
-
-      // Create Ledger Entry 2: REFUND_FEE - Debit Customer, Credit Revenue
-      let feeEntry = null;
-      if (parseFloat(withdrawal_fee || 0) > 0) {
-        feeEntry = await createLedgerEntry(
-          customer_id,
-          'customer',
-          {
-            transaction_date: new Date(),
-            transaction_type: 'REFUND_FEE',
-            transaction_id: null,
-            description: `Withdrawal Fee${reference_note ? ` - ${reference_note}` : ''}`,
-            debit_amount: parseFloat(withdrawal_fee),
-            credit_amount: 0,
-            branch_id: branchId,
-            created_by: req.user.id
-          }
-        );
-      }
-
-      // Log activity
-      await logActivitySync(
-        'CREATE',
-        'payments',
-        `Processed refund of ${formatCurrency(refund_amount)}${withdrawal_fee > 0 ? ` with fee of ${formatCurrency(withdrawal_fee)}` : ''} for customer ${customer.name}`,
-        req,
-        'payment',
-        null
-      );
-
-      res.json({
-        message: 'Refund processed successfully',
-        refund_entry: refundEntry,
-        fee_entry: feeEntry,
-        total_refunded: parseFloat(refund_amount),
-        fee_charged: parseFloat(withdrawal_fee || 0),
-        net_refund: parseFloat(refund_amount) - parseFloat(withdrawal_fee || 0)
-      });
-    } catch (ledgerError) {
-      console.error('Error creating ledger entries:', ledgerError);
-      // Return success but warn about ledger entry error
-      res.json({
-        message: 'Refund processed but ledger entry creation failed. Please check logs.',
-        warning: ledgerError.message,
-        total_refunded: parseFloat(refund_amount),
-        fee_charged: parseFloat(withdrawal_fee || 0)
-      });
     }
+
+    // Commit transaction (only after all operations succeed, including ledger entries)
+    await transaction.commit();
+
+    // Log activity (outside transaction - activity logging is non-critical)
+    await logActivitySync(
+      'CREATE',
+      'payments',
+      `Processed refund of ${formatCurrency(refund_amount)}${withdrawal_fee > 0 ? ` with fee of ${formatCurrency(withdrawal_fee)}` : ''} for customer ${customer.name}`,
+      req,
+      'payment',
+      null
+    );
+
+    res.json({
+      message: 'Refund processed successfully',
+      refund_entry: refundEntry,
+      fee_entry: feeEntry,
+      total_refunded: parseFloat(refund_amount),
+      fee_charged: parseFloat(withdrawal_fee || 0),
+      net_refund: parseFloat(refund_amount) - parseFloat(withdrawal_fee || 0)
+    });
   } catch (error) {
     await transaction.rollback();
     next(error);

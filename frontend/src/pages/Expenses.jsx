@@ -1,13 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { Receipt, Plus, Edit, Trash2, Search, X, Filter, Calendar, Tag } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 
 const Expenses = () => {
   const { hasPermission, user } = useAuth();
   const queryClient = useQueryClient();
+  const location = useLocation();
   const [showModal, setShowModal] = useState(false);
   const [selectedExpense, setSelectedExpense] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -115,6 +116,15 @@ const Expenses = () => {
     setFormError('');
     setShowModal(true);
   };
+
+  // Handle action state from navigation (e.g., from Sidebar "Add" link)
+  useEffect(() => {
+    if (location.state?.action === 'add') {
+      openCreateModal();
+      // Clear the state to prevent reopening on re-render
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
   const openEditModal = (expense) => {
     setSelectedExpense(expense);

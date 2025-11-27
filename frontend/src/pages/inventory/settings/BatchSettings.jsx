@@ -198,7 +198,7 @@ const BatchSettings = () => {
           <h1 className="text-3xl font-bold text-gray-900">Batch Configuration</h1>
           <p className="text-gray-600 mt-2">Manage batch types and assign them to categories</p>
         </div>
-        {hasPermission('admin_access') && (
+        {hasPermission('settings_manage') && (
           <button
             onClick={() => {
               resetForm();
@@ -242,7 +242,7 @@ const BatchSettings = () => {
                       </span>
                     </div>
                   </div>
-                  {hasPermission('admin_access') && (
+                  {hasPermission('settings_manage') && (
                     <div className="flex space-x-2 ml-4">
                       <button
                         onClick={() => handleEdit(type)}
@@ -306,7 +306,7 @@ const BatchSettings = () => {
                             type="checkbox"
                             checked={assigned}
                             onChange={() => handleToggleAssignment(category.id, batchType.id, assigned)}
-                            disabled={!hasPermission('admin_access')}
+                            disabled={!hasPermission('settings_manage')}
                             className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                           />
                           <span className="text-sm text-gray-700">{batchType.name}</span>

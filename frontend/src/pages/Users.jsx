@@ -18,6 +18,7 @@ const Users = () => {
     full_name: '',
     role_id: '',
     branch_id: '',
+    base_salary: '',
     is_active: true
   });
   const [formError, setFormError] = useState('');
@@ -105,6 +106,7 @@ const Users = () => {
       full_name: '',
       role_id: '',
       branch_id: currentUser?.branch_id || '',
+      base_salary: '',
       is_active: true
     });
     setFormError('');
@@ -119,6 +121,7 @@ const Users = () => {
       full_name: user.full_name || '',
       role_id: user.role_id || '',
       branch_id: user.branch_id || '',
+      base_salary: user.base_salary !== undefined && user.base_salary !== null ? String(user.base_salary) : '',
       is_active: user.is_active !== undefined ? user.is_active : true
     });
     setFormError('');
@@ -134,6 +137,7 @@ const Users = () => {
       full_name: '',
       role_id: '',
       branch_id: '',
+      base_salary: '',
       is_active: true
     });
     setFormError('');
@@ -158,6 +162,13 @@ const Users = () => {
     // Don't send empty password on update
     if (selectedUser && !submitData.password) {
       delete submitData.password;
+    }
+
+    // Convert base_salary to number or null
+    if (submitData.base_salary === '' || submitData.base_salary === undefined) {
+      submitData.base_salary = 0;
+    } else {
+      submitData.base_salary = parseFloat(submitData.base_salary) || 0;
     }
 
     // Check if selected role is Super Admin - if so, clear branch_id
@@ -494,6 +505,22 @@ const Users = () => {
                   </select>
                 </div>
               )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Base Salary (NGN)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.base_salary}
+                  onChange={(e) => setFormData({ ...formData, base_salary: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="0.00"
+                />
+                <p className="text-xs text-gray-500 mt-1">Monthly base salary used for payroll calculations</p>
+              </div>
 
               {selectedRoleIsSuperAdmin() && (
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-700 text-sm">

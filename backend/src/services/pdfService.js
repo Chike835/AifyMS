@@ -530,6 +530,283 @@ export const buildLabelHTML = (labels, options = {}) => {
 };
 
 /**
+ * Build ledger PDF HTML from ledger entries
+ * @param {object} contact - Customer or Supplier data
+ * @param {string} contactType - 'customer' or 'supplier'
+ * @param {Array} entries - Ledger entries
+ * @param {object} options - Additional options (date range, etc.)
+ * @returns {string} HTML content
+ */
+export const buildLedgerHTML = (contact, contactType, entries, options = {}) => {
+  const { startDate, endDate } = options;
+  const dateRangeText = startDate && endDate 
+    ? `${formatDate(startDate)} - ${formatDate(endDate)}`
+    : startDate 
+    ? `From ${formatDate(startDate)}`
+    : endDate 
+    ? `Up to ${formatDate(endDate)}`
+    : 'All Transactions';
+
+  // Calculate totals
+  const totalDebits = entries.reduce((sum, e) => sum + parseFloat(e.debit_amount || 0), 0);
+  const totalCredits = entries.reduce((sum, e) => sum + parseFloat(e.credit_amount || 0), 0);
+  const finalBalance = entries.length > 0 ? parseFloat(entries[entries.length - 1].running_balance || 0) : 0;
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+          padding: 30px;
+          color: #333;
+          background: #fff;
+          font-size: 12px;
+        }
+        .container {
+          max-width: 1000px;
+          margin: 0 auto;
+        }
+        .header { 
+          text-align: center; 
+          margin-bottom: 30px;
+          padding-bottom: 15px;
+          border-bottom: 3px solid #2563eb;
+        }
+        .header h1 { 
+          font-size: 24px; 
+          color: #2563eb;
+          margin-bottom: 5px;
+          font-weight: 700;
+          text-transform: uppercase;
+        }
+        .header h2 {
+          font-size: 14px;
+          color: #666;
+          font-weight: 400;
+        }
+        .info-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 20px;
+          margin-bottom: 25px;
+        }
+        .info-section {
+          background: #f8f9fa;
+          padding: 15px;
+          border-radius: 6px;
+        }
+        .info-section h3 {
+          font-size: 11px;
+          color: #666;
+          text-transform: uppercase;
+          margin-bottom: 8px;
+          letter-spacing: 0.5px;
+        }
+        .info-section p {
+          font-size: 13px;
+          color: #333;
+          margin: 3px 0;
+        }
+        .info-section .balance {
+          font-size: 16px;
+          font-weight: 700;
+          color: #2563eb;
+        }
+        table { 
+          width: 100%; 
+          border-collapse: collapse; 
+          margin: 20px 0;
+          font-size: 11px;
+        }
+        th { 
+          background-color: #2563eb;
+          color: #fff;
+          padding: 10px 8px;
+          text-align: left;
+          font-weight: 600;
+          font-size: 10px;
+          text-transform: uppercase;
+        }
+        th.amount { text-align: right; }
+        td { 
+          padding: 8px;
+          border-bottom: 1px solid #e5e7eb;
+        }
+        td.amount { text-align: right; font-family: 'Courier New', monospace; }
+        td.type { 
+          font-weight: 600;
+          font-size: 10px;
+        }
+        .type-INVOICE { color: #dc2626; }
+        .type-PAYMENT { color: #16a34a; }
+        .type-ADVANCE_PAYMENT { color: #0891b2; }
+        .type-RETURN { color: #ea580c; }
+        .type-ADJUSTMENT { color: #7c3aed; }
+        .type-OPENING_BALANCE { color: #4b5563; }
+        .type-REFUND { color: #db2777; }
+        tbody tr:hover {
+          background-color: #f8f9fa;
+        }
+        .summary {
+          margin-top: 20px;
+          padding: 15px;
+          background: #f8f9fa;
+          border-radius: 6px;
+        }
+        .summary-grid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 15px;
+          text-align: center;
+        }
+        .summary-item h4 {
+          font-size: 10px;
+          color: #666;
+          text-transform: uppercase;
+          margin-bottom: 5px;
+        }
+        .summary-item .value {
+          font-size: 14px;
+          font-weight: 700;
+        }
+        .summary-item .debit { color: #dc2626; }
+        .summary-item .credit { color: #16a34a; }
+        .summary-item .balance { color: #2563eb; }
+        .footer {
+          margin-top: 30px;
+          padding-top: 15px;
+          border-top: 1px solid #e5e7eb;
+          text-align: center;
+          color: #666;
+          font-size: 10px;
+        }
+        @media print {
+          body { padding: 15px; }
+          .header { margin-bottom: 20px; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>${contactType === 'customer' ? 'Customer' : 'Supplier'} Ledger Statement</h1>
+          <h2>${dateRangeText}</h2>
+        </div>
+        
+        <div class="info-grid">
+          <div class="info-section">
+            <h3>${contactType === 'customer' ? 'Customer' : 'Supplier'} Details</h3>
+            <p><strong>${contact.name || 'N/A'}</strong></p>
+            ${contact.phone ? `<p>Phone: ${contact.phone}</p>` : ''}
+            ${contact.email ? `<p>Email: ${contact.email}</p>` : ''}
+            ${contact.address ? `<p>Address: ${contact.address}</p>` : ''}
+          </div>
+          <div class="info-section">
+            <h3>Account Summary</h3>
+            <p>Total Entries: ${entries.length}</p>
+            <p>Generated: ${new Date().toLocaleDateString('en-NG', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+            <p class="balance">Current Balance: ${formatCurrency(contact.ledger_balance || finalBalance)}</p>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 90px;">Date</th>
+              <th style="width: 100px;">Type</th>
+              <th>Description</th>
+              <th style="width: 80px;">Branch</th>
+              <th class="amount" style="width: 100px;">Debit</th>
+              <th class="amount" style="width: 100px;">Credit</th>
+              <th class="amount" style="width: 100px;">Balance</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${entries.length === 0 ? `
+              <tr>
+                <td colspan="7" style="text-align: center; padding: 30px; color: #666;">
+                  No transactions found for the selected period
+                </td>
+              </tr>
+            ` : entries.map(entry => `
+              <tr>
+                <td>${formatDate(entry.transaction_date)}</td>
+                <td class="type type-${entry.transaction_type}">${entry.transaction_type}</td>
+                <td>${entry.description || '-'}</td>
+                <td>${entry.branch?.name || entry.branch?.code || '-'}</td>
+                <td class="amount">${parseFloat(entry.debit_amount || 0) > 0 ? formatCurrency(entry.debit_amount) : '-'}</td>
+                <td class="amount">${parseFloat(entry.credit_amount || 0) > 0 ? formatCurrency(entry.credit_amount) : '-'}</td>
+                <td class="amount">${formatCurrency(entry.running_balance)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+
+        <div class="summary">
+          <div class="summary-grid">
+            <div class="summary-item">
+              <h4>Total Entries</h4>
+              <div class="value">${entries.length}</div>
+            </div>
+            <div class="summary-item">
+              <h4>Total Debits</h4>
+              <div class="value debit">${formatCurrency(totalDebits)}</div>
+            </div>
+            <div class="summary-item">
+              <h4>Total Credits</h4>
+              <div class="value credit">${formatCurrency(totalCredits)}</div>
+            </div>
+            <div class="summary-item">
+              <h4>Closing Balance</h4>
+              <div class="value balance">${formatCurrency(finalBalance)}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer">
+          <p>Generated on ${new Date().toLocaleString('en-NG')} | This is a computer-generated document</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
+
+/**
+ * Generate ledger PDF
+ * @param {object} contact - Customer or Supplier data
+ * @param {string} contactType - 'customer' or 'supplier'
+ * @param {Array} entries - Ledger entries
+ * @param {object} options - Additional options
+ * @returns {Promise<Buffer>} PDF buffer
+ */
+export const generateLedgerPDF = async (contact, contactType, entries, options = {}) => {
+  const htmlContent = buildLedgerHTML(contact, contactType, entries, options);
+  
+  return await generatePDFFromHTML(htmlContent, {
+    format: 'A4',
+    margin: { top: '15mm', right: '15mm', bottom: '15mm', left: '15mm' }
+  });
+};
+
+/**
+ * Format date for display
+ */
+const formatDate = (dateString) => {
+  if (!dateString) return 'N/A';
+  const date = new Date(dateString);
+  return date.toLocaleDateString('en-NG', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
+};
+
+/**
  * Format currency
  */
 const formatCurrency = (amount) => {

@@ -21,7 +21,7 @@ export const authenticate = async (req, res, next) => {
     const decoded = jwt.verify(token, config.jwtSecret);
 
     // Lightweight query: Only check if user exists and is active
-    // Use JWT payload for role_id, branch_id, permissions to avoid heavy joins
+    // We include Role to ensure role_name is always fresh and correct from DB
     const user = await User.findByPk(decoded.userId, {
       attributes: ['id', 'email', 'full_name', 'is_active', 'role_id', 'branch_id'],
       include: [
@@ -29,7 +29,12 @@ export const authenticate = async (req, res, next) => {
           model: Branch,
           as: 'branch',
           attributes: ['id', 'name', 'code'],
-          required: false // LEFT JOIN - branch may be null
+          required: false // LEFT JOIN
+        },
+        {
+          model: Role,
+          as: 'role',
+          attributes: ['id', 'name']
         }
       ]
     });
@@ -47,9 +52,9 @@ export const authenticate = async (req, res, next) => {
       id: user.id,
       email: user.email,
       full_name: user.full_name,
-      role_id: decoded.role_id || user.role_id,
-      role_name: decoded.role_name,
-      branch_id: decoded.branch_id || user.branch_id,
+      role_id: user.role_id,
+      role_name: user.role?.name || decoded.role_name, // Prefer DB role name
+      branch_id: user.branch_id, // Prefer DB branch_id
       branch: user.branch,
       permissions: permissions
     };
@@ -92,6 +97,11 @@ export const optionalAuth = async (req, res, next) => {
           as: 'branch',
           attributes: ['id', 'name', 'code'],
           required: false
+        },
+        {
+          model: Role,
+          as: 'role',
+          attributes: ['id', 'name']
         }
       ]
     });
@@ -102,9 +112,9 @@ export const optionalAuth = async (req, res, next) => {
         id: user.id,
         email: user.email,
         full_name: user.full_name,
-        role_id: decoded.role_id || user.role_id,
-        role_name: decoded.role_name,
-        branch_id: decoded.branch_id || user.branch_id,
+        role_id: user.role_id,
+        role_name: user.role?.name || decoded.role_name,
+        branch_id: user.branch_id,
         branch: user.branch,
         permissions: permissions
       };

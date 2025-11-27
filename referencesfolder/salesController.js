@@ -1,9 +1,8 @@
-import sequelize from '../config/db.js';
-import { SalesOrder, SalesItem, ItemAssignment, Product, InventoryBatch, Recipe, Customer, Branch, User, Agent, AgentCommission } from '../models/index.js';
+import sequelize from '../backend/src/config/db.js';
+import { SalesOrder, SalesItem, ItemAssignment, Product, InventoryBatch, Recipe, Customer, Branch, User, Agent, AgentCommission } from '../backend/src/models/index.js';
 import { Op } from 'sequelize';
-import { multiply, add, subtract, sum, equals, lessThan, lessThanOrEqual, greaterThan, percentage } from '../utils/mathUtils.js';
-import { processManufacturedVirtualItem, processManufacturedVirtualItemForConversion } from '../services/inventoryService.js';
-import { createLedgerEntry } from '../services/ledgerService.js';
+import { multiply, add, subtract, sum, equals, lessThan, lessThanOrEqual, greaterThan, percentage } from '../backend/src/utils/mathUtils.js';
+import { processManufacturedVirtualItem, processManufacturedVirtualItemForConversion } from '../backend/src/services/inventoryService.js';
 
 /**
  * Generate unique invoice number with transaction lock to prevent race conditions
@@ -203,27 +202,32 @@ export const createSale = async (req, res, next) => {
       }, { transaction });
     }
 
-    // Create ledger entry for invoices (not drafts or quotations) - INSIDE transaction for ACID compliance
-    if (order_type === 'invoice' && customer_id && totalAmount > 0) {
-      await createLedgerEntry(
-        customer_id,
-        'customer',
-        {
-          transaction_date: salesOrder.created_at || new Date(),
-          transaction_type: 'INVOICE',
-          transaction_id: salesOrder.id,
-          description: `Invoice ${invoiceNumber}`,
-          debit_amount: totalAmount,
-          credit_amount: 0,
-          branch_id: finalBranchId,
-          created_by: req.user.id
-        },
-        transaction
-      );
-    }
-
-    // Commit transaction (only after all operations succeed, including ledger entry)
+    // Commit transaction
     await transaction.commit();
+
+    // Create ledger entry for invoices (not drafts or quotations)
+    if (order_type === 'invoice' && customer_id && totalAmount > 0) {
+      try {
+        const { createLedgerEntry } = await import('../backend/src/services/ledgerService.js');
+        await createLedgerEntry(
+          customer_id,
+          'customer',
+          {
+            transaction_date: salesOrder.created_at || new Date(),
+            transaction_type: 'INVOICE',
+            transaction_id: salesOrder.id,
+            description: `Invoice ${invoiceNumber}`,
+            debit_amount: totalAmount,
+            credit_amount: 0,
+            branch_id: finalBranchId,
+            created_by: req.user.id
+          }
+        );
+      } catch (ledgerError) {
+        console.error('Error creating ledger entry for sale:', ledgerError);
+        // Don't fail the sale if ledger entry fails
+      }
+    }
 
     // Fetch complete order with associations
     const completeOrder = await SalesOrder.findByPk(salesOrder.id, {

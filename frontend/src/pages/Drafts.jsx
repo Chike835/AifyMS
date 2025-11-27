@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { FileEdit, Eye, Trash2, ArrowRight, Search, X, Plus } from 'lucide-react';
+import ManufacturedItemSelector from '../components/sales/ManufacturedItemSelector';
 
 const Drafts = () => {
   const navigate = useNavigate();
@@ -14,6 +15,8 @@ const Drafts = () => {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteId, setDeleteId] = useState(null);
+  const [showCoilSelector, setShowCoilSelector] = useState(false);
+  const [draftToConvert, setDraftToConvert] = useState(null);
 
   // Fetch drafts
   const { data, isLoading, error } = useQuery({
@@ -83,14 +86,30 @@ const Drafts = () => {
     const hasManufactured = draft.items?.some(item => item.product?.type === 'manufactured_virtual');
     
     if (hasManufactured) {
-      // TODO: Show coil selection modal for each manufactured item
-      // For now, we'll just show an alert
-      alert('This draft contains manufactured products. Please edit and convert from the Add Sale page.');
+      // Show coil selection modal for manufactured items
+      setDraftToConvert(draft);
+      setShowCoilSelector(true);
       return;
     }
 
     // No manufactured products, convert directly
     convertMutation.mutate({ id: draft.id, item_assignments: {} });
+  };
+
+  const handleCoilSelectionConfirm = (itemAssignments) => {
+    if (draftToConvert) {
+      convertMutation.mutate({ 
+        id: draftToConvert.id, 
+        item_assignments: itemAssignments 
+      });
+    }
+    setShowCoilSelector(false);
+    setDraftToConvert(null);
+  };
+
+  const handleCoilSelectionCancel = () => {
+    setShowCoilSelector(false);
+    setDraftToConvert(null);
   };
 
   if (isLoading) {
@@ -401,6 +420,14 @@ const Drafts = () => {
           </div>
         </div>
       )}
+
+      {/* Coil Selection Modal for Manufactured Items */}
+      <ManufacturedItemSelector
+        isOpen={showCoilSelector}
+        items={draftToConvert?.items || []}
+        onConfirm={handleCoilSelectionConfirm}
+        onCancel={handleCoilSelectionCancel}
+      />
     </div>
   );
 };

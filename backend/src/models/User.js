@@ -48,6 +48,11 @@ const User = sequelize.define('User', {
       key: 'id'
     }
   },
+  base_salary: {
+    type: DataTypes.DECIMAL(15, 2),
+    allowNull: false,
+    defaultValue: 0
+  },
   is_active: {
     type: DataTypes.BOOLEAN,
     defaultValue: true
