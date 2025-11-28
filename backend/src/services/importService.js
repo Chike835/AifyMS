@@ -58,6 +58,8 @@ const PRODUCT_HEADER_ALIASES = {
   'purchaseprice': 'cost_price',
   'buying_price': 'cost_price',
   'buyingprice': 'cost_price',
+  'unit_purchase_price': 'cost_price',
+  'unitpurchaseprice': 'cost_price',
   'base_unit': 'base_unit',
   'baseunit': 'base_unit',
   'unit': 'base_unit',
@@ -168,18 +170,14 @@ export const importProducts = async (data, errors = []) => {
       }
       
       // Validate required fields with detailed error reporting
+      // Only sku, name, and sale_price are strictly required
+      // type and base_unit will use defaults if not provided
       const missingFields = [];
       if (!row.sku || (typeof row.sku === 'string' && row.sku.trim() === '')) {
         missingFields.push('sku');
       }
       if (!row.name || (typeof row.name === 'string' && row.name.trim() === '')) {
         missingFields.push('name');
-      }
-      if (!row.type || (typeof row.type === 'string' && row.type.trim() === '')) {
-        missingFields.push('type');
-      }
-      if (!row.base_unit || (typeof row.base_unit === 'string' && row.base_unit.trim() === '')) {
-        missingFields.push('base_unit');
       }
       if (row.sale_price === undefined || row.sale_price === null || row.sale_price === '') {
         missingFields.push('sale_price');
@@ -194,11 +192,20 @@ export const importProducts = async (data, errors = []) => {
         continue;
       }
 
+      // Apply defaults for optional fields
+      const productType = (row.type && typeof row.type === 'string' && row.type.trim() !== '') 
+        ? row.type.trim().toLowerCase() 
+        : 'standard'; // Default to 'standard' if not provided
+      
+      const baseUnit = (row.base_unit && typeof row.base_unit === 'string' && row.base_unit.trim() !== '') 
+        ? row.base_unit.trim() 
+        : 'pc'; // Default to 'pc' (piece) if not provided
+
       // Validate product type
-      if (!validTypes.includes(row.type)) {
+      if (!validTypes.includes(productType)) {
         results.errors.push({
           row: rowNum,
-          error: `Invalid product type: ${row.type}. Must be one of: ${validTypes.join(', ')}`
+          error: `Invalid product type: ${productType}. Must be one of: ${validTypes.join(', ')}`
         });
         results.skipped++;
         continue;
@@ -246,8 +253,8 @@ export const importProducts = async (data, errors = []) => {
       const productData = {
         sku: String(row.sku).trim(),
         name: String(row.name).trim(),
-        type: String(row.type).trim(),
-        base_unit: String(row.base_unit).trim(),
+        type: productType,
+        base_unit: baseUnit,
         sale_price: salePrice,
         cost_price: costPrice,
         tax_rate: taxRate,

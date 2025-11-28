@@ -72,3 +72,4 @@ COMMENT ON COLUMN inventory_batches.attribute_data IS 'JSONB field storing categ
 
 
 
+

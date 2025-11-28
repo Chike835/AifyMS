@@ -111,9 +111,51 @@ const getFileType = (buffer, filename = '') => {
 };
 
 /**
- * Normalize CSV headers in rows
+ * Common header aliases for settings entities
  */
-const normalizeCSVHeaders = (rows) => {
+const COMMON_HEADER_ALIASES = {
+  // Brand aliases
+  'brand_name': 'name',
+  'brandname': 'name',
+  'brand': 'name',
+  'brands': 'name',
+  // Unit aliases
+  'unit_name': 'name',
+  'unitname': 'name',
+  'units': 'name',
+  'short_name': 'abbreviation',
+  'shortname': 'abbreviation',
+  'abbr': 'abbreviation',
+  'allow_decimal': 'allow_decimal',
+  'allowdecimal': 'allow_decimal',
+  'decimal': 'allow_decimal',
+  'base_unit': 'base_unit_id',
+  'baseunit': 'base_unit_id',
+  'base_unit_name': 'base_unit_id',
+  // Category aliases
+  'category_name': 'name',
+  'categoryname': 'name',
+  'category': 'name',
+  'categories': 'name',
+  'parent_category': 'parent_id',
+  'parentcategory': 'parent_id',
+  'parent': 'parent_id',
+  'parent_name': 'parent_id',
+  // Common aliases
+  'description': 'description',
+  'desc': 'description',
+  'active': 'is_active',
+  'is_active': 'is_active',
+  'isactive': 'is_active',
+  'status': 'is_active'
+};
+
+/**
+ * Normalize CSV headers in rows
+ * @param {Array} rows - Array of row objects
+ * @param {Object} aliasMap - Optional custom alias mapping (merged with COMMON_HEADER_ALIASES)
+ */
+const normalizeCSVHeaders = (rows, aliasMap = {}) => {
   if (!rows || rows.length === 0) {
     return rows;
   }
@@ -123,13 +165,22 @@ const normalizeCSVHeaders = (rows) => {
     return rows;
   }
 
+  // Merge common aliases with any custom ones provided
+  const mergedAliases = { ...COMMON_HEADER_ALIASES, ...aliasMap };
+
   const headerMap = {};
   const rawHeaders = Object.keys(firstRow);
 
+  console.log('[SettingsImport] Raw headers detected:', rawHeaders);
+
   rawHeaders.forEach(rawHeader => {
     const normalized = normalizeHeader(rawHeader);
-    headerMap[rawHeader] = normalized;
+    // Check if there's an alias, otherwise use the normalized header
+    const finalKey = mergedAliases[normalized] || normalized;
+    headerMap[rawHeader] = finalKey;
   });
+
+  console.log('[SettingsImport] Header mapping:', headerMap);
 
   const normalizedRows = rows.map(row => {
     const normalizedRow = {};
@@ -181,6 +232,7 @@ const arrayToCSV = (data, headers) => {
  * @param {Function} options.transformRow - Optional function to transform row before import
  * @param {Function} options.validateRow - Optional function to validate row
  * @param {boolean} options.updateOnDuplicate - Whether to update existing records (default: false)
+ * @param {Object} options.headerAliases - Custom header aliases to merge with common ones
  * @returns {Promise<Object>} - Results object with created, updated, skipped, errors
  */
 export const importFromCsv = async (model, buffer, uniqueFields = [], options = {}) => {
@@ -188,7 +240,8 @@ export const importFromCsv = async (model, buffer, uniqueFields = [], options = 
     requiredFields = [],
     transformRow = null,
     validateRow = null,
-    updateOnDuplicate = false
+    updateOnDuplicate = false,
+    headerAliases = {}
   } = options;
 
   const results = {
@@ -208,8 +261,13 @@ export const importFromCsv = async (model, buffer, uniqueFields = [], options = 
       data = await parseCSV(buffer);
     }
 
-    // Normalize headers
-    data = normalizeCSVHeaders(data);
+    // Normalize headers with aliases
+    data = normalizeCSVHeaders(data, headerAliases);
+    
+    // Log first row for debugging
+    if (data && data.length > 0) {
+      console.log('[SettingsImport] First row after normalization:', data[0]);
+    }
   } catch (error) {
     throw new Error(`Failed to parse file: ${error.message}`);
   }

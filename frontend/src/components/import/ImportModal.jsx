@@ -62,7 +62,13 @@ const ImportModal = ({ isOpen, onClose, entity, title = 'Import Data', onSuccess
       setError(null);
 
       // Use targetEndpoint if provided, otherwise fall back to default pattern
-      const endpoint = targetEndpoint || `/import/${entity}`;
+      let endpoint = targetEndpoint || `/import/${entity}`;
+
+      // Remove leading /api if present because api instance adds it via baseURL
+      if (endpoint.startsWith('/api/')) {
+        endpoint = endpoint.substring(4);
+      }
+
       const response = await api.post(endpoint, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
