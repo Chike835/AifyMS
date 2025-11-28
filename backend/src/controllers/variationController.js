@@ -212,7 +212,7 @@ export const importVariations = async (req, res, next) => {
           : true
       };
 
-      // Store values for later processing (we'll handle this after import)
+      // Store values for later processing
       processedRow._values = row.values 
         ? String(row.values).split(/[,|;]/).map(v => v.trim()).filter(v => v !== '')
         : [];
@@ -228,112 +228,36 @@ export const importVariations = async (req, res, next) => {
       return null;
     };
 
-    // We need to override the import logic to handle values separately
-    // Let's use a custom approach
-    const results = {
-      created: 0,
-      updated: 0,
-      skipped: 0,
-      errors: []
+    // Handle creation of variation values
+    const afterCreate = async (record, row, rowNum) => {
+      const values = row.values 
+        ? String(row.values).split(/[,|;]/).map(v => v.trim()).filter(v => v !== '')
+        : [];
+      
+      if (values.length > 0) {
+        // Verify if values already exist for this variation to avoid duplicates (if updated)
+        // For now, we just create new ones as per original logic
+        const variationValues = values.map((val, index) => ({
+          variation_id: record.id,
+          value: val,
+          display_order: index
+        }));
+        await ProductVariationValue.bulkCreate(variationValues);
+      }
     };
 
-    // Parse file
-    let data;
-    try {
-      const fileType = req.file.originalname?.toLowerCase().endsWith('.xlsx') || 
-                       req.file.originalname?.toLowerCase().endsWith('.xls')
-        ? 'excel' : 'csv';
-      
-      if (fileType === 'excel') {
-        const workbook = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: true });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        data = XLSX.utils.sheet_to_json(sheet, { defval: '', blankrows: false });
-      } else {
-        data = await new Promise((resolve, reject) => {
-          const results = [];
-          const stream = Readable.from(req.file.buffer.toString('utf8'));
-          stream
-            .pipe(csv({ skipEmptyLines: true }))
-            .on('data', (d) => results.push(d))
-            .on('end', () => resolve(results))
-            .on('error', reject);
-        });
+    const results = await settingsImportExportService.importFromCsv(
+      ProductVariation,
+      req.file.buffer,
+      ['name'],
+      {
+        requiredFields: ['name'],
+        transformRow,
+        validateRow,
+        afterCreate,
+        updateOnDuplicate: false
       }
-
-      // Normalize headers
-      const normalizeHeader = (h) => h.replace(/^\uFEFF/, '').trim().toLowerCase().replace(/\s+/g, '_');
-      if (data.length > 0) {
-        const headerMap = {};
-        Object.keys(data[0]).forEach(k => {
-          headerMap[k] = normalizeHeader(k);
-        });
-        data = data.map(row => {
-          const normalized = {};
-          Object.keys(row).forEach(k => {
-            normalized[headerMap[k]] = row[k];
-          });
-          return normalized;
-        });
-      }
-    } catch (error) {
-      throw new Error(`Failed to parse file: ${error.message}`);
-    }
-
-    // Process each row
-    for (let i = 0; i < data.length; i++) {
-      const row = data[i];
-      const rowNum = i + 2;
-
-      try {
-        if (!row.name || String(row.name).trim() === '') {
-          results.errors.push({ row: rowNum, error: 'Name is required' });
-          results.skipped++;
-          continue;
-        }
-
-        const name = String(row.name).trim();
-        const description = row.description ? String(row.description).trim() : null;
-        const is_active = row.is_active !== undefined
-          ? (String(row.is_active).toLowerCase() === 'true' || row.is_active === '1' || row.is_active === 1)
-          : true;
-        const values = row.values 
-          ? String(row.values).split(/[,|;]/).map(v => v.trim()).filter(v => v !== '')
-          : [];
-
-        // Check for duplicate
-        const existing = await ProductVariation.findOne({ where: { name } });
-        if (existing) {
-          results.errors.push({ row: rowNum, error: 'Variation with this name already exists' });
-          results.skipped++;
-          continue;
-        }
-
-        // Create variation
-        const variation = await ProductVariation.create({
-          name,
-          description,
-          is_active
-        });
-
-        // Create values if provided
-        if (values.length > 0) {
-          const variationValues = values.map((val, index) => ({
-            variation_id: variation.id,
-            value: val,
-            display_order: index
-          }));
-          await ProductVariationValue.bulkCreate(variationValues);
-        }
-
-        results.created++;
-      } catch (error) {
-        results.errors.push({
-          row: rowNum,
-          error: error.message || 'Unknown error'
-        });
-        results.skipped++;
-      }
-    }
+    );
 
     res.json({
       message: 'Import completed',

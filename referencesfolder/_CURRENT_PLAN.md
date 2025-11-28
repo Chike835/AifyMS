@@ -1,7 +1,7 @@
-# Execution Plan: Fix Brands/Units/Categories Import - Header Aliases (Plurals)
+# Execution Plan: Fix Product Import - Currency Parsing
 
 ## Problem
-Settings entity imports fail because CSVs use plural headers (e.g. "Brands") which are not mapped to the expected field ("name").
+Product import fails because numeric fields (`sale_price`, etc.) contain currency symbols (₦) and commas, causing `parseFloat` to return `NaN` or incorrect values.
 
 ## Tasks
-- [x] `backend/src/services/settingsImportExportService.js`: Add plural aliases (`brands` -> `name`, `units` -> `name`, `categories` -> `name`) to header normalization.
+- [x] `backend/src/services/importService.js`: Add a `parseCurrency` helper to strip non-numeric characters (except `.` and `-`) from price fields.

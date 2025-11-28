@@ -141,6 +141,14 @@ const COMMON_HEADER_ALIASES = {
   'parentcategory': 'parent_id',
   'parent': 'parent_id',
   'parent_name': 'parent_id',
+  // Variation aliases
+  'variation_name': 'name',
+  'variationname': 'name',
+  'variation': 'name',
+  'variations': 'name',
+  'values': 'values',
+  'variation_values': 'values',
+  'options': 'values',
   // Common aliases
   'description': 'description',
   'desc': 'description',
@@ -155,7 +163,7 @@ const COMMON_HEADER_ALIASES = {
  * @param {Array} rows - Array of row objects
  * @param {Object} aliasMap - Optional custom alias mapping (merged with COMMON_HEADER_ALIASES)
  */
-const normalizeCSVHeaders = (rows, aliasMap = {}) => {
+export const normalizeCSVHeaders = (rows, aliasMap = {}) => {
   if (!rows || rows.length === 0) {
     return rows;
   }
@@ -233,6 +241,7 @@ const arrayToCSV = (data, headers) => {
  * @param {Function} options.validateRow - Optional function to validate row
  * @param {boolean} options.updateOnDuplicate - Whether to update existing records (default: false)
  * @param {Object} options.headerAliases - Custom header aliases to merge with common ones
+ * @param {Function} options.afterCreate - Optional function to run after record creation/update
  * @returns {Promise<Object>} - Results object with created, updated, skipped, errors
  */
 export const importFromCsv = async (model, buffer, uniqueFields = [], options = {}) => {
@@ -241,7 +250,8 @@ export const importFromCsv = async (model, buffer, uniqueFields = [], options = 
     transformRow = null,
     validateRow = null,
     updateOnDuplicate = false,
-    headerAliases = {}
+    headerAliases = {},
+    afterCreate = null
   } = options;
 
   const results = {
@@ -345,7 +355,13 @@ export const importFromCsv = async (model, buffer, uniqueFields = [], options = 
           if (existing) {
             if (updateOnDuplicate) {
               // Update existing record
-              await existing.update(processedRow);
+              const updatedRecord = await existing.update(processedRow);
+              
+              // Run afterCreate hook
+              if (afterCreate) {
+                await afterCreate(updatedRecord, row, rowNum);
+              }
+              
               results.updated++;
             } else {
               // Skip duplicate
@@ -361,7 +377,13 @@ export const importFromCsv = async (model, buffer, uniqueFields = [], options = 
       }
 
       // Create new record
-      await model.create(processedRow);
+      const newRecord = await model.create(processedRow);
+      
+      // Run afterCreate hook
+      if (afterCreate) {
+        await afterCreate(newRecord, row, rowNum);
+      }
+      
       results.created++;
 
     } catch (error) {

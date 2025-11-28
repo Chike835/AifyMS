@@ -88,6 +88,7 @@ const PRODUCT_HEADER_ALIASES = {
 
 /**
  * Normalize an array of CSV row objects by normalizing their keys
+ * handles file with title rows/metadata before the actual header
  * @param {Array<Object>} rows - Array of row objects with potentially mismatched headers
  * @param {Object} aliasMap - Optional alias mapping object (defaults to PRODUCT_HEADER_ALIASES)
  * @returns {Array<Object>} - Array of row objects with normalized keys
@@ -97,28 +98,79 @@ export const normalizeCSVHeaders = (rows, aliasMap = PRODUCT_HEADER_ALIASES) => 
     return rows;
   }
 
-  // Get the first row to inspect headers
-  const firstRow = rows[0];
-  if (!firstRow || typeof firstRow !== 'object') {
-    return rows;
+  // Helper to check if a set of keys looks like valid product headers
+  const hasRequiredHeaders = (keys) => {
+    const normalizedKeys = keys.map(k => {
+      const n = normalizeHeader(String(k));
+      return aliasMap[n] || n;
+    });
+    
+    // Check for critical fields
+    const hasSku = normalizedKeys.includes('sku');
+    const hasName = normalizedKeys.includes('name');
+    return hasSku || hasName; // Loose check: if we find SKU or Name, it's likely the header
+  };
+
+  let headerRowIndex = -1;
+  let headers = [];
+
+  // Check if the current object keys are already the headers
+  const firstRowKeys = Object.keys(rows[0]);
+  if (hasRequiredHeaders(firstRowKeys)) {
+    headerRowIndex = -1; // Already correct
+    headers = firstRowKeys;
+    console.log('[HeaderNormalization] Found headers in the first row (default)');
+  } else {
+    // Scan first 20 rows for headers
+    console.log('[HeaderNormalization] First row keys do not look like headers. Scanning content...');
+    
+    for (let i = 0; i < Math.min(rows.length, 20); i++) {
+      const rowValues = Object.values(rows[i]);
+      if (hasRequiredHeaders(rowValues)) {
+        headerRowIndex = i;
+        headers = rowValues;
+        console.log(`[HeaderNormalization] Found headers in row ${i + 1}:`, headers);
+        break;
+      }
+    }
+  }
+
+  // If we found headers in the body (headerRowIndex >= 0), we need to realign the data
+  let processedRows = rows;
+  
+  if (headerRowIndex >= 0) {
+    // Slice data starting after the header row
+    const dataRows = rows.slice(headerRowIndex + 1);
+    
+    // Map rows to new objects using the found headers
+    processedRows = dataRows.map(row => {
+      const newRow = {};
+      const values = Object.values(row);
+      
+      headers.forEach((header, index) => {
+        if (index < values.length) {
+          newRow[header] = values[index];
+        }
+      });
+      
+      return newRow;
+    });
   }
 
   // Build mapping from raw headers to normalized headers
   const headerMap = {};
-  const rawHeaders = Object.keys(firstRow);
-
-  console.log('[HeaderNormalization] Raw headers detected:', rawHeaders);
+  const rawHeaders = headerRowIndex >= 0 ? headers : Object.keys(processedRows[0] || {});
 
   rawHeaders.forEach(rawHeader => {
-    const normalized = normalizeHeader(rawHeader);
+    const normalized = normalizeHeader(String(rawHeader));
     const finalKey = aliasMap[normalized] || normalized;
     headerMap[rawHeader] = finalKey;
   });
 
-  console.log('[HeaderNormalization] Header mapping:', headerMap);
+  console.log('[HeaderNormalization] Final header mapping:', headerMap);
 
   // Apply mapping to all rows
-  const normalizedRows = rows.map((row, index) => {
+  const normalizedRows = processedRows.map((row, index) => {
     const normalizedRow = {};
     
     Object.keys(row).forEach(rawKey => {
@@ -130,14 +182,30 @@ export const normalizeCSVHeaders = (rows, aliasMap = PRODUCT_HEADER_ALIASES) => 
 
     // Log first row sample for debugging
     if (index === 0) {
-      console.log('[HeaderNormalization] First row sample (raw):', row);
-      console.log('[HeaderNormalization] First row sample (normalized):', normalizedRow);
+      // console.log('[HeaderNormalization] First row sample (raw):', row);
+      // console.log('[HeaderNormalization] First row sample (normalized):', normalizedRow);
     }
 
     return normalizedRow;
   });
 
   return normalizedRows;
+};
+
+/**
+ * Helper to parse currency strings
+ * Removes currency symbols, commas, and other non-numeric characters
+ * @param {string|number} value 
+ * @returns {number}
+ */
+const parseCurrency = (value) => {
+  if (value === undefined || value === null || value === '') return NaN;
+  if (typeof value === 'number') return value;
+  
+  // Remove all non-numeric characters except dot and minus
+  // Also handles cases where currency symbol is at start or end
+  const cleanValue = String(value).replace(/[^0-9.-]+/g, '');
+  return parseFloat(cleanValue);
 };
 
 /**
@@ -212,12 +280,12 @@ export const importProducts = async (data, errors = []) => {
       }
 
       // Parse numeric values with defensive checks
-      const salePrice = parseFloat(row.sale_price);
+      const salePrice = parseCurrency(row.sale_price);
       const costPrice = (row.cost_price !== undefined && row.cost_price !== null && row.cost_price !== '') 
-        ? parseFloat(row.cost_price) 
+        ? parseCurrency(row.cost_price) 
         : null;
       const taxRate = (row.tax_rate !== undefined && row.tax_rate !== null && row.tax_rate !== '') 
-        ? parseFloat(row.tax_rate) 
+        ? parseCurrency(row.tax_rate) 
         : 0;
 
       if (isNaN(salePrice) || salePrice < 0) {
