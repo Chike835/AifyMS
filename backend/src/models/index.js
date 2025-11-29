@@ -6,8 +6,6 @@ import Customer from './Customer.js';
 import Supplier from './Supplier.js';
 import Product from './Product.js';
 import ProductBrand from './ProductBrand.js';
-import ProductColor from './ProductColor.js';
-import ProductGauge from './ProductGauge.js';
 import InventoryBatch from './InventoryBatch.js';
 import StockTransfer from './StockTransfer.js';
 import StockAdjustment from './StockAdjustment.js';
@@ -45,6 +43,7 @@ import BatchType from './BatchType.js';
 import CategoryBatchType from './CategoryBatchType.js';
 import LedgerEntry from './LedgerEntry.js';
 import ActivityLog from './ActivityLog.js';
+import ProductBusinessLocation from './ProductBusinessLocation.js';
 
 // Define all associations
 export const associateModels = () => {
@@ -247,24 +246,54 @@ export const associateModels = () => {
     as: 'products'
   });
 
-  // Product - ProductColor (Many-to-One)
-  Product.belongsTo(ProductColor, {
-    foreignKey: 'color_id',
-    as: 'colorAttribute'
+  // Product - Branch (Many-to-Many through product_business_locations)
+  Product.belongsToMany(Branch, {
+    through: ProductBusinessLocation,
+    foreignKey: 'product_id',
+    otherKey: 'branch_id',
+    as: 'business_locations'
   });
-  ProductColor.hasMany(Product, {
-    foreignKey: 'color_id',
+  Branch.belongsToMany(Product, {
+    through: ProductBusinessLocation,
+    foreignKey: 'branch_id',
+    otherKey: 'product_id',
     as: 'products'
   });
 
-  // Product - ProductGauge (Many-to-One)
-  Product.belongsTo(ProductGauge, {
-    foreignKey: 'gauge_id',
-    as: 'gaugeAttribute'
+  // Product - Unit (Many-to-One)
+  Product.belongsTo(Unit, {
+    foreignKey: 'unit_id',
+    as: 'unit'
   });
-  ProductGauge.hasMany(Product, {
-    foreignKey: 'gauge_id',
+  Unit.hasMany(Product, {
+    foreignKey: 'unit_id',
     as: 'products'
+  });
+
+  // Product - TaxRate (Many-to-One)
+  Product.belongsTo(TaxRate, {
+    foreignKey: 'tax_rate_id',
+    as: 'taxRate'
+  });
+  TaxRate.hasMany(Product, {
+    foreignKey: 'tax_rate_id',
+    as: 'products'
+  });
+
+  // Product - Category (Many-to-One)
+  Product.belongsTo(Category, {
+    foreignKey: 'category_id',
+    as: 'categoryRef'
+  });
+  Category.hasMany(Product, {
+    foreignKey: 'category_id',
+    as: 'products'
+  });
+
+  // Product - SubCategory (Many-to-One)
+  Product.belongsTo(Category, {
+    foreignKey: 'sub_category_id',
+    as: 'subCategory'
   });
 
   // InventoryBatch - StockTransfer (One-to-Many)
@@ -914,8 +943,7 @@ export {
   Supplier,
   Product,
   ProductBrand,
-  ProductColor,
-  ProductGauge,
+  ProductBusinessLocation,
   InventoryBatch,
   StockTransfer,
   StockAdjustment,

@@ -5,12 +5,24 @@ import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { FileEdit, Eye, Trash2, ArrowRight, Search, X, Plus } from 'lucide-react';
 import ManufacturedItemSelector from '../components/sales/ManufacturedItemSelector';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
 
 const Drafts = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { hasPermission } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [limit, setLimit] = useState(25);
+  const [visibleColumns, setVisibleColumns] = useState({
+    draft_number: true,
+    customer: true,
+    items: true,
+    total: true,
+    created: true,
+    actions: true
+  });
   const [selectedDraft, setSelectedDraft] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -158,51 +170,62 @@ const Drafts = () => {
         )}
       </div>
 
-      {/* Search */}
-      <div className="mb-6">
-        <div className="relative max-w-md">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search by draft #, customer..."
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-          />
-          {searchTerm && (
-            <button
-              onClick={() => setSearchTerm('')}
-              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          )}
-        </div>
-      </div>
+      {/* List Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={setLimit}
+        visibleColumns={visibleColumns}
+        onColumnVisibilityChange={setVisibleColumns}
+        onPrint={() => window.print()}
+        onExport={() => setShowExportModal(true)}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Search by draft #, customer..."
+      />
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        entity="drafts"
+        title="Export Drafts"
+      />
 
       {/* Drafts Table */}
       <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Draft #
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Customer
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Items
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Total
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Created
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
+              {visibleColumns.draft_number && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Draft #
+                </th>
+              )}
+              {visibleColumns.customer && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Customer
+                </th>
+              )}
+              {visibleColumns.items && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Items
+                </th>
+              )}
+              {visibleColumns.total && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Total
+                </th>
+              )}
+              {visibleColumns.created && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Created
+                </th>
+              )}
+              {visibleColumns.actions && (
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
+              )}
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
@@ -217,62 +240,74 @@ const Drafts = () => {
                 </td>
               </tr>
             ) : (
-              filteredDrafts.map((draft) => (
+              filteredDrafts.slice(0, limit === -1 ? undefined : limit).map((draft) => (
                 <tr key={draft.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
-                      {draft.invoice_number}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {draft.branch?.name}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">
-                      {draft.customer?.name || 'Walk-in'}
-                    </div>
-                    {draft.customer?.phone && (
-                      <div className="text-xs text-gray-500">{draft.customer.phone}</div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {draft.items?.length || 0} item(s)
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {formatCurrency(draft.total_amount)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {formatDate(draft.created_at)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex items-center justify-end space-x-2">
-                      <button
-                        onClick={() => {
-                          setSelectedDraft(draft);
-                          setShowDetailModal(true);
-                        }}
-                        className="text-primary-600 hover:text-primary-900 p-1"
-                        title="View Details"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => handleConvertToInvoice(draft)}
-                        className="text-green-600 hover:text-green-900 p-1"
-                        title="Convert to Invoice"
-                        disabled={convertMutation.isPending}
-                      >
-                        <ArrowRight className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(draft.id)}
-                        className="text-red-600 hover:text-red-900 p-1"
-                        title="Delete Draft"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </td>
+                  {visibleColumns.draft_number && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">
+                        {draft.invoice_number}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {draft.branch?.name}
+                      </div>
+                    </td>
+                  )}
+                  {visibleColumns.customer && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        {draft.customer?.name || 'Walk-in'}
+                      </div>
+                      {draft.customer?.phone && (
+                        <div className="text-xs text-gray-500">{draft.customer.phone}</div>
+                      )}
+                    </td>
+                  )}
+                  {visibleColumns.items && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {draft.items?.length || 0} item(s)
+                    </td>
+                  )}
+                  {visibleColumns.total && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {formatCurrency(draft.total_amount)}
+                    </td>
+                  )}
+                  {visibleColumns.created && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {formatDate(draft.created_at)}
+                    </td>
+                  )}
+                  {visibleColumns.actions && (
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex items-center justify-end space-x-2">
+                        <button
+                          onClick={() => {
+                            setSelectedDraft(draft);
+                            setShowDetailModal(true);
+                          }}
+                          className="text-primary-600 hover:text-primary-900 p-1"
+                          title="View Details"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleConvertToInvoice(draft)}
+                          className="text-green-600 hover:text-green-900 p-1"
+                          title="Convert to Invoice"
+                          disabled={convertMutation.isPending}
+                        >
+                          <ArrowRight className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(draft.id)}
+                          className="text-red-600 hover:text-red-900 p-1"
+                          title="Delete Draft"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))
             )}

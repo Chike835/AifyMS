@@ -3,12 +3,26 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { RotateCcw, Plus, Eye, Check, X, Search, AlertCircle } from 'lucide-react';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
 
 const SalesReturns = () => {
   const queryClient = useQueryClient();
   const { hasPermission } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [limit, setLimit] = useState(25);
+  const [visibleColumns, setVisibleColumns] = useState({
+    return_number: true,
+    original_invoice: true,
+    customer: true,
+    amount: true,
+    refund_method: true,
+    status: true,
+    date: true,
+    actions: true
+  });
   const [selectedReturn, setSelectedReturn] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -217,18 +231,18 @@ const SalesReturns = () => {
         )}
       </div>
 
-      {/* Filters */}
-      <div className="mb-6 flex flex-wrap gap-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search by return #, invoice #, customer..."
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-          />
-        </div>
+      {/* List Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={setLimit}
+        visibleColumns={visibleColumns}
+        onColumnVisibilityChange={setVisibleColumns}
+        onPrint={() => window.print()}
+        onExport={() => setShowExportModal(true)}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Search by return #, invoice #, customer..."
+      >
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
@@ -240,37 +254,61 @@ const SalesReturns = () => {
           <option value="completed">Completed</option>
           <option value="cancelled">Cancelled</option>
         </select>
-      </div>
+      </ListToolbar>
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        entity="sales-returns"
+        title="Export Sales Returns"
+      />
 
       {/* Returns Table */}
       <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Return #
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Original Invoice
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Customer
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Amount
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Refund Method
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Status
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Date
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
+              {visibleColumns.return_number && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Return #
+                </th>
+              )}
+              {visibleColumns.original_invoice && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Original Invoice
+                </th>
+              )}
+              {visibleColumns.customer && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Customer
+                </th>
+              )}
+              {visibleColumns.amount && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Amount
+                </th>
+              )}
+              {visibleColumns.refund_method && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Refund Method
+                </th>
+              )}
+              {visibleColumns.status && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
+              )}
+              {visibleColumns.date && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Date
+                </th>
+              )}
+              {visibleColumns.actions && (
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
+              )}
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
@@ -282,62 +320,78 @@ const SalesReturns = () => {
                 </td>
               </tr>
             ) : (
-              filteredReturns.map((ret) => (
+              filteredReturns.slice(0, limit === -1 ? undefined : limit).map((ret) => (
                 <tr key={ret.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
-                      {ret.return_number}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {ret.items?.length || 0} item(s)
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {ret.sales_order?.invoice_number}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">
-                      {ret.customer?.name || 'Walk-in'}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {formatCurrency(ret.total_amount)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 capitalize">
-                    {ret.refund_method}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(ret.status)}`}>
-                      {ret.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {formatDate(ret.created_at)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex items-center justify-end space-x-2">
-                      <button
-                        onClick={() => {
-                          setSelectedReturn(ret);
-                          setShowDetailModal(true);
-                        }}
-                        className="text-primary-600 hover:text-primary-900 p-1"
-                        title="View Details"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </button>
-                      {ret.status === 'pending' && hasPermission('sale_return_approve') && (
+                  {visibleColumns.return_number && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">
+                        {ret.return_number}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {ret.items?.length || 0} item(s)
+                      </div>
+                    </td>
+                  )}
+                  {visibleColumns.original_invoice && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {ret.sales_order?.invoice_number}
+                    </td>
+                  )}
+                  {visibleColumns.customer && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        {ret.customer?.name || 'Walk-in'}
+                      </div>
+                    </td>
+                  )}
+                  {visibleColumns.amount && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {formatCurrency(ret.total_amount)}
+                    </td>
+                  )}
+                  {visibleColumns.refund_method && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 capitalize">
+                      {ret.refund_method}
+                    </td>
+                  )}
+                  {visibleColumns.status && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(ret.status)}`}>
+                        {ret.status}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.date && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {formatDate(ret.created_at)}
+                    </td>
+                  )}
+                  {visibleColumns.actions && (
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex items-center justify-end space-x-2">
                         <button
-                          onClick={() => approveMutation.mutate(ret.id)}
-                          className="text-green-600 hover:text-green-900 p-1"
-                          title="Approve"
-                          disabled={approveMutation.isPending}
+                          onClick={() => {
+                            setSelectedReturn(ret);
+                            setShowDetailModal(true);
+                          }}
+                          className="text-primary-600 hover:text-primary-900 p-1"
+                          title="View Details"
                         >
-                          <Check className="h-4 w-4" />
+                          <Eye className="h-4 w-4" />
                         </button>
-                      )}
-                    </div>
-                  </td>
+                        {ret.status === 'pending' && hasPermission('sale_return_approve') && (
+                          <button
+                            onClick={() => approveMutation.mutate(ret.id)}
+                            className="text-green-600 hover:text-green-900 p-1"
+                            title="Approve"
+                            disabled={approveMutation.isPending}
+                          >
+                            <Check className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))
             )}

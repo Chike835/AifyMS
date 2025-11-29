@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { FileText, Plus, Edit, Trash2, X, CheckCircle, AlertCircle, Star, Eye } from 'lucide-react';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
 
 const DeliveryNotes = () => {
   const { hasPermission, user } = useAuth();
@@ -10,7 +12,17 @@ const DeliveryNotes = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [limit, setLimit] = useState(25);
+  const [visibleColumns, setVisibleColumns] = useState({
+    name: true,
+    branch: true,
+    is_default: true,
+    preview: true,
+    actions: true
+  });
   const [formData, setFormData] = useState({
     name: '',
     template_content: '',
@@ -255,24 +267,53 @@ Thank you for your business!`;
         </div>
       )}
 
+      {/* List Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={setLimit}
+        visibleColumns={visibleColumns}
+        onColumnVisibilityChange={setVisibleColumns}
+        onPrint={() => window.print()}
+        onExport={() => setShowExportModal(true)}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Search templates..."
+      />
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        entity="delivery-notes"
+        title="Export Delivery Note Templates"
+      />
+
       {/* Templates Table */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Name
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Branch
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Default
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Preview
-              </th>
-              {hasPermission('sale_edit_price') && (
+              {visibleColumns.name && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Name
+                </th>
+              )}
+              {visibleColumns.branch && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Branch
+                </th>
+              )}
+              {visibleColumns.is_default && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Default
+                </th>
+              )}
+              {visibleColumns.preview && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Preview
+                </th>
+              )}
+              {visibleColumns.actions && hasPermission('sale_edit_price') && (
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Actions
                 </th>
@@ -280,30 +321,44 @@ Thank you for your business!`;
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {data?.map((template) => (
+            {(data || [])
+              .filter(template => {
+                if (!searchTerm) return true;
+                return template.name?.toLowerCase().includes(searchTerm.toLowerCase());
+              })
+              .slice(0, limit === -1 ? undefined : limit)
+              .map((template) => (
               <tr key={template.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900">{template.name}</div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-900">{template.branch?.name || 'All Branches'}</div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  {template.is_default ? (
-                    <Star className="h-5 w-5 text-yellow-500 fill-current" />
-                  ) : (
-                    <span className="text-gray-400">—</span>
-                  )}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <button
-                    onClick={() => handlePreview(template)}
-                    className="text-blue-600 hover:text-blue-900 text-sm"
-                  >
-                    <Eye className="h-5 w-5" />
-                  </button>
-                </td>
-                {hasPermission('sale_edit_price') && (
+                {visibleColumns.name && (
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm font-medium text-gray-900">{template.name}</div>
+                  </td>
+                )}
+                {visibleColumns.branch && (
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm text-gray-900">{template.branch?.name || 'All Branches'}</div>
+                  </td>
+                )}
+                {visibleColumns.is_default && (
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    {template.is_default ? (
+                      <Star className="h-5 w-5 text-yellow-500 fill-current" />
+                    ) : (
+                      <span className="text-gray-400">—</span>
+                    )}
+                  </td>
+                )}
+                {visibleColumns.preview && (
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <button
+                      onClick={() => handlePreview(template)}
+                      className="text-blue-600 hover:text-blue-900 text-sm"
+                    >
+                      <Eye className="h-5 w-5" />
+                    </button>
+                  </td>
+                )}
+                {visibleColumns.actions && hasPermission('sale_edit_price') && (
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex justify-end space-x-2">
                       <button

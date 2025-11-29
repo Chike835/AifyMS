@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
-import { ShoppingBag, Plus, Eye, Search, X } from 'lucide-react';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
+import { ShoppingBag, Plus, Eye, X } from 'lucide-react';
 
 const Purchases = () => {
   const navigate = useNavigate();
@@ -13,12 +15,32 @@ const Purchases = () => {
   const [selectedPurchase, setSelectedPurchase] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
 
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(25);
+
+  // Column visibility
+  const [visibleColumns, setVisibleColumns] = useState({
+    purchase_number: true,
+    supplier: true,
+    branch: true,
+    total: true,
+    status: true,
+    payment: true,
+    date: true
+  });
+
+  // Export modal
+  const [showExportModal, setShowExportModal] = useState(false);
+
   // Fetch purchases
   const { data, isLoading, error } = useQuery({
-    queryKey: ['purchases', statusFilter],
+    queryKey: ['purchases', statusFilter, page, limit],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (statusFilter) params.append('status', statusFilter);
+      params.append('page', page);
+      params.append('limit', limit === -1 ? 10000 : limit);
       const response = await api.get(`/purchases?${params.toString()}`);
       return response.data;
     }
@@ -88,6 +110,7 @@ const Purchases = () => {
   }
 
   const purchases = data?.purchases || [];
+  const pagination = data?.pagination || { total: 0, page: 1, limit: 25, total_pages: 1 };
 
   // Filter by search term
   const filteredPurchases = purchases.filter(purchase => {
@@ -102,10 +125,10 @@ const Purchases = () => {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Purchases</h1>
-          <p className="text-gray-600 mt-2">Manage purchase orders and inventory receipts</p>
+          <h1 className="text-2xl font-bold text-gray-900">Purchases</h1>
+          <p className="text-sm text-primary-600">Manage purchase orders and inventory receipts</p>
         </div>
         {hasPermission('stock_add_opening') && (
           <button
@@ -118,30 +141,26 @@ const Purchases = () => {
         )}
       </div>
 
-      {/* Filters */}
-      <div className="mb-6 flex flex-wrap gap-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search by PO number, supplier..."
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-          />
-          {searchTerm && (
-            <button
-              onClick={() => setSearchTerm('')}
-              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          )}
-        </div>
+      {/* Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={(newLimit) => {
+          setLimit(newLimit);
+          setPage(1);
+        }}
+        visibleColumns={visibleColumns}
+        onColumnVisibilityChange={setVisibleColumns}
+        onExport={() => setShowExportModal(true)}
+        searchTerm={searchTerm}
+        onSearchChange={(value) => {
+          setSearchTerm(value);
+        }}
+        searchPlaceholder="Search by PO number, supplier..."
+      >
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+          className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
         >
           <option value="">All Status</option>
           <option value="draft">Draft</option>
@@ -149,34 +168,48 @@ const Purchases = () => {
           <option value="received">Received</option>
           <option value="cancelled">Cancelled</option>
         </select>
-      </div>
+      </ListToolbar>
 
       {/* Purchases Table */}
       <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                PO Number
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Supplier
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Branch
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Total
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Status
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Payment
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Date
-              </th>
+              {visibleColumns.purchase_number && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  PO Number
+                </th>
+              )}
+              {visibleColumns.supplier && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Supplier
+                </th>
+              )}
+              {visibleColumns.branch && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Branch
+                </th>
+              )}
+              {visibleColumns.total && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Total
+                </th>
+              )}
+              {visibleColumns.status && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
+              )}
+              {visibleColumns.payment && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Payment
+                </th>
+              )}
+              {visibleColumns.date && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Date
+                </th>
+              )}
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Actions
               </th>
@@ -196,36 +229,50 @@ const Purchases = () => {
             ) : (
               filteredPurchases.map((purchase) => (
                 <tr key={purchase.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
-                      {purchase.purchase_number}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      by {purchase.creator?.full_name}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {purchase.supplier?.name || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {purchase.branch?.name}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {formatCurrency(purchase.total_amount)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(purchase.status)}`}>
-                      {purchase.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${getPaymentStatusColor(purchase.payment_status)}`}>
-                      {purchase.payment_status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {formatDate(purchase.created_at)}
-                  </td>
+                  {visibleColumns.purchase_number && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">
+                        {purchase.purchase_number}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        by {purchase.creator?.full_name}
+                      </div>
+                    </td>
+                  )}
+                  {visibleColumns.supplier && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {purchase.supplier?.name || '-'}
+                    </td>
+                  )}
+                  {visibleColumns.branch && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {purchase.branch?.name}
+                    </td>
+                  )}
+                  {visibleColumns.total && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {formatCurrency(purchase.total_amount)}
+                    </td>
+                  )}
+                  {visibleColumns.status && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(purchase.status)}`}>
+                        {purchase.status}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.payment && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${getPaymentStatusColor(purchase.payment_status)}`}>
+                        {purchase.payment_status}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.date && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {formatDate(purchase.created_at)}
+                    </td>
+                  )}
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <button
                       onClick={() => {
@@ -245,12 +292,45 @@ const Purchases = () => {
         </table>
 
         {/* Pagination Info */}
-        {data?.pagination && (
-          <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 text-sm text-gray-500">
-            Showing {filteredPurchases.length} of {data.pagination.total} purchases
+        {pagination.total > 0 && (
+          <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+            <span className="text-sm text-gray-500">
+              Showing {filteredPurchases.length} of {pagination.total} purchases
+            </span>
+            {pagination.total_pages > 1 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+                >
+                  Previous
+                </button>
+                <span className="text-sm text-gray-600">
+                  Page {pagination.page} of {pagination.total_pages}
+                </span>
+                <button
+                  onClick={() => setPage(p => Math.min(pagination.total_pages, p + 1))}
+                  disabled={page >= pagination.total_pages}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+                >
+                  Next
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <ExportModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          entity="purchases"
+          title="Export Purchases"
+        />
+      )}
 
       {/* Detail Modal */}
       {showDetailModal && selectedPurchase && (
@@ -405,4 +485,3 @@ const Purchases = () => {
 };
 
 export default Purchases;
-

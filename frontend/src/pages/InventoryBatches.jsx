@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { Package, Plus, ArrowRightLeft, Edit, Trash2, Search, Filter } from 'lucide-react';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
 
 const InventoryBatches = () => {
   const { hasPermission, user } = useAuth();
@@ -11,10 +13,22 @@ const InventoryBatches = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [selectedBatch, setSelectedBatch] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [batchTypeFilter, setBatchTypeFilter] = useState('all');
+  const [limit, setLimit] = useState(25);
+  const [visibleColumns, setVisibleColumns] = useState({
+    identifier: true,
+    type: true,
+    product: true,
+    branch: true,
+    initial_qty: true,
+    remaining: true,
+    status: true,
+    actions: true
+  });
   const [formData, setFormData] = useState({
     product_id: '',
     branch_id: user?.branch_id || '',
@@ -277,77 +291,95 @@ const InventoryBatches = () => {
         )}
       </div>
 
-      {/* Filters */}
-      <div className="bg-white rounded-lg shadow border border-gray-200 p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search batches..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            />
-          </div>
-          <div>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            >
-              <option value="all">All Status</option>
-              <option value="in_stock">In Stock</option>
-              <option value="depleted">Depleted</option>
-              <option value="scrapped">Scrapped</option>
-            </select>
-          </div>
-          <div>
-            <select
-              value={batchTypeFilter}
-              onChange={(e) => setBatchTypeFilter(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            >
-              <option value="all">All Types</option>
-              {batchTypes?.filter(bt => bt.is_active).map((type) => (
-                <option key={type.id} value={type.id}>
-                  {type.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
+      {/* List Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={setLimit}
+        visibleColumns={visibleColumns}
+        onColumnVisibilityChange={setVisibleColumns}
+        onPrint={() => window.print()}
+        onExport={() => setShowExportModal(true)}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Search batches..."
+      >
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+        >
+          <option value="all">All Status</option>
+          <option value="in_stock">In Stock</option>
+          <option value="depleted">Depleted</option>
+          <option value="scrapped">Scrapped</option>
+        </select>
+        <select
+          value={batchTypeFilter}
+          onChange={(e) => setBatchTypeFilter(e.target.value)}
+          className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+        >
+          <option value="all">All Types</option>
+          {batchTypes?.filter(bt => bt.is_active).map((type) => (
+            <option key={type.id} value={type.id}>
+              {type.name}
+            </option>
+          ))}
+        </select>
+      </ListToolbar>
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        entity="inventory-batches"
+        title="Export Inventory Batches"
+      />
 
       {/* Batches Table */}
       <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Identifier
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Type
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Product
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Branch
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Initial Qty
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Remaining
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Status
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
+              {visibleColumns.identifier && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Identifier
+                </th>
+              )}
+              {visibleColumns.type && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Type
+                </th>
+              )}
+              {visibleColumns.product && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Product
+                </th>
+              )}
+              {visibleColumns.branch && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Branch
+                </th>
+              )}
+              {visibleColumns.initial_qty && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Initial Qty
+                </th>
+              )}
+              {visibleColumns.remaining && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Remaining
+                </th>
+              )}
+              {visibleColumns.status && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
+              )}
+              {visibleColumns.actions && (
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
+              )}
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
@@ -358,84 +390,100 @@ const InventoryBatches = () => {
                 </td>
               </tr>
             ) : (
-              filteredBatches.map((batch) => (
+              filteredBatches.slice(0, limit === -1 ? undefined : limit).map((batch) => (
                 <tr key={batch.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
-                      {batch.instance_code || batch.batch_identifier || 'N/A'}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
-                      {batch.batch_type?.name || 'N/A'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{batch.product?.name}</div>
-                    <div className="text-sm text-gray-500">{batch.product?.sku}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {batch.branch?.name}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {parseFloat(batch.initial_quantity).toFixed(3)} {batch.product?.base_unit}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {parseFloat(batch.remaining_quantity).toFixed(3)} {batch.product?.base_unit}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        batch.status === 'in_stock'
-                          ? 'bg-green-100 text-green-800'
-                          : batch.status === 'depleted'
-                          ? 'bg-red-100 text-red-800'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}
-                    >
-                      {batch.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex justify-end space-x-2">
-                      {hasPermission('stock_transfer_init') && (
-                        <button
-                          onClick={() => handleTransfer(batch)}
-                          className="text-blue-600 hover:text-blue-900"
-                          title="Transfer"
-                        >
-                          <ArrowRightLeft className="h-4 w-4" />
-                        </button>
-                      )}
-                      {hasPermission('batch_edit', 'stock_adjust') && (
-                        <button
-                          onClick={() => handleEdit(batch)}
-                          className="text-orange-600 hover:text-orange-900"
-                          title="Edit"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </button>
-                      )}
-                      {hasPermission('stock_adjust') && (
-                        <button
-                          onClick={() => handleAdjust(batch)}
-                          className="text-purple-600 hover:text-purple-900"
-                          title="Adjust"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </button>
-                      )}
-                      {hasPermission('batch_delete') && (
-                        <button
-                          onClick={() => handleDelete(batch)}
-                          className="text-red-600 hover:text-red-900"
-                          title="Delete"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                  </td>
+                  {visibleColumns.identifier && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">
+                        {batch.instance_code || batch.batch_identifier || 'N/A'}
+                      </div>
+                    </td>
+                  )}
+                  {visibleColumns.type && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                        {batch.batch_type?.name || 'N/A'}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.product && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{batch.product?.name}</div>
+                      <div className="text-sm text-gray-500">{batch.product?.sku}</div>
+                    </td>
+                  )}
+                  {visibleColumns.branch && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {batch.branch?.name}
+                    </td>
+                  )}
+                  {visibleColumns.initial_qty && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {parseFloat(batch.initial_quantity).toFixed(3)} {batch.product?.base_unit}
+                    </td>
+                  )}
+                  {visibleColumns.remaining && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {parseFloat(batch.remaining_quantity).toFixed(3)} {batch.product?.base_unit}
+                    </td>
+                  )}
+                  {visibleColumns.status && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span
+                        className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                          batch.status === 'in_stock'
+                            ? 'bg-green-100 text-green-800'
+                            : batch.status === 'depleted'
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-gray-100 text-gray-800'
+                        }`}
+                      >
+                        {batch.status}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.actions && (
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex justify-end space-x-2">
+                        {hasPermission('stock_transfer_init') && (
+                          <button
+                            onClick={() => handleTransfer(batch)}
+                            className="text-blue-600 hover:text-blue-900"
+                            title="Transfer"
+                          >
+                            <ArrowRightLeft className="h-4 w-4" />
+                          </button>
+                        )}
+                        {hasPermission('batch_edit', 'stock_adjust') && (
+                          <button
+                            onClick={() => handleEdit(batch)}
+                            className="text-orange-600 hover:text-orange-900"
+                            title="Edit"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </button>
+                        )}
+                        {hasPermission('stock_adjust') && (
+                          <button
+                            onClick={() => handleAdjust(batch)}
+                            className="text-purple-600 hover:text-purple-900"
+                            title="Adjust"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </button>
+                        )}
+                        {hasPermission('batch_delete') && (
+                          <button
+                            onClick={() => handleDelete(batch)}
+                            className="text-red-600 hover:text-red-900"
+                            title="Delete"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))
             )}

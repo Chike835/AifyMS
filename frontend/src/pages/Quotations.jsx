@@ -5,6 +5,8 @@ import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { FileText, Eye, Trash2, ArrowRight, Search, X, Plus, Clock, AlertCircle } from 'lucide-react';
 import ManufacturedItemSelector from '../components/sales/ManufacturedItemSelector';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
 
 const Quotations = () => {
   const navigate = useNavigate();
@@ -12,6 +14,17 @@ const Quotations = () => {
   const { hasPermission } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [limit, setLimit] = useState(25);
+  const [visibleColumns, setVisibleColumns] = useState({
+    quote_number: true,
+    customer: true,
+    items: true,
+    total: true,
+    valid_until: true,
+    status: true,
+    actions: true
+  });
   const [selectedQuotation, setSelectedQuotation] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -211,26 +224,18 @@ const Quotations = () => {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="mb-6 flex flex-wrap gap-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search by quote #, customer..."
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-          />
-          {searchTerm && (
-            <button
-              onClick={() => setSearchTerm('')}
-              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          )}
-        </div>
+      {/* List Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={setLimit}
+        visibleColumns={visibleColumns}
+        onColumnVisibilityChange={setVisibleColumns}
+        onPrint={() => window.print()}
+        onExport={() => setShowExportModal(true)}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Search by quote #, customer..."
+      >
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
@@ -240,34 +245,56 @@ const Quotations = () => {
           <option value="active">Active</option>
           <option value="expired">Expired</option>
         </select>
-      </div>
+      </ListToolbar>
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        entity="quotations"
+        title="Export Quotations"
+      />
 
       {/* Quotations Table */}
       <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Quote #
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Customer
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Items
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Total
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Valid Until
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Status
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
+              {visibleColumns.quote_number && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Quote #
+                </th>
+              )}
+              {visibleColumns.customer && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Customer
+                </th>
+              )}
+              {visibleColumns.items && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Items
+                </th>
+              )}
+              {visibleColumns.total && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Total
+                </th>
+              )}
+              {visibleColumns.valid_until && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Valid Until
+                </th>
+              )}
+              {visibleColumns.status && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
+              )}
+              {visibleColumns.actions && (
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
+              )}
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
@@ -282,92 +309,106 @@ const Quotations = () => {
                 </td>
               </tr>
             ) : (
-              filteredQuotations.map((quote) => {
+              filteredQuotations.slice(0, limit === -1 ? undefined : limit).map((quote) => {
                 const daysUntil = getDaysUntilExpiry(quote.valid_until);
                 const isExpiringSoon = daysUntil !== null && daysUntil >= 0 && daysUntil <= 3;
                 
                 return (
                   <tr key={quote.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">
-                        {quote.invoice_number}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {quote.branch?.name}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">
-                        {quote.customer?.name || 'Walk-in'}
-                      </div>
-                      {quote.customer?.phone && (
-                        <div className="text-xs text-gray-500">{quote.customer.phone}</div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {quote.items?.length || 0} item(s)
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {formatCurrency(quote.total_amount)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">
-                        {formatDate(quote.valid_until)}
-                      </div>
-                      {daysUntil !== null && !quote.is_expired && (
-                        <div className={`text-xs ${isExpiringSoon ? 'text-orange-600' : 'text-gray-500'}`}>
-                          {daysUntil === 0 ? 'Expires today' : `${daysUntil} day(s) left`}
+                    {visibleColumns.quote_number && (
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">
+                          {quote.invoice_number}
                         </div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {quote.is_expired ? (
-                        <span className="flex items-center space-x-1 px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800">
-                          <AlertCircle className="h-3 w-3" />
-                          <span>Expired</span>
-                        </span>
-                      ) : isExpiringSoon ? (
-                        <span className="flex items-center space-x-1 px-2 py-1 text-xs font-medium rounded-full bg-orange-100 text-orange-800">
-                          <Clock className="h-3 w-3" />
-                          <span>Expiring Soon</span>
-                        </span>
-                      ) : (
-                        <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
-                          Active
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex items-center justify-end space-x-2">
-                        <button
-                          onClick={() => {
-                            setSelectedQuotation(quote);
-                            setShowDetailModal(true);
-                          }}
-                          className="text-primary-600 hover:text-primary-900 p-1"
-                          title="View Details"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </button>
-                        {!quote.is_expired && (
-                          <button
-                            onClick={() => handleConvertToInvoice(quote)}
-                            className="text-green-600 hover:text-green-900 p-1"
-                            title="Convert to Invoice"
-                            disabled={convertMutation.isPending}
-                          >
-                            <ArrowRight className="h-4 w-4" />
-                          </button>
+                        <div className="text-xs text-gray-500">
+                          {quote.branch?.name}
+                        </div>
+                      </td>
+                    )}
+                    {visibleColumns.customer && (
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">
+                          {quote.customer?.name || 'Walk-in'}
+                        </div>
+                        {quote.customer?.phone && (
+                          <div className="text-xs text-gray-500">{quote.customer.phone}</div>
                         )}
-                        <button
-                          onClick={() => handleDelete(quote.id)}
-                          className="text-red-600 hover:text-red-900 p-1"
-                          title="Delete Quotation"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
+                      </td>
+                    )}
+                    {visibleColumns.items && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {quote.items?.length || 0} item(s)
+                      </td>
+                    )}
+                    {visibleColumns.total && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {formatCurrency(quote.total_amount)}
+                      </td>
+                    )}
+                    {visibleColumns.valid_until && (
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">
+                          {formatDate(quote.valid_until)}
+                        </div>
+                        {daysUntil !== null && !quote.is_expired && (
+                          <div className={`text-xs ${isExpiringSoon ? 'text-orange-600' : 'text-gray-500'}`}>
+                            {daysUntil === 0 ? 'Expires today' : `${daysUntil} day(s) left`}
+                          </div>
+                        )}
+                      </td>
+                    )}
+                    {visibleColumns.status && (
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {quote.is_expired ? (
+                          <span className="flex items-center space-x-1 px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800">
+                            <AlertCircle className="h-3 w-3" />
+                            <span>Expired</span>
+                          </span>
+                        ) : isExpiringSoon ? (
+                          <span className="flex items-center space-x-1 px-2 py-1 text-xs font-medium rounded-full bg-orange-100 text-orange-800">
+                            <Clock className="h-3 w-3" />
+                            <span>Expiring Soon</span>
+                          </span>
+                        ) : (
+                          <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
+                            Active
+                          </span>
+                        )}
+                      </td>
+                    )}
+                    {visibleColumns.actions && (
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <div className="flex items-center justify-end space-x-2">
+                          <button
+                            onClick={() => {
+                              setSelectedQuotation(quote);
+                              setShowDetailModal(true);
+                            }}
+                            className="text-primary-600 hover:text-primary-900 p-1"
+                            title="View Details"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                          {!quote.is_expired && (
+                            <button
+                              onClick={() => handleConvertToInvoice(quote)}
+                              className="text-green-600 hover:text-green-900 p-1"
+                              title="Convert to Invoice"
+                              disabled={convertMutation.isPending}
+                            >
+                              <ArrowRight className="h-4 w-4" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDelete(quote.id)}
+                            className="text-red-600 hover:text-red-900 p-1"
+                            title="Delete Quotation"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 );
               })

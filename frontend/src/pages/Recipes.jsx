@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { BookOpen, Plus, Edit, Trash2, X, Calculator, CheckCircle, AlertCircle } from 'lucide-react';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
 
 const Recipes = () => {
   const { hasPermission } = useAuth();
@@ -10,8 +12,19 @@ const Recipes = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showCalculationModal, setShowCalculationModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [selectedRecipe, setSelectedRecipe] = useState(null);
   const [calculationQuantity, setCalculationQuantity] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [limit, setLimit] = useState(25);
+  const [visibleColumns, setVisibleColumns] = useState({
+    recipe_name: true,
+    virtual_product: true,
+    raw_product: true,
+    conversion_factor: true,
+    wastage_margin: true,
+    actions: true
+  });
   const [formData, setFormData] = useState({
     name: '',
     virtual_product_id: '',
@@ -283,27 +296,58 @@ const Recipes = () => {
         </div>
       )}
 
+      {/* List Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={setLimit}
+        visibleColumns={visibleColumns}
+        onColumnVisibilityChange={setVisibleColumns}
+        onPrint={() => window.print()}
+        onExport={() => setShowExportModal(true)}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Search recipes..."
+      />
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        entity="recipes"
+        title="Export Recipes"
+      />
+
       {/* Recipes Table */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Recipe Name
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Virtual Product
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Raw Product
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Conversion Factor
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Wastage Margin
-              </th>
-              {hasPermission('recipe_manage') && (
+              {visibleColumns.recipe_name && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Recipe Name
+                </th>
+              )}
+              {visibleColumns.virtual_product && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Virtual Product
+                </th>
+              )}
+              {visibleColumns.raw_product && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Raw Product
+                </th>
+              )}
+              {visibleColumns.conversion_factor && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Conversion Factor
+                </th>
+              )}
+              {visibleColumns.wastage_margin && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Wastage Margin
+                </th>
+              )}
+              {visibleColumns.actions && hasPermission('recipe_manage') && (
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Actions
                 </th>
@@ -311,28 +355,47 @@ const Recipes = () => {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {data?.map((recipe) => (
+            {(data || [])
+              .filter(recipe => {
+                if (!searchTerm) return true;
+                const search = searchTerm.toLowerCase();
+                return recipe.name?.toLowerCase().includes(search) ||
+                       recipe.virtual_product?.name?.toLowerCase().includes(search) ||
+                       recipe.raw_product?.name?.toLowerCase().includes(search);
+              })
+              .slice(0, limit === -1 ? undefined : limit)
+              .map((recipe) => (
               <tr key={recipe.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900">{recipe.name}</div>
-                </td>
-                <td className="px-6 py-4">
-                  <div className="text-sm text-gray-900">{recipe.virtual_product?.name || 'N/A'}</div>
-                  <div className="text-xs text-gray-500">{recipe.virtual_product?.sku || ''}</div>
-                </td>
-                <td className="px-6 py-4">
-                  <div className="text-sm text-gray-900">{recipe.raw_product?.name || 'N/A'}</div>
-                  <div className="text-xs text-gray-500">{recipe.raw_product?.sku || ''}</div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-900">
-                    1 {recipe.virtual_product?.base_unit || 'unit'} = {recipe.conversion_factor} {recipe.raw_product?.base_unit || 'unit'}
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-900">{recipe.wastage_margin || 0}%</div>
-                </td>
-                {hasPermission('recipe_manage') && (
+                {visibleColumns.recipe_name && (
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm font-medium text-gray-900">{recipe.name}</div>
+                  </td>
+                )}
+                {visibleColumns.virtual_product && (
+                  <td className="px-6 py-4">
+                    <div className="text-sm text-gray-900">{recipe.virtual_product?.name || 'N/A'}</div>
+                    <div className="text-xs text-gray-500">{recipe.virtual_product?.sku || ''}</div>
+                  </td>
+                )}
+                {visibleColumns.raw_product && (
+                  <td className="px-6 py-4">
+                    <div className="text-sm text-gray-900">{recipe.raw_product?.name || 'N/A'}</div>
+                    <div className="text-xs text-gray-500">{recipe.raw_product?.sku || ''}</div>
+                  </td>
+                )}
+                {visibleColumns.conversion_factor && (
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm text-gray-900">
+                      1 {recipe.virtual_product?.base_unit || 'unit'} = {recipe.conversion_factor} {recipe.raw_product?.base_unit || 'unit'}
+                    </div>
+                  </td>
+                )}
+                {visibleColumns.wastage_margin && (
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm text-gray-900">{recipe.wastage_margin || 0}%</div>
+                  </td>
+                )}
+                {visibleColumns.actions && hasPermission('recipe_manage') && (
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex justify-end space-x-2">
                       <button

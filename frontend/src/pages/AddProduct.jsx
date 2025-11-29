@@ -179,6 +179,7 @@ const AddProduct = () => {
   const [subCategoryId, setSubCategoryId] = useState('');
   const [businessLocationIds, setBusinessLocationIds] = useState([]);
   const [weight, setWeight] = useState('');
+  const [reorderQuantity, setReorderQuantity] = useState('');
 
   // Pricing
   const [isTaxable, setIsTaxable] = useState(false);
@@ -381,6 +382,7 @@ const AddProduct = () => {
         category_id: categoryId || null,
         sub_category_id: subCategoryId || null,
         weight: weight ? parseFloat(weight) : null,
+        reorder_quantity: reorderQuantity ? parseFloat(reorderQuantity) : null,
         manage_stock: manageStock,
         not_for_selling: notForSelling,
         business_location_ids: businessLocationIds
@@ -512,6 +514,13 @@ const AddProduct = () => {
               placeholder="Weight"
               value={weight}
               onChange={setWeight}
+            />
+            <FormInput
+              label="Reorder Quantity"
+              type="number"
+              placeholder="Reorder quantity"
+              value={reorderQuantity}
+              onChange={setReorderQuantity}
             />
           </div>
         </CollapsibleSection>

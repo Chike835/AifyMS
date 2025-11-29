@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
@@ -6,6 +6,8 @@ import { Package, Plus, ArrowRightLeft, Edit, UploadCloud } from 'lucide-react';
 import TransferModal from '../components/inventory/TransferModal';
 import AdjustModal from '../components/inventory/AdjustModal';
 import ImportModal from '../components/import/ImportModal';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
 
 const Inventory = () => {
   const { hasPermission, user } = useAuth();
@@ -14,12 +16,26 @@ const Inventory = () => {
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [selectedInstance, setSelectedInstance] = useState(null);
   const [formData, setFormData] = useState({
     product_id: '',
     branch_id: user?.branch_id || '',
     instance_code: '',
     initial_quantity: '',
+  });
+  
+  // Toolbar states
+  const [limit, setLimit] = useState(25);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [visibleColumns, setVisibleColumns] = useState({
+    instance_code: true,
+    product: true,
+    branch: true,
+    initial_quantity: true,
+    remaining: true,
+    status: true,
+    actions: true
   });
 
   // Fetch inventory instances
@@ -123,6 +139,27 @@ const Inventory = () => {
 
   const instances = data || [];
 
+  // Filter and paginate instances
+  const filteredInstances = useMemo(() => {
+    if (!searchTerm) return instances;
+    const search = searchTerm.toLowerCase();
+    return instances.filter(instance =>
+      instance.instance_code?.toLowerCase().includes(search) ||
+      instance.product?.name?.toLowerCase().includes(search) ||
+      instance.product?.sku?.toLowerCase().includes(search) ||
+      instance.branch?.name?.toLowerCase().includes(search)
+    );
+  }, [instances, searchTerm]);
+
+  const paginatedInstances = useMemo(() => {
+    if (limit === -1) return filteredInstances;
+    return filteredInstances.slice(0, limit);
+  }, [filteredInstances, limit]);
+
+  const handlePrint = () => {
+    window.print();
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
@@ -152,97 +189,160 @@ const Inventory = () => {
         </div>
       </div>
 
+      {/* Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={setLimit}
+        visibleColumns={visibleColumns}
+        onColumnVisibilityChange={setVisibleColumns}
+        onPrint={handlePrint}
+        onExport={() => setShowExportModal(true)}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Search by code, product, SKU, or branch..."
+      />
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <ExportModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          entity="inventory"
+          title="Export Inventory"
+        />
+      )}
+
       <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Instance Code
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Product
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Branch
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Initial Quantity
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Remaining
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Status
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
+              {visibleColumns.instance_code && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Instance Code
+                </th>
+              )}
+              {visibleColumns.product && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Product
+                </th>
+              )}
+              {visibleColumns.branch && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Branch
+                </th>
+              )}
+              {visibleColumns.initial_quantity && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Initial Quantity
+                </th>
+              )}
+              {visibleColumns.remaining && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Remaining
+                </th>
+              )}
+              {visibleColumns.status && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
+              )}
+              {visibleColumns.actions && (
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
+              )}
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {instances.map((instance) => (
-              <tr key={instance.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900">
-                    {instance.instance_code}
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-900">{instance.product?.name}</div>
-                  <div className="text-sm text-gray-500">{instance.product?.sku}</div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {instance.branch?.name}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  {parseFloat(instance.initial_quantity).toFixed(3)} {instance.product?.base_unit}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  {parseFloat(instance.remaining_quantity).toFixed(3)} {instance.product?.base_unit}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span
-                    className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      instance.status === 'in_stock'
-                        ? 'bg-green-100 text-green-800'
-                        : instance.status === 'depleted'
-                        ? 'bg-red-100 text-red-800'
-                        : 'bg-gray-100 text-gray-800'
-                    }`}
-                  >
-                    {instance.status}
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                  <div className="flex justify-end space-x-2">
-                    {hasPermission('stock_transfer_init') && (
-                      <button
-                        onClick={() => {
-                          setSelectedInstance(instance);
-                          setShowTransferModal(true);
-                        }}
-                        className="text-blue-600 hover:text-blue-900"
-                        title="Transfer"
-                      >
-                        <ArrowRightLeft className="h-4 w-4" />
-                      </button>
-                    )}
-                    {hasPermission('stock_adjust') && (
-                      <button
-                        onClick={() => {
-                          setSelectedInstance(instance);
-                          setShowAdjustModal(true);
-                        }}
-                        className="text-orange-600 hover:text-orange-900"
-                        title="Adjust"
-                      >
-                        <Edit className="h-4 w-4" />
-                      </button>
-                    )}
-                  </div>
+            {paginatedInstances.length === 0 ? (
+              <tr>
+                <td colSpan={Object.values(visibleColumns).filter(v => v).length} className="px-6 py-12 text-center text-gray-500">
+                  <Package className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                  <p>No inventory instances found</p>
+                  {searchTerm && (
+                    <p className="text-sm mt-1">Try adjusting your search</p>
+                  )}
                 </td>
               </tr>
-            ))}
+            ) : (
+              paginatedInstances.map((instance) => (
+                <tr key={instance.id} className="hover:bg-gray-50">
+                  {visibleColumns.instance_code && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">
+                        {instance.instance_code}
+                      </div>
+                    </td>
+                  )}
+                  {visibleColumns.product && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{instance.product?.name}</div>
+                      <div className="text-sm text-gray-500">{instance.product?.sku}</div>
+                    </td>
+                  )}
+                  {visibleColumns.branch && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {instance.branch?.name}
+                    </td>
+                  )}
+                  {visibleColumns.initial_quantity && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {parseFloat(instance.initial_quantity).toFixed(3)} {instance.product?.base_unit}
+                    </td>
+                  )}
+                  {visibleColumns.remaining && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {parseFloat(instance.remaining_quantity).toFixed(3)} {instance.product?.base_unit}
+                    </td>
+                  )}
+                  {visibleColumns.status && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span
+                        className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                          instance.status === 'in_stock'
+                            ? 'bg-green-100 text-green-800'
+                            : instance.status === 'depleted'
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-gray-100 text-gray-800'
+                        }`}
+                      >
+                        {instance.status}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.actions && (
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex justify-end space-x-2">
+                        {hasPermission('stock_transfer_init') && (
+                          <button
+                            onClick={() => {
+                              setSelectedInstance(instance);
+                              setShowTransferModal(true);
+                            }}
+                            className="text-blue-600 hover:text-blue-900"
+                            title="Transfer"
+                          >
+                            <ArrowRightLeft className="h-4 w-4" />
+                          </button>
+                        )}
+                        {hasPermission('stock_adjust') && (
+                          <button
+                            onClick={() => {
+                              setSelectedInstance(instance);
+                              setShowAdjustModal(true);
+                            }}
+                            className="text-orange-600 hover:text-orange-900"
+                            title="Adjust"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
 import { Factory, CheckCircle } from 'lucide-react';
 
 const ProductionQueue = () => {
@@ -10,6 +12,9 @@ const ProductionQueue = () => {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [workerName, setWorkerName] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [limit, setLimit] = useState(25);
+  const [showExportModal, setShowExportModal] = useState(false);
 
   // Fetch production queue
   const { data, isLoading } = useQuery({
@@ -73,12 +78,33 @@ const ProductionQueue = () => {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Production Queue</h1>
-          <p className="text-gray-600 mt-2">Orders waiting to be produced</p>
+          <h1 className="text-2xl font-bold text-gray-900">Production Queue</h1>
+          <p className="text-sm text-primary-600">Orders waiting to be produced</p>
         </div>
       </div>
+
+      {/* Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={setLimit}
+        onExport={() => setShowExportModal(true)}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Search orders..."
+        showColumnVisibility={false}
+      />
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <ExportModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          entity="production-queue"
+          title="Export Production Queue"
+        />
+      )}
 
       {orders.length === 0 ? (
         <div className="bg-white rounded-lg shadow border border-gray-200 p-12 text-center">

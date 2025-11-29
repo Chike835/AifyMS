@@ -80,22 +80,6 @@ const Product = sequelize.define('Product', {
       key: 'id'
     }
   },
-  color_id: {
-    type: DataTypes.UUID,
-    allowNull: true,
-    references: {
-      model: 'product_attributes_colors',
-      key: 'id'
-    }
-  },
-  gauge_id: {
-    type: DataTypes.UUID,
-    allowNull: true,
-    references: {
-      model: 'product_attributes_gauges',
-      key: 'id'
-    }
-  },
   category: {
     type: DataTypes.STRING(100),
     allowNull: true
@@ -131,6 +115,26 @@ const Product = sequelize.define('Product', {
   image_url: {
     type: DataTypes.STRING(500),
     allowNull: true
+  },
+  barcode_type: {
+    type: DataTypes.STRING(50),
+    defaultValue: 'CODE128'
+  },
+  alert_quantity: {
+    type: DataTypes.DECIMAL(15, 3),
+    defaultValue: 0
+  },
+  reorder_quantity: {
+    type: DataTypes.DECIMAL(15, 3),
+    defaultValue: 0
+  },
+  woocommerce_enabled: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+  is_active: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true
   },
   created_at: {
     type: DataTypes.DATE,

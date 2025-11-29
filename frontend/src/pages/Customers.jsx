@@ -3,7 +3,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
-import { UserCheck, Plus, Edit, Trash2, Search, X, Eye } from 'lucide-react';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
+import { UserCheck, Plus, Edit, Trash2, X, Eye } from 'lucide-react';
 
 const Customers = () => {
   const { hasPermission } = useAuth();
@@ -20,12 +22,30 @@ const Customers = () => {
   });
   const [formError, setFormError] = useState('');
 
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(25);
+
+  // Column visibility
+  const [visibleColumns, setVisibleColumns] = useState({
+    name: true,
+    phone: true,
+    email: true,
+    address: true,
+    balance: true
+  });
+
+  // Export modal
+  const [showExportModal, setShowExportModal] = useState(false);
+
   // Fetch customers
   const { data, isLoading, error } = useQuery({
-    queryKey: ['customers', searchTerm],
+    queryKey: ['customers', searchTerm, page, limit],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (searchTerm) params.append('search', searchTerm);
+      params.append('page', page);
+      params.append('limit', limit === -1 ? 10000 : limit);
       const response = await api.get(`/customers?${params.toString()}`);
       return response.data;
     }
@@ -148,13 +168,14 @@ const Customers = () => {
   }
 
   const customers = data?.customers || [];
+  const pagination = data?.pagination || { total: 0, page: 1, limit: 25, total_pages: 1 };
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Customers</h1>
-          <p className="text-gray-600 mt-2">Manage your customer records</p>
+          <h1 className="text-2xl font-bold text-gray-900">Customers</h1>
+          <p className="text-sm text-primary-600">Manage your customer records</p>
         </div>
         {hasPermission('payment_receive') && (
           <button
@@ -167,45 +188,49 @@ const Customers = () => {
         )}
       </div>
 
-      {/* Search Bar */}
-      <div className="mb-6">
-        <div className="relative max-w-md">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search by name, phone, or email..."
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-          />
-          {searchTerm && (
-            <button
-              onClick={() => setSearchTerm('')}
-              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          )}
-        </div>
-      </div>
+      {/* Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={(newLimit) => {
+          setLimit(newLimit);
+          setPage(1);
+        }}
+        visibleColumns={visibleColumns}
+        onColumnVisibilityChange={setVisibleColumns}
+        onExport={() => setShowExportModal(true)}
+        searchTerm={searchTerm}
+        onSearchChange={(value) => {
+          setSearchTerm(value);
+          setPage(1);
+        }}
+        searchPlaceholder="Search by name, phone, or email..."
+      />
 
       {/* Customers Table */}
       <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Name
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Phone
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Email
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Balance
-              </th>
+              {visibleColumns.name && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Name
+                </th>
+              )}
+              {visibleColumns.phone && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Phone
+                </th>
+              )}
+              {visibleColumns.email && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Email
+                </th>
+              )}
+              {visibleColumns.balance && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Balance
+                </th>
+              )}
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Actions
               </th>
@@ -223,27 +248,35 @@ const Customers = () => {
             ) : (
               customers.map((customer) => (
                 <tr key={customer.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{customer.name}</div>
-                    {customer.address && (
-                      <div className="text-sm text-gray-500 truncate max-w-xs">{customer.address}</div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {customer.phone || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {customer.email || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`text-sm font-medium ${
-                      parseFloat(customer.ledger_balance) >= 0 
-                        ? 'text-green-600' 
-                        : 'text-red-600'
-                    }`}>
-                      {formatCurrency(customer.ledger_balance)}
-                    </span>
-                  </td>
+                  {visibleColumns.name && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{customer.name}</div>
+                      {visibleColumns.address && customer.address && (
+                        <div className="text-sm text-gray-500 truncate max-w-xs">{customer.address}</div>
+                      )}
+                    </td>
+                  )}
+                  {visibleColumns.phone && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {customer.phone || '-'}
+                    </td>
+                  )}
+                  {visibleColumns.email && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {customer.email || '-'}
+                    </td>
+                  )}
+                  {visibleColumns.balance && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`text-sm font-medium ${
+                        parseFloat(customer.ledger_balance) >= 0 
+                          ? 'text-green-600' 
+                          : 'text-red-600'
+                      }`}>
+                        {formatCurrency(customer.ledger_balance)}
+                      </span>
+                    </td>
+                  )}
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex justify-end space-x-2">
                       <button
@@ -281,12 +314,45 @@ const Customers = () => {
         </table>
 
         {/* Pagination Info */}
-        {data?.pagination && (
-          <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 text-sm text-gray-500">
-            Showing {customers.length} of {data.pagination.total} customers
+        {pagination.total > 0 && (
+          <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+            <span className="text-sm text-gray-500">
+              Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} customers
+            </span>
+            {pagination.total_pages > 1 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+                >
+                  Previous
+                </button>
+                <span className="text-sm text-gray-600">
+                  Page {pagination.page} of {pagination.total_pages}
+                </span>
+                <button
+                  onClick={() => setPage(p => Math.min(pagination.total_pages, p + 1))}
+                  disabled={page >= pagination.total_pages}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+                >
+                  Next
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <ExportModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          entity="customers"
+          title="Export Customers"
+        />
+      )}
 
       {/* Create/Edit Modal */}
       {showModal && (
@@ -391,4 +457,3 @@ const Customers = () => {
 };
 
 export default Customers;
-

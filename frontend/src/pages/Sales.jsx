@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
-import { ClipboardList, Plus, Eye, Search, X, FileText, Download } from 'lucide-react';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
+import { ClipboardList, Plus, Eye, X, FileText } from 'lucide-react';
 
 const Sales = () => {
   const navigate = useNavigate();
@@ -15,14 +17,35 @@ const Sales = () => {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
 
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(25);
+
+  // Column visibility
+  const [visibleColumns, setVisibleColumns] = useState({
+    invoice_number: true,
+    customer: true,
+    branch: true,
+    total: true,
+    type: true,
+    payment: true,
+    production: true,
+    date: true
+  });
+
+  // Export modal
+  const [showExportModal, setShowExportModal] = useState(false);
+
   // Fetch sales orders
   const { data, isLoading, error } = useQuery({
-    queryKey: ['sales', paymentStatusFilter, productionStatusFilter, orderTypeFilter],
+    queryKey: ['sales', paymentStatusFilter, productionStatusFilter, orderTypeFilter, page, limit],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (paymentStatusFilter) params.append('payment_status', paymentStatusFilter);
       if (productionStatusFilter) params.append('production_status', productionStatusFilter);
       if (orderTypeFilter) params.append('order_type', orderTypeFilter);
+      params.append('page', page);
+      params.append('limit', limit === -1 ? 10000 : limit);
       const response = await api.get(`/sales?${params.toString()}`);
       return response.data;
     }
@@ -101,6 +124,7 @@ const Sales = () => {
   }
 
   const orders = data?.orders || [];
+  const pagination = data?.pagination || { total: 0, page: 1, limit: 25, total_pages: 1 };
 
   // Filter by search term
   const filteredOrders = orders.filter(order => {
@@ -115,21 +139,12 @@ const Sales = () => {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Sales Orders</h1>
-          <p className="text-gray-600 mt-2">Manage invoices, quotations, and sales</p>
+          <h1 className="text-2xl font-bold text-gray-900">Sales Orders</h1>
+          <p className="text-sm text-primary-600">Manage invoices, quotations, and sales</p>
         </div>
         <div className="flex items-center space-x-3">
-          {hasPermission('data_export_operational') && (
-            <button
-              onClick={() => window.open('/api/export/sales', '_blank')}
-              className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-            >
-              <Download className="h-5 w-5" />
-              <span>Export</span>
-            </button>
-          )}
           {hasPermission('pos_access') && (
             <button
               onClick={() => navigate('/sales/add')}
@@ -142,30 +157,27 @@ const Sales = () => {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="mb-6 flex flex-wrap gap-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search by invoice #, customer..."
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-          />
-          {searchTerm && (
-            <button
-              onClick={() => setSearchTerm('')}
-              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          )}
-        </div>
+      {/* Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={(newLimit) => {
+          setLimit(newLimit);
+          setPage(1);
+        }}
+        visibleColumns={visibleColumns}
+        onColumnVisibilityChange={setVisibleColumns}
+        onExport={() => setShowExportModal(true)}
+        searchTerm={searchTerm}
+        onSearchChange={(value) => {
+          setSearchTerm(value);
+        }}
+        searchPlaceholder="Search by invoice #, customer..."
+      >
+        {/* Additional filters */}
         <select
           value={orderTypeFilter}
           onChange={(e) => setOrderTypeFilter(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+          className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
         >
           <option value="">All Types</option>
           <option value="invoice">Invoices</option>
@@ -175,9 +187,9 @@ const Sales = () => {
         <select
           value={paymentStatusFilter}
           onChange={(e) => setPaymentStatusFilter(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+          className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
         >
-          <option value="">All Payment Status</option>
+          <option value="">All Payment</option>
           <option value="unpaid">Unpaid</option>
           <option value="partial">Partial</option>
           <option value="paid">Paid</option>
@@ -185,15 +197,15 @@ const Sales = () => {
         <select
           value={productionStatusFilter}
           onChange={(e) => setProductionStatusFilter(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+          className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
         >
-          <option value="">All Production Status</option>
+          <option value="">All Production</option>
           <option value="na">N/A</option>
           <option value="queue">In Queue</option>
           <option value="produced">Produced</option>
           <option value="delivered">Delivered</option>
         </select>
-      </div>
+      </ListToolbar>
 
       {/* Quick Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -226,30 +238,46 @@ const Sales = () => {
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Invoice #
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Customer
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Branch
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Total
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Type
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Payment
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Production
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Date
-              </th>
+              {visibleColumns.invoice_number && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Invoice #
+                </th>
+              )}
+              {visibleColumns.customer && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Customer
+                </th>
+              )}
+              {visibleColumns.branch && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Branch
+                </th>
+              )}
+              {visibleColumns.total && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Total
+                </th>
+              )}
+              {visibleColumns.type && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Type
+                </th>
+              )}
+              {visibleColumns.payment && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Payment
+                </th>
+              )}
+              {visibleColumns.production && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Production
+                </th>
+              )}
+              {visibleColumns.date && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Date
+                </th>
+              )}
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Actions
               </th>
@@ -269,46 +297,62 @@ const Sales = () => {
             ) : (
               filteredOrders.map((order) => (
                 <tr key={order.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
-                      {order.invoice_number}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {order.items?.length || 0} item(s)
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">
-                      {order.customer?.name || 'Walk-in'}
-                    </div>
-                    {order.customer?.phone && (
-                      <div className="text-xs text-gray-500">{order.customer.phone}</div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {order.branch?.name}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {formatCurrency(order.total_amount)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${getOrderTypeColor(order.order_type || 'invoice')}`}>
-                      {order.order_type || 'invoice'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${getPaymentStatusColor(order.payment_status)}`}>
-                      {order.payment_status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${getProductionStatusColor(order.production_status)}`}>
-                      {order.production_status === 'na' ? 'N/A' : order.production_status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {formatDate(order.created_at)}
-                  </td>
+                  {visibleColumns.invoice_number && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">
+                        {order.invoice_number}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {order.items?.length || 0} item(s)
+                      </div>
+                    </td>
+                  )}
+                  {visibleColumns.customer && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        {order.customer?.name || 'Walk-in'}
+                      </div>
+                      {order.customer?.phone && (
+                        <div className="text-xs text-gray-500">{order.customer.phone}</div>
+                      )}
+                    </td>
+                  )}
+                  {visibleColumns.branch && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {order.branch?.name}
+                    </td>
+                  )}
+                  {visibleColumns.total && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {formatCurrency(order.total_amount)}
+                    </td>
+                  )}
+                  {visibleColumns.type && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${getOrderTypeColor(order.order_type || 'invoice')}`}>
+                        {order.order_type || 'invoice'}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.payment && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${getPaymentStatusColor(order.payment_status)}`}>
+                        {order.payment_status}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.production && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${getProductionStatusColor(order.production_status)}`}>
+                        {order.production_status === 'na' ? 'N/A' : order.production_status}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.date && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {formatDate(order.created_at)}
+                    </td>
+                  )}
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex items-center justify-end space-x-2">
                       <button
@@ -337,10 +381,45 @@ const Sales = () => {
         </table>
 
         {/* Pagination Info */}
-        <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 text-sm text-gray-500">
-          Showing {filteredOrders.length} of {orders.length} orders
-        </div>
+        {pagination.total > 0 && (
+          <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+            <span className="text-sm text-gray-500">
+              Showing {filteredOrders.length} of {pagination.total} orders
+            </span>
+            {pagination.total_pages > 1 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+                >
+                  Previous
+                </button>
+                <span className="text-sm text-gray-600">
+                  Page {pagination.page} of {pagination.total_pages}
+                </span>
+                <button
+                  onClick={() => setPage(p => Math.min(pagination.total_pages, p + 1))}
+                  disabled={page >= pagination.total_pages}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <ExportModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          entity="sales"
+          title="Export Sales"
+        />
+      )}
 
       {/* Detail Modal */}
       {showDetailModal && selectedOrder && (
@@ -517,4 +596,3 @@ const Sales = () => {
 };
 
 export default Sales;
-

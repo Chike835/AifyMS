@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
-import { Wallet, Plus, Edit, Trash2, Search, X, Calendar, Users, Calculator } from 'lucide-react';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
+import { Wallet, Plus, Edit, Trash2, X, Calendar, Users, Calculator } from 'lucide-react';
 
 const MONTHS = [
   { value: 1, label: 'January' },
@@ -46,13 +48,32 @@ const Payroll = () => {
   });
   const [calculateError, setCalculateError] = useState('');
 
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(25);
+
+  // Column visibility
+  const [visibleColumns, setVisibleColumns] = useState({
+    employee: true,
+    period: true,
+    branch: true,
+    gross_pay: true,
+    deductions: true,
+    net_pay: true
+  });
+
+  // Export modal
+  const [showExportModal, setShowExportModal] = useState(false);
+
   // Fetch payroll records
   const { data, isLoading, error } = useQuery({
-    queryKey: ['payroll', filterMonth, filterYear],
+    queryKey: ['payroll', filterMonth, filterYear, page, limit],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (filterMonth) params.append('month', filterMonth);
       if (filterYear) params.append('year', filterYear);
+      params.append('page', page);
+      params.append('limit', limit === -1 ? 10000 : limit);
       const response = await api.get(`/payroll?${params.toString()}`);
       return response.data;
     }
@@ -308,43 +329,41 @@ const Payroll = () => {
         </div>
       )}
 
-      {/* Filters */}
-      <div className="bg-white rounded-lg shadow border border-gray-200 p-4 mb-6">
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center space-x-2">
-            <Calendar className="h-5 w-5 text-gray-400" />
-            <select
-              value={filterMonth}
-              onChange={(e) => setFilterMonth(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            >
-              <option value="">All Months</option>
-              {MONTHS.map((month) => (
-                <option key={month.value} value={month.value}>{month.label}</option>
-              ))}
-            </select>
-            <select
-              value={filterYear}
-              onChange={(e) => setFilterYear(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            >
-              {YEARS.map((year) => (
-                <option key={year} value={year}>{year}</option>
-              ))}
-            </select>
-          </div>
-
-          {(filterMonth || filterYear !== currentYear.toString()) && (
-            <button
-              onClick={clearFilters}
-              className="flex items-center space-x-1 px-3 py-2 text-gray-500 hover:text-gray-700"
-            >
-              <X className="h-4 w-4" />
-              <span>Clear</span>
-            </button>
-          )}
+      {/* Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={(newLimit) => {
+          setLimit(newLimit);
+          setPage(1);
+        }}
+        visibleColumns={visibleColumns}
+        onColumnVisibilityChange={setVisibleColumns}
+        onExport={() => setShowExportModal(true)}
+        showSearch={false}
+      >
+        <div className="flex items-center gap-2">
+          <Calendar className="h-4 w-4 text-gray-400" />
+          <select
+            value={filterMonth}
+            onChange={(e) => { setFilterMonth(e.target.value); setPage(1); }}
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+          >
+            <option value="">All Months</option>
+            {MONTHS.map((month) => (
+              <option key={month.value} value={month.value}>{month.label}</option>
+            ))}
+          </select>
+          <select
+            value={filterYear}
+            onChange={(e) => { setFilterYear(e.target.value); setPage(1); }}
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+          >
+            {YEARS.map((year) => (
+              <option key={year} value={year}>{year}</option>
+            ))}
+          </select>
         </div>
-      </div>
+      </ListToolbar>
 
       {/* Payroll Table */}
       <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
@@ -453,11 +472,44 @@ const Payroll = () => {
 
         {/* Pagination Info */}
         {data?.total_count > 0 && (
-          <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 text-sm text-gray-500">
-            Showing {payrollRecords.length} of {data.total_count} records
+          <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+            <span className="text-sm text-gray-500">
+              Showing {payrollRecords.length} of {data.total_count} records
+            </span>
+            {data.total_pages > 1 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+                >
+                  Previous
+                </button>
+                <span className="text-sm text-gray-600">
+                  Page {page} of {data.total_pages}
+                </span>
+                <button
+                  onClick={() => setPage(p => Math.min(data.total_pages, p + 1))}
+                  disabled={page >= data.total_pages}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+                >
+                  Next
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <ExportModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          entity="payroll"
+          title="Export Payroll"
+        />
+      )}
 
       {/* Create/Edit Modal */}
       {showModal && (

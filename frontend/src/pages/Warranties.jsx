@@ -4,12 +4,24 @@ import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { Shield, Plus, Edit, Trash2, X } from 'lucide-react';
 import DataControlBar from '../components/settings/DataControlBar';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
 
 const Warranties = () => {
   const { hasPermission } = useAuth();
   const queryClient = useQueryClient();
   const [showModal, setShowModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [selectedWarranty, setSelectedWarranty] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [limit, setLimit] = useState(25);
+  const [visibleColumns, setVisibleColumns] = useState({
+    name: true,
+    duration: true,
+    description: true,
+    status: true,
+    actions: true
+  });
   const [formData, setFormData] = useState({
     name: '',
     duration_months: '',
@@ -183,6 +195,27 @@ const Warranties = () => {
         onImportSuccess={() => queryClient.invalidateQueries({ queryKey: ['warranties'] })}
       />
 
+      {/* List Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={setLimit}
+        visibleColumns={visibleColumns}
+        onColumnVisibilityChange={setVisibleColumns}
+        onPrint={() => window.print()}
+        onExport={() => setShowExportModal(true)}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Search warranties..."
+      />
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        entity="warranties"
+        title="Export Warranties"
+      />
+
       {warranties.length === 0 ? (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-12 text-center">
           <Shield className="h-12 w-12 text-gray-400 mx-auto mb-4" />
@@ -203,50 +236,68 @@ const Warranties = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                {visibleColumns.name && <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>}
+                {visibleColumns.duration && <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>}
+                {visibleColumns.description && <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>}
+                {visibleColumns.status && <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>}
+                {visibleColumns.actions && <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>}
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {warranties.map((warranty) => (
+              {warranties
+                .filter(warranty => {
+                  if (!searchTerm) return true;
+                  const search = searchTerm.toLowerCase();
+                  return warranty.name?.toLowerCase().includes(search) ||
+                         warranty.description?.toLowerCase().includes(search);
+                })
+                .slice(0, limit === -1 ? undefined : limit)
+                .map((warranty) => (
                 <tr key={warranty.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{warranty.name}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{formatDuration(warranty.duration_months)}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-gray-500">{warranty.description || '-'}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                      warranty.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                    }`}>
-                      {warranty.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    {hasPermission('product_edit') && (
-                      <button
-                        onClick={() => openEditModal(warranty)}
-                        className="text-primary-600 hover:text-primary-900 mr-4"
-                      >
-                        <Edit className="h-5 w-5" />
-                      </button>
-                    )}
-                    {hasPermission('product_delete') && (
-                      <button
-                        onClick={() => handleDelete(warranty)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        <Trash2 className="h-5 w-5" />
-                      </button>
-                    )}
-                  </td>
+                  {visibleColumns.name && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{warranty.name}</div>
+                    </td>
+                  )}
+                  {visibleColumns.duration && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{formatDuration(warranty.duration_months)}</div>
+                    </td>
+                  )}
+                  {visibleColumns.description && (
+                    <td className="px-6 py-4">
+                      <div className="text-sm text-gray-500">{warranty.description || '-'}</div>
+                    </td>
+                  )}
+                  {visibleColumns.status && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                        warranty.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                      }`}>
+                        {warranty.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.actions && (
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      {hasPermission('product_edit') && (
+                        <button
+                          onClick={() => openEditModal(warranty)}
+                          className="text-primary-600 hover:text-primary-900 mr-4"
+                        >
+                          <Edit className="h-5 w-5" />
+                        </button>
+                      )}
+                      {hasPermission('product_delete') && (
+                        <button
+                          onClick={() => handleDelete(warranty)}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          <Trash2 className="h-5 w-5" />
+                        </button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

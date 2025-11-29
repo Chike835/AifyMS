@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { Users, Plus, Edit, Trash2, X, DollarSign, CheckCircle, AlertCircle, Eye } from 'lucide-react';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
 
 const Agents = () => {
   const { hasPermission, user } = useAuth();
@@ -10,7 +12,18 @@ const Agents = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [limit, setLimit] = useState(25);
+  const [visibleColumns, setVisibleColumns] = useState({
+    name: true,
+    contact: true,
+    commission_rate: true,
+    branch: true,
+    status: true,
+    actions: true
+  });
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -286,27 +299,50 @@ const Agents = () => {
         </div>
       )}
 
+      {/* List Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={setLimit}
+        visibleColumns={visibleColumns}
+        onColumnVisibilityChange={setVisibleColumns}
+        onPrint={() => window.print()}
+        onExport={() => setShowExportModal(true)}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Search agents..."
+      />
+
       {/* Agents Table */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Name
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Contact
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Commission Rate
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Branch
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Status
-              </th>
-              {hasPermission('agent_manage') && (
+              {visibleColumns.name && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Name
+                </th>
+              )}
+              {visibleColumns.contact && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Contact
+                </th>
+              )}
+              {visibleColumns.commission_rate && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Commission Rate
+                </th>
+              )}
+              {visibleColumns.branch && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Branch
+                </th>
+              )}
+              {visibleColumns.status && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
+              )}
+              {visibleColumns.actions && hasPermission('agent_manage') && (
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Actions
                 </th>
@@ -314,31 +350,50 @@ const Agents = () => {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {data?.map((agent) => (
+            {(data || [])
+              .filter(agent => {
+                if (!searchTerm) return true;
+                const search = searchTerm.toLowerCase();
+                return agent.name?.toLowerCase().includes(search) ||
+                       agent.email?.toLowerCase().includes(search) ||
+                       agent.phone?.toLowerCase().includes(search);
+              })
+              .slice(0, limit === -1 ? undefined : limit)
+              .map((agent) => (
               <tr key={agent.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900">{agent.name}</div>
-                </td>
-                <td className="px-6 py-4">
-                  <div className="text-sm text-gray-900">{agent.email || '—'}</div>
-                  <div className="text-xs text-gray-500">{agent.phone || '—'}</div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-900">{agent.commission_rate}%</div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-900">{agent.branch?.name || 'All Branches'}</div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                    agent.is_active
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-red-100 text-red-800'
-                  }`}>
-                    {agent.is_active ? 'Active' : 'Inactive'}
-                  </span>
-                </td>
-                {hasPermission('agent_manage') && (
+                {visibleColumns.name && (
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm font-medium text-gray-900">{agent.name}</div>
+                  </td>
+                )}
+                {visibleColumns.contact && (
+                  <td className="px-6 py-4">
+                    <div className="text-sm text-gray-900">{agent.email || '—'}</div>
+                    <div className="text-xs text-gray-500">{agent.phone || '—'}</div>
+                  </td>
+                )}
+                {visibleColumns.commission_rate && (
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm text-gray-900">{agent.commission_rate}%</div>
+                  </td>
+                )}
+                {visibleColumns.branch && (
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm text-gray-900">{agent.branch?.name || 'All Branches'}</div>
+                  </td>
+                )}
+                {visibleColumns.status && (
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                      agent.is_active
+                        ? 'bg-green-100 text-green-800'
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      {agent.is_active ? 'Active' : 'Inactive'}
+                    </span>
+                  </td>
+                )}
+                {visibleColumns.actions && hasPermission('agent_manage') && (
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex justify-end space-x-2">
                       <button
@@ -620,6 +675,14 @@ const Agents = () => {
           </div>
         </div>
       )}
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        entity="agents"
+        title="Export Agents"
+      />
 
       {/* Detail Modal */}
       {showDetailModal && selectedAgent && agentDetails && (

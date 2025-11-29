@@ -280,7 +280,7 @@ graph TB
 - **Branch** → hasMany User, SalesOrder, InventoryInstance, Supplier, Purchase
 - **Customer** → hasMany SalesOrder, Payment (global, not branch-filtered)
 - **Supplier** → belongsTo Branch; hasMany Purchase (branch-filtered for non-Super Admin)
-- **Product** → hasMany InventoryInstance, SalesItem, Recipe, PurchaseItem
+- **Product** → hasMany InventoryInstance, SalesItem, Recipe, PurchaseItem; belongsToMany Branch (through `product_business_locations`); belongsTo Unit, TaxRate, Category, ProductBrand
 - **InventoryInstance** → belongsTo Product, Branch; hasMany ItemAssignment, PurchaseItem
 - **SalesOrder** → belongsTo Customer, Branch, User; hasMany SalesItem
 - **SalesItem** → belongsTo SalesOrder, Product; hasMany ItemAssignment
@@ -359,10 +359,18 @@ Request → authenticate → requirePermission → Controller
 - `POST /api/auth/logout` - User logout (future)
 
 **Products:**
-- `GET /api/products` - List products (branch-filtered)
-- `POST /api/products` - Create product
+- `GET /api/products` - List products with advanced filters (type, category, unit, tax, brand, branch, status, search, pagination)
+- `POST /api/products` - Create product with business location associations
+- `GET /api/products/:id` - Get product by ID with associations
 - `PUT /api/products/:id` - Update product
 - `DELETE /api/products/:id` - Delete product
+- `PUT /api/products/:id/price` - Update product price with history tracking
+- `GET /api/products/:id/price-history` - Get product price history
+- `PUT /api/products/bulk-price-update` - Bulk update prices for multiple products
+- `GET /api/products/:id/stock` - Get product stock across branches
+- `GET /api/products/:id/sales` - Get product sales history
+- `GET /api/products/:id/batches` - List inventory batches for a product
+- `POST /api/products/:id/batches` - Add new batch to a product
 
 **Inventory:**
 - `GET /api/inventory/instances` - List inventory instances

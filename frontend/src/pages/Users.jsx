@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
-import { Users as UsersIcon, Plus, Edit, Trash2, Search, X, Shield, Building2, UserCheck, UserX } from 'lucide-react';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
+import { Users as UsersIcon, Plus, Edit, Trash2, X, Shield, Building2, UserCheck, UserX } from 'lucide-react';
 
 const Users = () => {
   const { hasPermission, user: currentUser } = useAuth();
@@ -22,6 +24,21 @@ const Users = () => {
     is_active: true
   });
   const [formError, setFormError] = useState('');
+
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(25);
+
+  // Column visibility
+  const [visibleColumns, setVisibleColumns] = useState({
+    user: true,
+    role: true,
+    branch: true,
+    status: true
+  });
+
+  // Export modal
+  const [showExportModal, setShowExportModal] = useState(false);
 
   // Fetch users
   const { data, isLoading, error } = useQuery({
@@ -244,51 +261,53 @@ const Users = () => {
         )}
       </div>
 
-      {/* Filters */}
-      <div className="bg-white rounded-lg shadow border border-gray-200 p-4 mb-6">
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex-1 min-w-[200px]">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search by name or email..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-              />
-            </div>
-          </div>
-          <select
-            value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-          >
-            <option value="">All Roles</option>
-            {roles.map((role) => (
-              <option key={role.id} value={role.id}>{role.name}</option>
-            ))}
-          </select>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-          >
-            <option value="">All Status</option>
-            <option value="true">Active</option>
-            <option value="false">Inactive</option>
-          </select>
-          {(searchTerm || roleFilter || statusFilter) && (
-            <button
-              onClick={clearFilters}
-              className="flex items-center space-x-1 px-3 py-2 text-gray-500 hover:text-gray-700"
-            >
-              <X className="h-4 w-4" />
-              <span>Clear</span>
-            </button>
-          )}
-        </div>
-      </div>
+      {/* Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={(newLimit) => {
+          setLimit(newLimit);
+          setPage(1);
+        }}
+        visibleColumns={visibleColumns}
+        onColumnVisibilityChange={setVisibleColumns}
+        onExport={() => setShowExportModal(true)}
+        searchTerm={searchTerm}
+        onSearchChange={(value) => {
+          setSearchTerm(value);
+          setPage(1);
+        }}
+        searchPlaceholder="Search by name or email..."
+      >
+        <select
+          value={roleFilter}
+          onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }}
+          className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+        >
+          <option value="">All Roles</option>
+          {roles.map((role) => (
+            <option key={role.id} value={role.id}>{role.name}</option>
+          ))}
+        </select>
+        <select
+          value={statusFilter}
+          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+          className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+        >
+          <option value="">All Status</option>
+          <option value="true">Active</option>
+          <option value="false">Inactive</option>
+        </select>
+      </ListToolbar>
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <ExportModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          entity="users"
+          title="Export Users"
+        />
+      )}
 
       {/* Users Table */}
       <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">

@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { ShoppingCart, Search, X, FileText, Calendar } from 'lucide-react';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
 
 const POSList = () => {
   const { hasPermission } = useAuth();
@@ -10,6 +12,19 @@ const POSList = () => {
   const [dateFilter, setDateFilter] = useState(new Date().toISOString().split('T')[0]);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  
+  // Toolbar states
+  const [limit, setLimit] = useState(25);
+  const [visibleColumns, setVisibleColumns] = useState({
+    invoice_number: true,
+    time: true,
+    cashier: true,
+    items: true,
+    total: true,
+    payment_status: true,
+    actions: true
+  });
 
   // Fetch POS transactions (invoices created today by default)
   const { data, isLoading, error } = useQuery({
@@ -85,14 +100,25 @@ const POSList = () => {
   const orders = data?.orders || [];
 
   // Filter by search term
-  const filteredOrders = orders.filter(order => {
-    if (!searchTerm) return true;
+  const filteredOrders = useMemo(() => {
+    if (!searchTerm) return orders;
     const search = searchTerm.toLowerCase();
-    return (
+    return orders.filter(order =>
       order.invoice_number?.toLowerCase().includes(search) ||
-      order.customer?.name?.toLowerCase().includes(search)
+      order.customer?.name?.toLowerCase().includes(search) ||
+      order.creator?.full_name?.toLowerCase().includes(search)
     );
-  });
+  }, [orders, searchTerm]);
+
+  // Paginate orders
+  const paginatedOrders = useMemo(() => {
+    if (limit === -1) return filteredOrders;
+    return filteredOrders.slice(0, limit);
+  }, [filteredOrders, limit]);
+
+  const handlePrint = () => {
+    window.print();
+  };
 
   // Calculate daily summary
   const today = new Date().toISOString().split('T')[0];
@@ -119,36 +145,41 @@ const POSList = () => {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="mb-6 flex flex-wrap gap-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search by invoice #, customer..."
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-          />
-          {searchTerm && (
-            <button
-              onClick={() => setSearchTerm('')}
-              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          )}
-        </div>
-        <div className="relative">
-          <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-          <input
-            type="date"
-            value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value)}
-            className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-          />
-        </div>
+      {/* Toolbar with date filter */}
+      <div className="mb-6">
+        <ListToolbar
+          limit={limit}
+          onLimitChange={setLimit}
+          visibleColumns={visibleColumns}
+          onColumnVisibilityChange={setVisibleColumns}
+          onPrint={handlePrint}
+          onExport={() => setShowExportModal(true)}
+          searchTerm={searchTerm}
+          onSearchChange={setSearchTerm}
+          searchPlaceholder="Search by invoice #, customer, cashier..."
+        >
+          {/* Date filter as additional child */}
+          <div className="relative">
+            <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+            <input
+              type="date"
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value)}
+              className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+            />
+          </div>
+        </ListToolbar>
       </div>
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <ExportModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          entity="pos-transactions"
+          title="Export POS Transactions"
+        />
+      )}
 
       {/* Daily Summary */}
       {isToday && (
@@ -156,13 +187,13 @@ const POSList = () => {
           <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
             <p className="text-sm text-gray-500">Total Sales</p>
             <p className="text-2xl font-bold text-gray-900">
-              {formatCurrency(dailySummary.totalSales)}
+              {formatCurrency(filteredOrders.reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0))}
             </p>
           </div>
           <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
             <p className="text-sm text-gray-500">Transactions</p>
             <p className="text-2xl font-bold text-gray-900">
-              {dailySummary.totalTransactions}
+              {filteredOrders.length}
             </p>
           </div>
           <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
@@ -191,33 +222,47 @@ const POSList = () => {
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Invoice #
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Time
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Cashier
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Items
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Total
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Payment Status
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
+              {visibleColumns.invoice_number && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Invoice #
+                </th>
+              )}
+              {visibleColumns.time && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Time
+                </th>
+              )}
+              {visibleColumns.cashier && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Cashier
+                </th>
+              )}
+              {visibleColumns.items && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Items
+                </th>
+              )}
+              {visibleColumns.total && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Total
+                </th>
+              )}
+              {visibleColumns.payment_status && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Payment Status
+                </th>
+              )}
+              {visibleColumns.actions && (
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
+              )}
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {filteredOrders.length === 0 ? (
+            {paginatedOrders.length === 0 ? (
               <tr>
-                <td colSpan="7" className="px-6 py-12 text-center text-gray-500">
+                <td colSpan={Object.values(visibleColumns).filter(v => v).length} className="px-6 py-12 text-center text-gray-500">
                   <ShoppingCart className="h-12 w-12 mx-auto mb-4 text-gray-300" />
                   <p>No POS transactions found</p>
                   {searchTerm && (
@@ -226,57 +271,71 @@ const POSList = () => {
                 </td>
               </tr>
             ) : (
-              filteredOrders.map((order) => (
+              paginatedOrders.map((order) => (
                 <tr key={order.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
-                      {order.invoice_number}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {formatTime(order.created_at)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {order.creator?.full_name || 'N/A'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {order.items?.length || 0} item(s)
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {formatCurrency(order.total_amount)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                      order.payment_status === 'paid' 
-                        ? 'bg-green-100 text-green-800'
-                        : order.payment_status === 'partial'
-                        ? 'bg-yellow-100 text-yellow-800'
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {order.payment_status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex items-center justify-end space-x-2">
-                      <button
-                        onClick={() => {
-                          setSelectedOrder(order);
-                          setShowDetailModal(true);
-                        }}
-                        className="text-primary-600 hover:text-primary-900"
-                        title="View Details"
-                      >
-                        <FileText className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => window.open(`/api/print/receipt/${order.id}`, '_blank')}
-                        className="text-gray-600 hover:text-gray-900"
-                        title="Reprint Receipt"
-                      >
-                        <FileText className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </td>
+                  {visibleColumns.invoice_number && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">
+                        {order.invoice_number}
+                      </div>
+                    </td>
+                  )}
+                  {visibleColumns.time && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {formatTime(order.created_at)}
+                    </td>
+                  )}
+                  {visibleColumns.cashier && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {order.creator?.full_name || 'N/A'}
+                    </td>
+                  )}
+                  {visibleColumns.items && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {order.items?.length || 0} item(s)
+                    </td>
+                  )}
+                  {visibleColumns.total && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {formatCurrency(order.total_amount)}
+                    </td>
+                  )}
+                  {visibleColumns.payment_status && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                        order.payment_status === 'paid' 
+                          ? 'bg-green-100 text-green-800'
+                          : order.payment_status === 'partial'
+                          ? 'bg-yellow-100 text-yellow-800'
+                          : 'bg-red-100 text-red-800'
+                      }`}>
+                        {order.payment_status}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.actions && (
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex items-center justify-end space-x-2">
+                        <button
+                          onClick={() => {
+                            setSelectedOrder(order);
+                            setShowDetailModal(true);
+                          }}
+                          className="text-primary-600 hover:text-primary-900"
+                          title="View Details"
+                        >
+                          <FileText className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => window.open(`/api/print/receipt/${order.id}`, '_blank')}
+                          className="text-gray-600 hover:text-gray-900"
+                          title="Reprint Receipt"
+                        >
+                          <FileText className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))
             )}
@@ -285,7 +344,8 @@ const POSList = () => {
 
         {/* Pagination Info */}
         <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 text-sm text-gray-500">
-          Showing {filteredOrders.length} of {orders.length} transactions
+          Showing {paginatedOrders.length} of {filteredOrders.length} transactions
+          {limit !== -1 && filteredOrders.length > limit && ` (${filteredOrders.length} total)`}
         </div>
       </div>
 

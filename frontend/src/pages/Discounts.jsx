@@ -3,13 +3,27 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { Percent, Plus, Edit, Trash2, X, CheckCircle, AlertCircle, Calendar } from 'lucide-react';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
 
 const Discounts = () => {
   const { hasPermission, user } = useAuth();
   const queryClient = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [selectedDiscount, setSelectedDiscount] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [limit, setLimit] = useState(25);
+  const [visibleColumns, setVisibleColumns] = useState({
+    name: true,
+    type: true,
+    value: true,
+    min_purchase: true,
+    valid_period: true,
+    status: true,
+    actions: true
+  });
   const [formData, setFormData] = useState({
     name: '',
     discount_type: 'percentage',
@@ -290,30 +304,55 @@ const Discounts = () => {
         </div>
       )}
 
+      {/* List Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={setLimit}
+        visibleColumns={visibleColumns}
+        onColumnVisibilityChange={setVisibleColumns}
+        onPrint={() => window.print()}
+        onExport={() => setShowExportModal(true)}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Search discounts..."
+      />
+
       {/* Discounts Table */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Name
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Type
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Value
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Min Purchase
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Valid Period
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Status
-              </th>
-              {hasPermission('discount_manage') && (
+              {visibleColumns.name && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Name
+                </th>
+              )}
+              {visibleColumns.type && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Type
+                </th>
+              )}
+              {visibleColumns.value && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Value
+                </th>
+              )}
+              {visibleColumns.min_purchase && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Min Purchase
+                </th>
+              )}
+              {visibleColumns.valid_period && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Valid Period
+                </th>
+              )}
+              {visibleColumns.status && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
+              )}
+              {visibleColumns.actions && hasPermission('discount_manage') && (
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Actions
                 </th>
@@ -321,68 +360,87 @@ const Discounts = () => {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {data?.map((discount) => {
+            {(data || [])
+              .filter(discount => {
+                if (!searchTerm) return true;
+                const search = searchTerm.toLowerCase();
+                return discount.name?.toLowerCase().includes(search);
+              })
+              .slice(0, limit === -1 ? undefined : limit)
+              .map((discount) => {
               const today = new Date().toISOString().split('T')[0];
               const isExpired = discount.valid_until && discount.valid_until < today;
               const notStarted = discount.valid_from && discount.valid_from > today;
               
               return (
                 <tr key={discount.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{discount.name}</div>
-                    <div className="text-xs text-gray-500">{discount.branch?.name || 'All Branches'}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
-                      {discount.discount_type === 'percentage' ? 'Percentage' : 'Fixed'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">
-                      {discount.discount_type === 'percentage' 
-                        ? `${discount.value}%`
-                        : formatCurrency(discount.value)
-                      }
-                    </div>
-                    {discount.max_discount_amount && discount.discount_type === 'percentage' && (
-                      <div className="text-xs text-gray-500">
-                        Max: {formatCurrency(discount.max_discount_amount)}
+                  {visibleColumns.name && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{discount.name}</div>
+                      <div className="text-xs text-gray-500">{discount.branch?.name || 'All Branches'}</div>
+                    </td>
+                  )}
+                  {visibleColumns.type && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                        {discount.discount_type === 'percentage' ? 'Percentage' : 'Fixed'}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.value && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        {discount.discount_type === 'percentage' 
+                          ? `${discount.value}%`
+                          : formatCurrency(discount.value)
+                        }
                       </div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">
-                      {formatCurrency(discount.min_purchase_amount)}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-gray-900">
-                      {discount.valid_from || discount.valid_until ? (
-                        <>
-                          {discount.valid_from ? new Date(discount.valid_from).toLocaleDateString() : '—'} to{' '}
-                          {discount.valid_until ? new Date(discount.valid_until).toLocaleDateString() : '—'}
-                        </>
-                      ) : (
-                        'Always valid'
+                      {discount.max_discount_amount && discount.discount_type === 'percentage' && (
+                        <div className="text-xs text-gray-500">
+                          Max: {formatCurrency(discount.max_discount_amount)}
+                        </div>
                       )}
-                    </div>
-                    {isExpired && (
-                      <div className="text-xs text-red-600">Expired</div>
-                    )}
-                    {notStarted && (
-                      <div className="text-xs text-yellow-600">Not started</div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      discount.is_active && !isExpired && !notStarted
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {discount.is_active && !isExpired && !notStarted ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  {hasPermission('discount_manage') && (
+                    </td>
+                  )}
+                  {visibleColumns.min_purchase && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        {formatCurrency(discount.min_purchase_amount)}
+                      </div>
+                    </td>
+                  )}
+                  {visibleColumns.valid_period && (
+                    <td className="px-6 py-4">
+                      <div className="text-sm text-gray-900">
+                        {discount.valid_from || discount.valid_until ? (
+                          <>
+                            {discount.valid_from ? new Date(discount.valid_from).toLocaleDateString() : '—'} to{' '}
+                            {discount.valid_until ? new Date(discount.valid_until).toLocaleDateString() : '—'}
+                          </>
+                        ) : (
+                          'Always valid'
+                        )}
+                      </div>
+                      {isExpired && (
+                        <div className="text-xs text-red-600">Expired</div>
+                      )}
+                      {notStarted && (
+                        <div className="text-xs text-yellow-600">Not started</div>
+                      )}
+                    </td>
+                  )}
+                  {visibleColumns.status && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                        discount.is_active && !isExpired && !notStarted
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-red-100 text-red-800'
+                      }`}>
+                        {discount.is_active && !isExpired && !notStarted ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.actions && hasPermission('discount_manage') && (
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex justify-end space-x-2">
                         <button
@@ -411,6 +469,14 @@ const Discounts = () => {
           </div>
         )}
       </div>
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        entity="discounts"
+        title="Export Discounts"
+      />
 
       {/* Create/Edit Modal - Similar structure to other modals */}
       {(showCreateModal || showEditModal) && (

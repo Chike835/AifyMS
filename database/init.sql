@@ -576,20 +576,6 @@ CREATE TABLE product_attributes_brands (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Product Attributes: Colors
-CREATE TABLE product_attributes_colors (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(100) NOT NULL UNIQUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Product Attributes: Gauges
-CREATE TABLE product_attributes_gauges (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(100) NOT NULL UNIQUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
 -- Business Settings table
 CREATE TABLE business_settings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -610,8 +596,6 @@ CREATE INDEX idx_business_settings_key ON business_settings(setting_key);
 -- Add foreign keys to products table for attributes
 ALTER TABLE products 
     ADD COLUMN IF NOT EXISTS brand_id UUID REFERENCES product_attributes_brands(id),
-    ADD COLUMN IF NOT EXISTS color_id UUID REFERENCES product_attributes_colors(id),
-    ADD COLUMN IF NOT EXISTS gauge_id UUID REFERENCES product_attributes_gauges(id),
     ADD COLUMN IF NOT EXISTS tax_rate_id UUID REFERENCES tax_rates(id);
 
 -- Add new product fields for Add Product form
@@ -626,11 +610,28 @@ ALTER TABLE products
     ADD COLUMN IF NOT EXISTS weight DECIMAL(10, 4),
     ADD COLUMN IF NOT EXISTS manage_stock BOOLEAN DEFAULT true,
     ADD COLUMN IF NOT EXISTS not_for_selling BOOLEAN DEFAULT false,
-    ADD COLUMN IF NOT EXISTS image_url VARCHAR(500);
+    ADD COLUMN IF NOT EXISTS image_url VARCHAR(500),
+    ADD COLUMN IF NOT EXISTS barcode_type VARCHAR(50) DEFAULT 'CODE128',
+    ADD COLUMN IF NOT EXISTS alert_quantity DECIMAL(15, 3) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS reorder_quantity DECIMAL(15, 3) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS woocommerce_enabled BOOLEAN DEFAULT false,
+    ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
 
 CREATE INDEX IF NOT EXISTS idx_products_unit_id ON products(unit_id);
 CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);
 CREATE INDEX IF NOT EXISTS idx_products_sub_category_id ON products(sub_category_id);
+CREATE INDEX IF NOT EXISTS idx_products_is_active ON products(is_active);
+CREATE INDEX IF NOT EXISTS idx_products_not_for_selling ON products(not_for_selling);
+
+-- Product Business Locations junction table (Many-to-Many relationship)
+CREATE TABLE IF NOT EXISTS product_business_locations (
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (product_id, branch_id)
+);
+CREATE INDEX IF NOT EXISTS idx_product_business_locations_product ON product_business_locations(product_id);
+CREATE INDEX IF NOT EXISTS idx_product_business_locations_branch ON product_business_locations(branch_id);
 
 -- Add dispatcher fields to sales_orders table
 ALTER TABLE sales_orders
@@ -775,8 +776,6 @@ CREATE INDEX idx_purchases_purchase_number ON purchases(purchase_number);
 CREATE INDEX idx_purchase_items_purchase_id ON purchase_items(purchase_id);
 CREATE INDEX idx_purchase_items_product_id ON purchase_items(product_id);
 CREATE INDEX idx_products_brand_id ON products(brand_id);
-CREATE INDEX idx_products_color_id ON products(color_id);
-CREATE INDEX idx_products_gauge_id ON products(gauge_id);
 CREATE INDEX idx_stock_transfers_batch_id ON stock_transfers(inventory_batch_id);
 CREATE INDEX idx_stock_transfers_from_branch ON stock_transfers(from_branch_id);
 CREATE INDEX idx_stock_transfers_to_branch ON stock_transfers(to_branch_id);

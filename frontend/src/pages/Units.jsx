@@ -2,8 +2,11 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
-import { Ruler, Plus, Edit, Trash2, X } from 'lucide-react';
+import { Ruler, Plus, Edit, Trash2, X, UploadCloud } from 'lucide-react';
 import DataControlBar from '../components/settings/DataControlBar';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
+import ImportModal from '../components/import/ImportModal';
 
 const Units = () => {
   const { hasPermission } = useAuth();
@@ -19,6 +22,24 @@ const Units = () => {
     is_active: true
   });
   const [formError, setFormError] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Pagination
+  const [limit, setLimit] = useState(25);
+
+  // Column visibility
+  const [visibleColumns, setVisibleColumns] = useState({
+    name: true,
+    abbreviation: true,
+    base_unit: true,
+    conversion_factor: true,
+    status: true
+  });
+
+  // Export modal
+  const [showExportModal, setShowExportModal] = useState(false);
+  // Import modal
+  const [showImportModal, setShowImportModal] = useState(false);
 
   // Fetch units
   const { data, isLoading, error } = useQuery({
@@ -183,26 +204,65 @@ const Units = () => {
           <h1 className="text-3xl font-bold text-gray-900">Units</h1>
           <p className="mt-2 text-gray-600">Manage measurement units and conversions</p>
         </div>
-        {hasPermission('product_add') && (
-          <button
-            onClick={openCreateModal}
-            className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-          >
-            <Plus className="h-5 w-5" />
-            <span>Add Unit</span>
-          </button>
-        )}
+        <div className="flex flex-wrap gap-3">
+          {hasPermission('product_add') && (
+            <>
+              <button
+                onClick={openCreateModal}
+                className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              >
+                <Plus className="h-5 w-5" />
+                <span>Add Unit</span>
+              </button>
+              <button
+                onClick={() => setShowImportModal(true)}
+                className="flex items-center space-x-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <UploadCloud className="h-5 w-5" />
+                <span>Import Units</span>
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
-      <DataControlBar
-        importEndpoint="/api/units/import"
-        exportEndpoint="/api/units/export"
-        entityName="Units"
-        onImportSuccess={() => {
-          queryClient.invalidateQueries({ queryKey: ['units'] });
-          queryClient.invalidateQueries({ queryKey: ['baseUnits'] });
-        }}
+      {/* Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={setLimit}
+        visibleColumns={visibleColumns}
+        onColumnVisibilityChange={setVisibleColumns}
+        onExport={() => setShowExportModal(true)}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Search units..."
       />
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <ExportModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          entity="units"
+          title="Export Units"
+        />
+      )}
+
+      {/* Import Modal */}
+      {showImportModal && (
+        <ImportModal
+          isOpen={showImportModal}
+          onClose={() => setShowImportModal(false)}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ['units'] });
+            queryClient.invalidateQueries({ queryKey: ['baseUnits'] });
+            setShowImportModal(false);
+            alert('Units import completed successfully!');
+          }}
+          entity="units"
+          title="Import Units"
+        />
+      )}
 
       {units.length === 0 ? (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-12 text-center">

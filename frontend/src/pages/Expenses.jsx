@@ -2,11 +2,13 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
-import { Receipt, Plus, Edit, Trash2, Search, X, Filter, Calendar, Tag } from 'lucide-react';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
+import { Receipt, Plus, Edit, Trash2, X, Calendar, Tag } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
 const Expenses = () => {
-  const { hasPermission, user } = useAuth();
+  const { hasPermission } = useAuth();
   const queryClient = useQueryClient();
   const location = useLocation();
   const [showModal, setShowModal] = useState(false);
@@ -23,15 +25,34 @@ const Expenses = () => {
   });
   const [formError, setFormError] = useState('');
 
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(25);
+
+  // Column visibility
+  const [visibleColumns, setVisibleColumns] = useState({
+    date: true,
+    category: true,
+    description: true,
+    branch: true,
+    created_by: true,
+    amount: true
+  });
+
+  // Export modal
+  const [showExportModal, setShowExportModal] = useState(false);
+
   // Fetch expenses
   const { data, isLoading, error } = useQuery({
-    queryKey: ['expenses', searchTerm, selectedCategory, startDate, endDate],
+    queryKey: ['expenses', searchTerm, selectedCategory, startDate, endDate, page, limit],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (searchTerm) params.append('search', searchTerm);
       if (selectedCategory) params.append('category_id', selectedCategory);
       if (startDate) params.append('start_date', startDate);
       if (endDate) params.append('end_date', endDate);
+      params.append('page', page);
+      params.append('limit', limit === -1 ? 10000 : limit);
       const response = await api.get(`/expenses?${params.toString()}`);
       return response.data;
     }
@@ -181,13 +202,6 @@ const Expenses = () => {
     }
   };
 
-  const clearFilters = () => {
-    setSearchTerm('');
-    setSelectedCategory('');
-    setStartDate('');
-    setEndDate('');
-  };
-
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
@@ -221,13 +235,14 @@ const Expenses = () => {
 
   const expenses = data?.expenses || [];
   const categories = categoriesData || [];
+  const pagination = data?.pagination || { total: data?.total_count || 0, page: 1, limit: 25, total_pages: 1 };
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Expenses</h1>
-          <p className="text-gray-600 mt-2">Track and manage business expenses</p>
+          <h1 className="text-2xl font-bold text-gray-900">Expenses</h1>
+          <p className="text-sm text-primary-600">Track and manage business expenses</p>
         </div>
         <div className="flex space-x-3">
           <Link
@@ -270,83 +285,86 @@ const Expenses = () => {
         </div>
       )}
 
-      {/* Filters */}
-      <div className="bg-white rounded-lg shadow border border-gray-200 p-4 mb-6">
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search by description..."
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            />
-          </div>
-
-          <select
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-          >
-            <option value="">All Categories</option>
-            {categories.map((cat) => (
-              <option key={cat.id} value={cat.id}>{cat.name}</option>
-            ))}
-          </select>
-
-          <div className="flex items-center space-x-2">
-            <Calendar className="h-5 w-5 text-gray-400" />
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            />
-            <span className="text-gray-400">to</span>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            />
-          </div>
-
-          {(searchTerm || selectedCategory || startDate || endDate) && (
-            <button
-              onClick={clearFilters}
-              className="flex items-center space-x-1 px-3 py-2 text-gray-500 hover:text-gray-700"
-            >
-              <X className="h-4 w-4" />
-              <span>Clear</span>
-            </button>
-          )}
+      {/* Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={(newLimit) => {
+          setLimit(newLimit);
+          setPage(1);
+        }}
+        visibleColumns={visibleColumns}
+        onColumnVisibilityChange={setVisibleColumns}
+        onExport={() => setShowExportModal(true)}
+        searchTerm={searchTerm}
+        onSearchChange={(value) => {
+          setSearchTerm(value);
+          setPage(1);
+        }}
+        searchPlaceholder="Search by description..."
+      >
+        <select
+          value={selectedCategory}
+          onChange={(e) => { setSelectedCategory(e.target.value); setPage(1); }}
+          className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+        >
+          <option value="">All Categories</option>
+          {categories.map((cat) => (
+            <option key={cat.id} value={cat.id}>{cat.name}</option>
+          ))}
+        </select>
+        <div className="flex items-center gap-2">
+          <Calendar className="h-4 w-4 text-gray-400" />
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
+            className="px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+          />
+          <span className="text-gray-400 text-sm">to</span>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
+            className="px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+          />
         </div>
-      </div>
+      </ListToolbar>
 
       {/* Expenses Table */}
       <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Date
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Category
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Description
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Branch
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Created By
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Amount
-              </th>
+              {visibleColumns.date && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Date
+                </th>
+              )}
+              {visibleColumns.category && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Category
+                </th>
+              )}
+              {visibleColumns.description && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Description
+                </th>
+              )}
+              {visibleColumns.branch && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Branch
+                </th>
+              )}
+              {visibleColumns.created_by && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Created By
+                </th>
+              )}
+              {visibleColumns.amount && (
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Amount
+                </th>
+              )}
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Actions
               </th>
@@ -366,28 +384,40 @@ const Expenses = () => {
             ) : (
               expenses.map((expense) => (
                 <tr key={expense.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {formatDate(expense.expense_date)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                      {expense.category?.name || 'Uncategorized'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
-                    {expense.description || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {expense.branch?.name || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {expense.creator?.full_name || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <span className="text-sm font-medium text-red-600">
-                      {formatCurrency(expense.amount)}
-                    </span>
-                  </td>
+                  {visibleColumns.date && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {formatDate(expense.expense_date)}
+                    </td>
+                  )}
+                  {visibleColumns.category && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        {expense.category?.name || 'Uncategorized'}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.description && (
+                    <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
+                      {expense.description || '-'}
+                    </td>
+                  )}
+                  {visibleColumns.branch && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {expense.branch?.name || '-'}
+                    </td>
+                  )}
+                  {visibleColumns.created_by && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {expense.creator?.full_name || '-'}
+                    </td>
+                  )}
+                  {visibleColumns.amount && (
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <span className="text-sm font-medium text-red-600">
+                        {formatCurrency(expense.amount)}
+                      </span>
+                    </td>
+                  )}
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex justify-end space-x-2">
                       {hasPermission('expense_manage') && (
@@ -418,13 +448,46 @@ const Expenses = () => {
         </table>
 
         {/* Pagination Info */}
-        {data?.total_count > 0 && (
-          <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 flex justify-between items-center text-sm text-gray-500">
-            <span>Showing {expenses.length} of {data.total_count} expenses</span>
-            <span>Total: {formatCurrency(data.total_amount)}</span>
+        {pagination.total > 0 && (
+          <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+            <span className="text-sm text-gray-500">
+              Showing {expenses.length} of {pagination.total} expenses
+              {data?.total_amount && ` | Total: ${formatCurrency(data.total_amount)}`}
+            </span>
+            {pagination.total_pages > 1 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+                >
+                  Previous
+                </button>
+                <span className="text-sm text-gray-600">
+                  Page {pagination.page} of {pagination.total_pages}
+                </span>
+                <button
+                  onClick={() => setPage(p => Math.min(pagination.total_pages, p + 1))}
+                  disabled={page >= pagination.total_pages}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+                >
+                  Next
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <ExportModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          entity="expenses"
+          title="Export Expenses"
+        />
+      )}
 
       {/* Create/Edit Modal */}
       {showModal && (
@@ -540,4 +603,3 @@ const Expenses = () => {
 };
 
 export default Expenses;
-

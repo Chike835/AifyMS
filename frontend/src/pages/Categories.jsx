@@ -2,8 +2,11 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
-import { FolderTree, Plus, Edit, Trash2, X } from 'lucide-react';
+import { FolderTree, Plus, Edit, Trash2, X, UploadCloud } from 'lucide-react';
 import DataControlBar from '../components/settings/DataControlBar';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
+import ImportModal from '../components/import/ImportModal';
 
 const Categories = () => {
   const { hasPermission } = useAuth();
@@ -17,6 +20,24 @@ const Categories = () => {
     is_active: true
   });
   const [formError, setFormError] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(25);
+
+  // Column visibility
+  const [visibleColumns, setVisibleColumns] = useState({
+    name: true,
+    parent: true,
+    description: true,
+    status: true
+  });
+
+  // Export modal
+  const [showExportModal, setShowExportModal] = useState(false);
+  // Import modal
+  const [showImportModal, setShowImportModal] = useState(false);
 
   // Fetch categories
   const { data, isLoading, error } = useQuery({
@@ -156,23 +177,67 @@ const Categories = () => {
           <h1 className="text-3xl font-bold text-gray-900">Product Categories</h1>
           <p className="mt-2 text-gray-600">Manage hierarchical product categories</p>
         </div>
-        {hasPermission('product_add') && (
-          <button
-            onClick={openCreateModal}
-            className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-          >
-            <Plus className="h-5 w-5" />
-            <span>Add Category</span>
-          </button>
-        )}
+        <div className="flex flex-wrap gap-3">
+          {hasPermission('product_add') && (
+            <>
+              <button
+                onClick={openCreateModal}
+                className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              >
+                <Plus className="h-5 w-5" />
+                <span>Add Category</span>
+              </button>
+              <button
+                onClick={() => setShowImportModal(true)}
+                className="flex items-center space-x-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <UploadCloud className="h-5 w-5" />
+                <span>Import Categories</span>
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
-      <DataControlBar
-        importEndpoint="/api/categories/import"
-        exportEndpoint="/api/categories/export"
-        entityName="Categories"
-        onImportSuccess={() => queryClient.invalidateQueries({ queryKey: ['categories'] })}
+      {/* Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={(newLimit) => {
+          setLimit(newLimit);
+          setPage(1);
+        }}
+        visibleColumns={visibleColumns}
+        onColumnVisibilityChange={setVisibleColumns}
+        onExport={() => setShowExportModal(true)}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Search categories..."
       />
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <ExportModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          entity="categories"
+          title="Export Categories"
+        />
+      )}
+
+      {/* Import Modal */}
+      {showImportModal && (
+        <ImportModal
+          isOpen={showImportModal}
+          onClose={() => setShowImportModal(false)}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ['categories'] });
+            setShowImportModal(false);
+            alert('Categories import completed successfully!');
+          }}
+          entity="categories"
+          title="Import Categories"
+        />
+      )}
 
       {categories.length === 0 ? (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-12 text-center">

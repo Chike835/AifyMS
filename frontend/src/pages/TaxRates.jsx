@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
 import { Percent, Plus, Edit, Trash2, X, CheckCircle, AlertCircle, Star } from 'lucide-react';
 
 const TaxRates = () => {
@@ -19,6 +21,22 @@ const TaxRates = () => {
   });
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Pagination
+  const [limit, setLimit] = useState(25);
+
+  // Column visibility
+  const [visibleColumns, setVisibleColumns] = useState({
+    name: true,
+    rate: true,
+    compound: true,
+    default: true,
+    status: true
+  });
+
+  // Export modal
+  const [showExportModal, setShowExportModal] = useState(false);
 
   // Fetch tax rates
   const { data, isLoading, error } = useQuery({
@@ -233,6 +251,28 @@ const TaxRates = () => {
           <AlertCircle className="h-5 w-5" />
           <span>{formError}</span>
         </div>
+      )}
+
+      {/* Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={setLimit}
+        visibleColumns={visibleColumns}
+        onColumnVisibilityChange={setVisibleColumns}
+        onExport={() => setShowExportModal(true)}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Search tax rates..."
+      />
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <ExportModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          entity="tax-rates"
+          title="Export Tax Rates"
+        />
       )}
 
       {/* Tax Rates Table */}

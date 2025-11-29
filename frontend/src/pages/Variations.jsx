@@ -4,12 +4,24 @@ import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { Settings, Plus, Edit, Trash2, X } from 'lucide-react';
 import DataControlBar from '../components/settings/DataControlBar';
+import ListToolbar from '../components/common/ListToolbar';
+import ExportModal from '../components/import/ExportModal';
 
 const Variations = () => {
   const { hasPermission } = useAuth();
   const queryClient = useQueryClient();
   const [showModal, setShowModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [selectedVariation, setSelectedVariation] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [limit, setLimit] = useState(25);
+  const [visibleColumns, setVisibleColumns] = useState({
+    name: true,
+    description: true,
+    values: true,
+    status: true,
+    actions: true
+  });
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -193,6 +205,27 @@ const Variations = () => {
         onImportSuccess={() => queryClient.invalidateQueries({ queryKey: ['variations'] })}
       />
 
+      {/* List Toolbar */}
+      <ListToolbar
+        limit={limit}
+        onLimitChange={setLimit}
+        visibleColumns={visibleColumns}
+        onColumnVisibilityChange={setVisibleColumns}
+        onPrint={() => window.print()}
+        onExport={() => setShowExportModal(true)}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Search variations..."
+      />
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        entity="variations"
+        title="Export Variations"
+      />
+
       {variations.length === 0 ? (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-12 text-center">
           <Settings className="h-12 w-12 text-gray-400 mx-auto mb-4" />
@@ -213,60 +246,78 @@ const Variations = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Values</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                {visibleColumns.name && <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>}
+                {visibleColumns.description && <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>}
+                {visibleColumns.values && <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Values</th>}
+                {visibleColumns.status && <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>}
+                {visibleColumns.actions && <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>}
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {variations.map((variation) => (
+              {variations
+                .filter(variation => {
+                  if (!searchTerm) return true;
+                  const search = searchTerm.toLowerCase();
+                  return variation.name?.toLowerCase().includes(search) ||
+                         variation.description?.toLowerCase().includes(search);
+                })
+                .slice(0, limit === -1 ? undefined : limit)
+                .map((variation) => (
                 <tr key={variation.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{variation.name}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-gray-500">{variation.description || '-'}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex flex-wrap gap-1">
-                      {variation.values && variation.values.length > 0 ? (
-                        variation.values.map((val, idx) => (
-                          <span key={idx} className="inline-flex items-center px-2 py-1 rounded text-xs bg-gray-100 text-gray-800">
-                            {val.value}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-sm text-gray-400">No values</span>
+                  {visibleColumns.name && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{variation.name}</div>
+                    </td>
+                  )}
+                  {visibleColumns.description && (
+                    <td className="px-6 py-4">
+                      <div className="text-sm text-gray-500">{variation.description || '-'}</div>
+                    </td>
+                  )}
+                  {visibleColumns.values && (
+                    <td className="px-6 py-4">
+                      <div className="flex flex-wrap gap-1">
+                        {variation.values && variation.values.length > 0 ? (
+                          variation.values.map((val, idx) => (
+                            <span key={idx} className="inline-flex items-center px-2 py-1 rounded text-xs bg-gray-100 text-gray-800">
+                              {val.value}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-sm text-gray-400">No values</span>
+                        )}
+                      </div>
+                    </td>
+                  )}
+                  {visibleColumns.status && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                        variation.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                      }`}>
+                        {variation.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.actions && (
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      {hasPermission('product_edit') && (
+                        <button
+                          onClick={() => openEditModal(variation)}
+                          className="text-primary-600 hover:text-primary-900 mr-4"
+                        >
+                          <Edit className="h-5 w-5" />
+                        </button>
                       )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                      variation.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                    }`}>
-                      {variation.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    {hasPermission('product_edit') && (
-                      <button
-                        onClick={() => openEditModal(variation)}
-                        className="text-primary-600 hover:text-primary-900 mr-4"
-                      >
-                        <Edit className="h-5 w-5" />
-                      </button>
-                    )}
-                    {hasPermission('product_delete') && (
-                      <button
-                        onClick={() => handleDelete(variation)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        <Trash2 className="h-5 w-5" />
-                      </button>
-                    )}
-                  </td>
+                      {hasPermission('product_delete') && (
+                        <button
+                          onClick={() => handleDelete(variation)}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          <Trash2 className="h-5 w-5" />
+                        </button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

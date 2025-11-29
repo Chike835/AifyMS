@@ -2,14 +2,10 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../utils/api';
 import BrandForm from '../components/settings/BrandForm';
-import ColorForm from '../components/settings/ColorForm';
-import GaugeForm from '../components/settings/GaugeForm';
 import DataControlBar from '../components/settings/DataControlBar';
 
 const tabs = [
-  { id: 'brands', label: 'Brands', component: BrandForm, dataKey: 'brands' },
-  { id: 'colors', label: 'Colors', component: ColorForm, dataKey: 'colors' },
-  { id: 'gauges', label: 'Gauges', component: GaugeForm, dataKey: 'gauges' }
+  { id: 'brands', label: 'Brands', component: BrandForm, dataKey: 'brands' }
 ];
 
 const Settings = () => {
