@@ -30,3 +30,5 @@ const ProductBusinessLocation = sequelize.define('ProductBusinessLocation', {
 
 export default ProductBusinessLocation;
 
+
+

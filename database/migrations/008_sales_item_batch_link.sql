@@ -24,3 +24,5 @@ COMMENT ON COLUMN sales_items.inventory_batch_id IS 'Direct link to inventory ba
 
 
 
+
+
