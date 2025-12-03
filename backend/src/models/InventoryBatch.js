@@ -102,6 +102,7 @@ const InventoryBatch = sequelize.define('InventoryBatch', {
         // Use sequelize.models to avoid circular dependency
         const Product = sequelize.models.Product;
         const Category = sequelize.models.Category;
+        const BusinessSetting = sequelize.models.BusinessSetting;
         
         if (Product && Category) {
           const queryOptions = {
@@ -120,20 +121,62 @@ const InventoryBatch = sequelize.define('InventoryBatch', {
           const product = await Product.findByPk(instance.product_id, queryOptions);
 
           if (product) {
-            const categoryName = product.categoryRef?.name?.toLowerCase() || '';
+            const category = product.categoryRef;
+            const categoryName = category?.name || '';
             const attributeData = instance.attribute_data || {};
 
+            // Normalize category name for comparison (lowercase, spaces to underscores)
+            const normalizeCategoryName = (name) => {
+              return name.toLowerCase().replace(/\s+/g, '_');
+            };
+
+            // Fetch gauge_enabled_categories setting
+            let gaugeEnabledCategories = [];
+            if (BusinessSetting && categoryName) {
+              const gaugeSetting = await BusinessSetting.findOne({
+                where: { setting_key: 'gauge_enabled_categories' },
+                ...(options?.transaction ? { transaction: options.transaction } : {})
+              });
+              
+              if (gaugeSetting && gaugeSetting.setting_type === 'json') {
+                try {
+                  const parsedValue = typeof gaugeSetting.setting_value === 'string' 
+                    ? JSON.parse(gaugeSetting.setting_value) 
+                    : gaugeSetting.setting_value;
+                  gaugeEnabledCategories = Array.isArray(parsedValue) ? parsedValue : [];
+                } catch (e) {
+                  // If parsing fails, default to empty array
+                  gaugeEnabledCategories = [];
+                }
+              }
+            }
+
+            const normalizedCategoryName = normalizeCategoryName(categoryName);
+            const isGaugeEnabled = gaugeEnabledCategories.includes(normalizedCategoryName);
+
+            // Validate gauge_mm if category is enabled for gauge input
+            if (isGaugeEnabled && attributeData.gauge_mm !== undefined && attributeData.gauge_mm !== null) {
+              if (typeof attributeData.gauge_mm !== 'number') {
+                throw new Error(`Gauge (gauge_mm) must be a number for category "${categoryName}"`);
+              }
+              if (attributeData.gauge_mm < 0.10 || attributeData.gauge_mm > 1.00) {
+                throw new Error(`Gauge (gauge_mm) must be between 0.10 and 1.00 mm for category "${categoryName}"`);
+              }
+              // Round to 2 decimal places
+              attributeData.gauge_mm = Math.round(attributeData.gauge_mm * 100) / 100;
+            }
+
             // Validate based on product category/material type
-            if (categoryName.includes('aluminium') || categoryName.includes('aluminum')) {
+            if (categoryName.toLowerCase().includes('aluminium') || categoryName.toLowerCase().includes('aluminum')) {
               // Aluminium type validation
               if (!attributeData.weight_kg || typeof attributeData.weight_kg !== 'number' || attributeData.weight_kg <= 0) {
                 throw new Error('Aluminium batch must have valid weight_kg (positive number)');
               }
-              if (!attributeData.gauge_mm || typeof attributeData.gauge_mm !== 'number') {
-                throw new Error('Aluminium batch must have gauge_mm');
-              }
-              if (attributeData.gauge_mm < 0.1 || attributeData.gauge_mm > 1.0) {
-                throw new Error('Aluminium gauge_mm must be between 0.1 and 1.0 mm');
+              // Gauge validation is now handled above based on enabled categories
+              if (isGaugeEnabled) {
+                if (!attributeData.gauge_mm || typeof attributeData.gauge_mm !== 'number') {
+                  throw new Error('Aluminium batch must have gauge_mm');
+                }
               }
               if (!attributeData.embossment || typeof attributeData.embossment !== 'string') {
                 throw new Error('Aluminium batch must have embossment');
@@ -144,7 +187,7 @@ const InventoryBatch = sequelize.define('InventoryBatch', {
               if (!attributeData.coil_number || typeof attributeData.coil_number !== 'string') {
                 throw new Error('Aluminium batch must have coil_number');
               }
-            } else if (categoryName.includes('stone') || categoryName.includes('tile')) {
+            } else if (categoryName.toLowerCase().includes('stone') || categoryName.toLowerCase().includes('tile')) {
               // Stone Tiles type validation
               if (!attributeData.design_pattern || typeof attributeData.design_pattern !== 'string') {
                 throw new Error('Stone Tiles batch must have design_pattern (e.g., Shingle)');
@@ -158,7 +201,13 @@ const InventoryBatch = sequelize.define('InventoryBatch', {
               if (!attributeData.pallet_number || typeof attributeData.pallet_number !== 'string') {
                 throw new Error('Stone Tiles batch must have pallet_number');
               }
-            } else if (categoryName.includes('accessor')) {
+              // Gauge validation is now handled above based on enabled categories
+              if (isGaugeEnabled) {
+                if (!attributeData.gauge_mm || typeof attributeData.gauge_mm !== 'number') {
+                  throw new Error('Stone Tiles batch must have gauge_mm');
+                }
+              }
+            } else if (categoryName.toLowerCase().includes('accessor')) {
               // Accessories type validation
               if (!attributeData.packet_size && !attributeData.pcs_count) {
                 throw new Error('Accessories batch must have either packet_size or pcs_count');

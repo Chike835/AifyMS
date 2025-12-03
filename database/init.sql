@@ -1024,6 +1024,7 @@ INSERT INTO business_settings (setting_key, setting_value, setting_type, categor
     ('barcode_show_text', 'true', 'boolean', 'barcode'),
     ('barcode_text_position', 'bottom', 'string', 'barcode'),
     ('manufacturing_gauges', '["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1.0"]', 'json', 'manufacturing'),
+    ('gauge_enabled_categories', '["aluminium", "stone_tile"]', 'json', 'manufacturing'),
     ('manufacturing_aluminium_colors', '["Charcoal", "Terracotta", "Blue", "Green", "Red", "Brown", "Grey", "White"]', 'json', 'manufacturing'),
     ('manufacturing_stone_tile_colors', '["Natural", "Grey", "Brown", "Charcoal", "Terracotta"]', 'json', 'manufacturing'),
     ('manufacturing_stone_tile_design', '["Shingle", "Tile", "Slate", "Roman"]', 'json', 'manufacturing');

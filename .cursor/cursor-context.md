@@ -236,6 +236,41 @@ graph TB
 
 ---
 
+### 6. Gauge-Enabled Categories System
+
+**Feature:** Dynamic gauge input configuration based on product categories
+
+**Data Flow:**
+1. **Settings Configuration:** Admin navigates to `/inventory/settings/gauges-colors`
+   - Gauges tab displays checkbox list of all product categories
+   - Admin toggles categories to enable/disable gauge input requirement
+   - Selections saved to `business_settings.gauge_enabled_categories` (JSON array)
+
+2. **Batch Creation with Gauge Input:**
+   - User creates inventory batch via `/inventory/batches` → Create Batch modal
+   - System fetches `manufacturingSettings` (includes `gauge_enabled_categories`)
+   - User selects product → System checks if product's category is enabled
+   - If enabled: Gauge input field appears (`<input type="number">` with `step=0.01`, `min=0.10`, `max=1.00`)
+   - User enters gauge value (e.g., 0.17, 0.34) → Stored as float in `attribute_data.gauge_mm` (rounded to 2 decimals)
+
+3. **Backend Validation:**
+   - `InventoryBatch.beforeSave` hook fetches `gauge_enabled_categories` setting
+   - Normalizes category name (lowercase, spaces to underscores) for comparison
+   - If category enabled AND `gauge_mm` present: Validates range (0.10-1.00mm) with 2-decimal precision
+   - Validation error thrown if value outside range or category mismatch
+
+**Key Settings:**
+- `business_settings.gauge_enabled_categories`: JSON array of normalized category names (e.g., `["aluminium", "stone_tile"]`)
+- `business_settings.manufacturing_gauges`: Retained for backward compatibility (legacy fixed list)
+
+**Implementation Details:**
+- Category name normalization: `name.toLowerCase().replace(/\s+/g, '_')`
+- Gauge values stored as floats with 2-decimal precision: `Math.round(value * 100) / 100`
+- Frontend gauge input only renders when product's category matches enabled list
+- Backend enforces validation only for enabled categories to prevent unnecessary errors
+
+---
+
 ## Technology Stack
 
 ### Frontend

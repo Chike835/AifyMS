@@ -125,15 +125,72 @@ const InventoryBatches = () => {
     enabled: !!formData.product_id
   });
 
-  // Update attribute_data when product or category changes
-  useEffect(() => {
-    if (selectedProduct?.attribute_default_values && selectedCategory?.attribute_schema) {
-      setFormData(prev => ({
-        ...prev,
-        attribute_data: { ...selectedProduct.attribute_default_values, ...prev.attribute_data }
-      }));
+  // Fetch manufacturing settings (for gauge_enabled_categories)
+  const { data: manufacturingSettings } = useQuery({
+    queryKey: ['manufacturingSettings'],
+    queryFn: async () => {
+      const response = await api.get('/settings?category=manufacturing');
+      return response.data.settings || {};
     }
-  }, [selectedProduct?.attribute_default_values, selectedCategory?.attribute_schema]);
+  });
+
+  // Helper function to normalize category name
+  const normalizeCategoryName = (name) => {
+    return name?.toLowerCase().replace(/\s+/g, '_') || '';
+  };
+
+  // Check if selected product's category is enabled for gauge input
+  const isGaugeEnabledForCategory = () => {
+    if (!manufacturingSettings?.gauge_enabled_categories?.value) {
+      return false;
+    }
+    const enabledCategories = manufacturingSettings.gauge_enabled_categories.value || [];
+    if (!Array.isArray(enabledCategories)) {
+      return false;
+    }
+    // Check product's category first, then fall back to selected category
+    const categoryName = selectedProduct?.categoryRef?.name || selectedCategory?.name || '';
+    if (!categoryName) {
+      return false;
+    }
+    const normalizedName = normalizeCategoryName(categoryName);
+    return enabledCategories.includes(normalizedName);
+  };
+
+  // Update attribute_data when product or category changes, with atomic gauge_mm cleanup
+  useEffect(() => {
+    setFormData(prev => {
+      const currentCategoryName = selectedProduct?.categoryRef?.name || selectedCategory?.name || '';
+      let updatedAttributeData = { ...prev.attribute_data };
+      
+      // Merge product defaults if available
+      if (selectedProduct?.attribute_default_values) {
+        updatedAttributeData = { ...selectedProduct.attribute_default_values, ...updatedAttributeData };
+      }
+      
+      // Check if category is gauge-enabled and remove gauge_mm if not
+      if (currentCategoryName) {
+        const normalizedName = normalizeCategoryName(currentCategoryName);
+        const enabledCategories = manufacturingSettings?.gauge_enabled_categories?.value || [];
+        const isEnabled = Array.isArray(enabledCategories) && enabledCategories.includes(normalizedName);
+        
+        if (!isEnabled && updatedAttributeData.gauge_mm !== undefined) {
+          const { gauge_mm, ...restAttributeData } = updatedAttributeData;
+          updatedAttributeData = restAttributeData;
+        }
+      }
+      
+      // Only update if attribute_data actually changed (avoid unnecessary re-renders)
+      if (JSON.stringify(prev.attribute_data) === JSON.stringify(updatedAttributeData)) {
+        return prev;
+      }
+      
+      return {
+        ...prev,
+        attribute_data: updatedAttributeData
+      };
+    });
+  }, [formData.product_id, selectedProduct?.categoryRef?.name, selectedProduct?.attribute_default_values, selectedCategory?.name, selectedCategory?.attribute_schema, manufacturingSettings?.gauge_enabled_categories?.value]);
 
   // Create batch mutation
   const createMutation = useMutation({
@@ -554,7 +611,9 @@ const InventoryBatches = () => {
                   <select
                     required
                     value={formData.product_id}
-                    onChange={(e) => setFormData({ ...formData, product_id: e.target.value })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, product_id: e.target.value });
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   >
                     <option value="">Select Product</option>
@@ -695,6 +754,59 @@ const InventoryBatches = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
               </div>
+
+              {/* Gauge Input - Only show if category is enabled for gauge input */}
+              {isGaugeEnabledForCategory() && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Gauge (mm) *
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    step="0.01"
+                    min="0.10"
+                    max="1.00"
+                    value={formData.attribute_data?.gauge_mm || ''}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      const numValue = value === '' ? '' : parseFloat(value);
+                      setFormData(prev => ({
+                        ...prev,
+                        attribute_data: {
+                          ...prev.attribute_data,
+                          gauge_mm: value === '' ? undefined : (isNaN(numValue) ? value : Math.round(numValue * 100) / 100)
+                        }
+                      }));
+                    }}
+                    placeholder="0.10 - 1.00"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Enter a value between 0.10 and 1.00 mm (2 decimal places)</p>
+                </div>
+              )}
+
+              {/* Dynamic Attributes Section for Create */}
+              {selectedCategory?.attribute_schema && selectedCategory.attribute_schema.length > 0 && (() => {
+                // Filter out gauge_mm from schema to prevent duplicate input (gauge is handled separately above)
+                const filteredSchema = selectedCategory.attribute_schema.filter(attr => attr.name !== 'gauge_mm');
+                
+                if (filteredSchema.length === 0) return null;
+                
+                return (
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <h4 className="text-sm font-semibold text-gray-900 mb-4">Batch Attributes</h4>
+                    <AttributeRenderer
+                      schema={filteredSchema}
+                      values={formData.attribute_data || {}}
+                      onChange={(newValues) => setFormData({ ...formData, attribute_data: newValues })}
+                      defaultValues={selectedProduct?.attribute_default_values || {}}
+                      className="grid grid-cols-2 gap-4"
+                    />
+                  </div>
+                );
+              })()}
+
               <div className="flex space-x-4 pt-4">
                 <button
                   type="button"
@@ -816,19 +928,57 @@ const InventoryBatches = () => {
                 </div>
               )}
 
-              {/* Dynamic Attributes Section for Edit */}
-              {selectedCategory?.attribute_schema && selectedCategory.attribute_schema.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <h4 className="text-sm font-semibold text-gray-900 mb-4">Batch Attributes</h4>
-                  <AttributeRenderer
-                    schema={selectedCategory.attribute_schema}
-                    values={formData.attribute_data || {}}
-                    onChange={(newValues) => setFormData({ ...formData, attribute_data: newValues })}
-                    defaultValues={selectedProduct?.attribute_default_values || {}}
-                    className="grid grid-cols-2 gap-4"
+              {/* Gauge Input - Only show if category is enabled for gauge input */}
+              {isGaugeEnabledForCategory() && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Gauge (mm) *
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    step="0.01"
+                    min="0.10"
+                    max="1.00"
+                    value={formData.attribute_data?.gauge_mm || ''}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      const numValue = value === '' ? '' : parseFloat(value);
+                      setFormData(prev => ({
+                        ...prev,
+                        attribute_data: {
+                          ...prev.attribute_data,
+                          gauge_mm: value === '' ? undefined : (isNaN(numValue) ? value : Math.round(numValue * 100) / 100)
+                        }
+                      }));
+                    }}
+                    placeholder="0.10 - 1.00"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   />
+                  <p className="text-xs text-gray-500 mt-1">Enter a value between 0.10 and 1.00 mm (2 decimal places)</p>
                 </div>
               )}
+
+              {/* Dynamic Attributes Section for Edit */}
+              {selectedCategory?.attribute_schema && selectedCategory.attribute_schema.length > 0 && (() => {
+                // Filter out gauge_mm from schema to prevent duplicate input (gauge is handled separately above)
+                const filteredSchema = selectedCategory.attribute_schema.filter(attr => attr.name !== 'gauge_mm');
+                
+                if (filteredSchema.length === 0) return null;
+                
+                return (
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <h4 className="text-sm font-semibold text-gray-900 mb-4">Batch Attributes</h4>
+                    <AttributeRenderer
+                      schema={filteredSchema}
+                      values={formData.attribute_data || {}}
+                      onChange={(newValues) => setFormData({ ...formData, attribute_data: newValues })}
+                      defaultValues={selectedProduct?.attribute_default_values || {}}
+                      className="grid grid-cols-2 gap-4"
+                    />
+                  </div>
+                );
+              })()}
               <div className="flex space-x-4 pt-4">
                 <button
                   type="button"

@@ -224,7 +224,8 @@
 |-----------------|-------------|------------|----------------|
 | **Attributes** | Brand management | [x] | [ ] |
 | **Attributes** | Color management | [x] | [ ] |
-| **Attributes** | Gauge management | [x] | [ ] |
+| **Attributes** | Gauge management (fixed list) | [x] | [ ] |
+| **Attributes** | Gauge category toggles (dynamic range) | [x] | [ ] |
 | **Attributes** | Attribute management interface | [x] | [ ] |
 
 ---

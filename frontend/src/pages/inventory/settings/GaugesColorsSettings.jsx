@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../../context/AuthContext';
 import api from '../../../utils/api';
-import { Settings, Plus, Edit, Trash2, X, Gauge, Palette } from 'lucide-react';
+import { Settings, Plus, Edit, Trash2, X, Gauge, Palette, Check } from 'lucide-react';
 
 const GaugesColorsSettings = () => {
   const { hasPermission } = useAuth();
@@ -13,12 +13,22 @@ const GaugesColorsSettings = () => {
   const [formData, setFormData] = useState({ value: '' });
 
   // Fetch manufacturing settings
-  const { data: settingsData, isLoading } = useQuery({
+  const { data: settingsData, isLoading: settingsLoading } = useQuery({
     queryKey: ['manufacturingSettings'],
     queryFn: async () => {
       const response = await api.get('/settings?category=manufacturing');
       return response.data.settings || {};
     }
+  });
+
+  // Fetch categories for gauge enabled categories
+  const { data: categories, isLoading: categoriesLoading } = useQuery({
+    queryKey: ['categories'],
+    queryFn: async () => {
+      const response = await api.get('/categories');
+      return response.data.categories || [];
+    },
+    enabled: activeTab === 'gauges'
   });
 
   // Update setting mutation
@@ -29,7 +39,9 @@ const GaugesColorsSettings = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['manufacturingSettings'] });
-      closeModal();
+      if (activeTab !== 'gauges') {
+        closeModal();
+      }
     },
     onError: (error) => {
       alert(error.response?.data?.error || 'Failed to update setting');
@@ -38,6 +50,39 @@ const GaugesColorsSettings = () => {
 
   const getSettingValue = (key) => {
     return settingsData?.[key]?.value || [];
+  };
+
+  // Get enabled categories for gauge
+  const getEnabledCategories = () => {
+    const enabledCategories = getSettingValue('gauge_enabled_categories') || [];
+    return Array.isArray(enabledCategories) ? enabledCategories : [];
+  };
+
+  // Normalize category name to match setting format (lowercase, spaces to underscores)
+  const normalizeCategoryName = (name) => {
+    return name.toLowerCase().replace(/\s+/g, '_');
+  };
+
+  // Check if a category is enabled for gauge input
+  const isCategoryEnabled = (categoryName) => {
+    const normalizedName = normalizeCategoryName(categoryName);
+    return getEnabledCategories().includes(normalizedName);
+  };
+
+  // Handle category toggle for gauge enabled categories
+  const handleCategoryToggle = (categoryName) => {
+    if (!hasPermission('settings_manage')) return;
+    
+    const normalizedName = normalizeCategoryName(categoryName);
+    const enabledCategories = getEnabledCategories();
+    const newEnabledCategories = enabledCategories.includes(normalizedName)
+      ? enabledCategories.filter(cat => cat !== normalizedName)
+      : [...enabledCategories, normalizedName];
+    
+    updateSettingMutation.mutate({
+      key: 'gauge_enabled_categories',
+      value: newEnabledCategories
+    });
   };
 
   const openModal = (value = null, isEdit = false) => {
@@ -130,20 +175,7 @@ const GaugesColorsSettings = () => {
     e.preventDefault();
     
     if (activeTab === 'gauges') {
-      if (!validateGauge(formData.value)) {
-        alert('Gauge must be a number between 0.1 and 1.0 mm');
-        return;
-      }
-      // Format as string with .1 precision - use setFormData to update state immutably
-      const formattedValue = parseFloat(formData.value).toFixed(1);
-      setFormData({ value: formattedValue });
-      
-      // Use the formatted value directly for the add/edit operations
-      if (editingValue) {
-        handleEdit(formattedValue);
-      } else {
-        handleAdd(formattedValue);
-      }
+      // This should not be called for gauges tab anymore, but keeping for safety
       return;
     }
 
@@ -156,7 +188,7 @@ const GaugesColorsSettings = () => {
 
   const currentValues = getSettingValue(getSettingKey());
 
-  if (isLoading) {
+  if (settingsLoading || (activeTab === 'gauges' && categoriesLoading)) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
@@ -223,57 +255,107 @@ const GaugesColorsSettings = () => {
 
       {/* Content */}
       <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold text-gray-900">{getTabLabel()}</h2>
-          {hasPermission('settings_manage') && (
-            <button
-              onClick={() => openModal(null, false)}
-              className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-            >
-              <Plus className="h-5 w-5" />
-              <span>Add {getTabLabel().slice(0, -1)}</span>
-            </button>
-          )}
-        </div>
-
-        <div className="space-y-2">
-          {currentValues.length === 0 ? (
-            <p className="text-gray-500 text-center py-8">No {getTabLabel().toLowerCase()} found</p>
-          ) : (
-            currentValues.map((value, index) => (
-              <div
-                key={index}
-                className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
-              >
-                <span className="text-gray-900">
-                  {activeTab === 'gauges' ? `${value} mm` : value}
-                </span>
-                {hasPermission('settings_manage') && (
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => openModal(value, true)}
-                      className="text-blue-600 hover:text-blue-900"
-                      title="Edit"
+        {activeTab === 'gauges' ? (
+          <>
+            <div className="mb-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-2">Enable Gauge Input for Categories</h2>
+              <p className="text-gray-600 text-sm">
+                Enable gauge input for the following categories. Users can input any value between 0.10mm and 1.00mm for products in enabled categories.
+              </p>
+            </div>
+            <div className="space-y-3">
+              {categories && categories.length > 0 ? (
+                categories.map((category) => {
+                  const isEnabled = isCategoryEnabled(category.name);
+                  return (
+                    <label
+                      key={category.id}
+                      className={`flex items-center p-4 border rounded-lg cursor-pointer transition-colors ${
+                        isEnabled
+                          ? 'border-primary-500 bg-primary-50'
+                          : 'border-gray-200 hover:bg-gray-50'
+                      } ${!hasPermission('settings_manage') ? 'cursor-not-allowed opacity-50' : ''}`}
                     >
-                      <Edit className="h-4 w-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(value)}
-                      className="text-red-600 hover:text-red-900"
-                      title="Delete"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                )}
+                      <input
+                        type="checkbox"
+                        checked={isEnabled}
+                        onChange={() => handleCategoryToggle(category.name)}
+                        disabled={!hasPermission('settings_manage') || updateSettingMutation.isPending}
+                        className="h-5 w-5 text-primary-600 focus:ring-primary-500 border-gray-300 rounded cursor-pointer"
+                      />
+                      <span className={`ml-3 text-sm font-medium ${isEnabled ? 'text-primary-900' : 'text-gray-900'}`}>
+                        {category.name}
+                      </span>
+                      {isEnabled && (
+                        <Check className="ml-auto h-5 w-5 text-primary-600" />
+                      )}
+                    </label>
+                  );
+                })
+              ) : (
+                <p className="text-gray-500 text-center py-8">No categories found</p>
+              )}
+            </div>
+            {updateSettingMutation.isPending && (
+              <div className="mt-4 text-sm text-gray-600 flex items-center">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-600 mr-2"></div>
+                Saving...
               </div>
-            ))
-          )}
-        </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-gray-900">{getTabLabel()}</h2>
+              {hasPermission('settings_manage') && (
+                <button
+                  onClick={() => openModal(null, false)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                >
+                  <Plus className="h-5 w-5" />
+                  <span>Add {getTabLabel().slice(0, -1)}</span>
+                </button>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              {currentValues.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">No {getTabLabel().toLowerCase()} found</p>
+              ) : (
+                currentValues.map((value, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
+                  >
+                    <span className="text-gray-900">{value}</span>
+                    {hasPermission('settings_manage') && (
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => openModal(value, true)}
+                          className="text-blue-600 hover:text-blue-900"
+                          title="Edit"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(value)}
+                          className="text-red-600 hover:text-red-900"
+                          title="Delete"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Add/Edit Modal */}
-      {showModal && (
+      {/* Add/Edit Modal - Only for non-gauges tabs */}
+      {showModal && activeTab !== 'gauges' && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
             <div className="flex items-center justify-between mb-6">
@@ -290,22 +372,16 @@ const GaugesColorsSettings = () => {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {activeTab === 'gauges' ? 'Gauge (mm) *' : 'Value *'}
+                  Value *
                 </label>
                 <input
-                  type={activeTab === 'gauges' ? 'number' : 'text'}
-                  step={activeTab === 'gauges' ? '0.1' : undefined}
-                  min={activeTab === 'gauges' ? '0.1' : undefined}
-                  max={activeTab === 'gauges' ? '1.0' : undefined}
+                  type="text"
                   required
                   value={formData.value}
                   onChange={(e) => setFormData({ value: e.target.value })}
-                  placeholder={activeTab === 'gauges' ? '0.1 - 1.0' : `Enter ${getTabLabel().slice(0, -1).toLowerCase()}`}
+                  placeholder={`Enter ${getTabLabel().slice(0, -1).toLowerCase()}`}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
-                {activeTab === 'gauges' && (
-                  <p className="text-xs text-gray-500 mt-1">Enter a value between 0.1 and 1.0 mm</p>
-                )}
               </div>
               <div className="flex space-x-4 pt-4">
                 <button
@@ -332,7 +408,3 @@ const GaugesColorsSettings = () => {
 };
 
 export default GaugesColorsSettings;
-
-
-
-
