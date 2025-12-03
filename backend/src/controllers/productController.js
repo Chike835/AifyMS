@@ -80,7 +80,7 @@ export const createProduct = async (req, res, next) => {
         
         // Validate each attribute in schema
         for (const attr of schema) {
-          if (attr.required && !providedAttributes[attr.name]) {
+          if (attr.required && providedAttributes[attr.name] === undefined) {
             await transaction.rollback();
             return res.status(400).json({ 
               error: `Required attribute "${attr.name}" is missing` 
@@ -468,7 +468,7 @@ export const updateProduct = async (req, res, next) => {
           const providedAttributes = req.body.attribute_default_values || {};
           
           for (const attr of schema) {
-            if (attr.required && !providedAttributes[attr.name]) {
+            if (attr.required && providedAttributes[attr.name] === undefined) {
               await transaction.rollback();
               return res.status(400).json({ 
                 error: `Required attribute "${attr.name}" is missing` 

@@ -318,7 +318,7 @@ const AddPurchase = () => {
 
               return (
                 <div key={index} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <div className="grid grid-cols-1 md:grid-cols-14 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
                     {/* Product Selection */}
                     <div className="md:col-span-3">
                       <label className="block text-xs font-medium text-gray-500 mb-1">
