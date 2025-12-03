@@ -11,7 +11,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TYPE product_type AS ENUM ('standard', 'compound', 'raw_tracked', 'manufactured_virtual');
 CREATE TYPE payment_method AS ENUM ('cash', 'transfer', 'pos');
 CREATE TYPE payment_status AS ENUM ('pending_confirmation', 'confirmed', 'voided');
-CREATE TYPE production_status AS ENUM ('queue', 'produced', 'delivered', 'na');
+CREATE TYPE production_status AS ENUM ('queue', 'processing', 'produced', 'delivered', 'na');
 CREATE TYPE instance_status AS ENUM ('in_stock', 'depleted', 'scrapped');
 CREATE TYPE contact_type AS ENUM ('customer', 'supplier');
 CREATE TYPE transaction_type AS ENUM ('INVOICE', 'PAYMENT', 'RETURN', 'ADJUSTMENT', 'OPENING_BALANCE', 'ADVANCE_PAYMENT', 'REFUND', 'REFUND_FEE');
@@ -805,7 +805,7 @@ INSERT INTO roles (id, name, description) VALUES
     (uuid_generate_v4(), 'Production Worker', 'View-only access to Production Queue. Updates status to ''Produced''.');
 
 -- ============================================
--- SEED DATA: PERMISSIONS (37 permissions)
+-- SEED DATA: PERMISSIONS (39 permissions)
 -- ============================================
 
 -- User Management Permissions (6)
@@ -851,6 +851,11 @@ INSERT INTO permissions (slug, group_name) VALUES
     ('payment_confirm', 'payments'),
     ('payment_delete_unconfirmed', 'payments'),
     ('payment_void_confirmed', 'payments');
+
+-- Contacts Permissions (2)
+INSERT INTO permissions (slug, group_name) VALUES
+    ('customer_view', 'contacts'),
+    ('supplier_view', 'contacts');
 
 -- Manufacturing Permissions (4)
 INSERT INTO permissions (slug, group_name) VALUES
@@ -1011,7 +1016,11 @@ INSERT INTO business_settings (setting_key, setting_value, setting_type, categor
     ('barcode_width', '2', 'number', 'barcode'),
     ('barcode_height', '100', 'number', 'barcode'),
     ('barcode_show_text', 'true', 'boolean', 'barcode'),
-    ('barcode_text_position', 'bottom', 'string', 'barcode');
+    ('barcode_text_position', 'bottom', 'string', 'barcode'),
+    ('manufacturing_gauges', '["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1.0"]', 'json', 'manufacturing'),
+    ('manufacturing_aluminium_colors', '["Charcoal", "Terracotta", "Blue", "Green", "Red", "Brown", "Grey", "White"]', 'json', 'manufacturing'),
+    ('manufacturing_stone_tile_colors', '["Natural", "Grey", "Brown", "Charcoal", "Terracotta"]', 'json', 'manufacturing'),
+    ('manufacturing_stone_tile_design', '["Shingle", "Tile", "Slate", "Roman"]', 'json', 'manufacturing');
 
 -- ============================================
 -- SEED DATA: BATCH TYPES

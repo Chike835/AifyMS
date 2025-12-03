@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Upload, Download } from 'lucide-react';
 import ImportModal from '../import/ImportModal';
 import api from '../../utils/api';
+import { downloadEntityTemplate } from '../../utils/importTemplates';
 
 const DataControlBar = ({ importEndpoint, exportEndpoint, entityName, onImportSuccess }) => {
   const [showImportModal, setShowImportModal] = useState(false);
@@ -44,15 +45,35 @@ const DataControlBar = ({ importEndpoint, exportEndpoint, entityName, onImportSu
   };
 
   const handleImportSuccess = (data) => {
-    if (onImportSuccess) {
-      onImportSuccess(data);
+    const results = data?.results || data || {};
+    const created = results.created || 0;
+    const updated = results.updated || 0;
+    
+    // Only call onImportSuccess if records were actually created/updated
+    if (created > 0 || updated > 0) {
+      if (onImportSuccess) {
+        onImportSuccess(data);
+      }
     }
     setShowImportModal(false);
+  };
+
+  const handleDownloadTemplate = () => {
+    // Extract entity name from entityName (e.g., "Brands" -> "brands")
+    const entity = entityName.toLowerCase();
+    downloadEntityTemplate(entity);
   };
 
   return (
     <>
       <div className="mb-4 flex items-center justify-end space-x-3">
+        <button
+          onClick={handleDownloadTemplate}
+          className="flex items-center space-x-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+        >
+          <Download className="h-4 w-4" />
+          <span>Download Template</span>
+        </button>
         <button
           onClick={() => setShowImportModal(true)}
           className="flex items-center space-x-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
@@ -77,6 +98,7 @@ const DataControlBar = ({ importEndpoint, exportEndpoint, entityName, onImportSu
           targetEndpoint={importEndpoint}
           title={`Import ${entityName}`}
           onSuccess={handleImportSuccess}
+          entity={entityName.toLowerCase()}
         />
       )}
     </>

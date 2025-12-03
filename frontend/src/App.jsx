@@ -43,6 +43,7 @@ import Recipes from './pages/Recipes';
 import PrintLabels from './pages/PrintLabels';
 import Agents from './pages/Agents';
 import ImportContacts from './pages/ImportContacts';
+import ImportProducts from './pages/ImportProducts';
 import Discounts from './pages/Discounts';
 import DeliveryNotes from './pages/DeliveryNotes';
 import BarcodeSettings from './pages/BarcodeSettings';
@@ -60,6 +61,7 @@ import PaymentAccountReport from './pages/PaymentAccountReport';
 import StockTransfer from './pages/StockTransfer';
 import StockAdjustment from './pages/StockAdjustment';
 import BatchSettings from './pages/inventory/settings/BatchSettings';
+import GaugesColorsSettings from './pages/inventory/settings/GaugesColorsSettings';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -180,6 +182,16 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <InventoryBatches />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/inventory/import"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <ImportProducts />
                   </Layout>
                 </ProtectedRoute>
               }
@@ -580,6 +592,16 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <BatchSettings />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/inventory/settings/gauges-colors"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <GaugesColorsSettings />
                   </Layout>
                 </ProtectedRoute>
               }

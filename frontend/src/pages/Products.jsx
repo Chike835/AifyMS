@@ -761,9 +761,30 @@ const Products = () => {
         <ImportModal
           isOpen={showImportModal}
           onClose={() => setShowImportModal(false)}
-          onSuccess={handleImportSuccess}
+          onSuccess={(data) => {
+            const results = data?.results || data || {};
+            const created = results.created || 0;
+            const updated = results.updated || 0;
+            const skipped = results.skipped || 0;
+            const errors = results.errors || [];
+            
+            // Only refresh if records were actually created/updated
+            if (created > 0 || updated > 0) {
+              handleImportSuccess();
+              
+              let message = `Import completed! ${created} created, ${updated} updated`;
+              if (skipped > 0) {
+                message += `, ${skipped} skipped`;
+              }
+              if (errors.length > 0) {
+                message += `. ${errors.length} error(s) occurred.`;
+              }
+              alert(message);
+            }
+          }}
           entity="products"
           title="Import Products"
+          targetEndpoint="/api/import/products"
         />
       )}
 

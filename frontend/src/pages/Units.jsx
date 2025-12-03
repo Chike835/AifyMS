@@ -253,14 +253,32 @@ const Units = () => {
         <ImportModal
           isOpen={showImportModal}
           onClose={() => setShowImportModal(false)}
-          onSuccess={() => {
-            queryClient.invalidateQueries({ queryKey: ['units'] });
-            queryClient.invalidateQueries({ queryKey: ['baseUnits'] });
+          onSuccess={(data) => {
+            const results = data?.results || data || {};
+            const created = results.created || 0;
+            const updated = results.updated || 0;
+            const skipped = results.skipped || 0;
+            const errors = results.errors || [];
+            
+            // Only refresh if records were actually created/updated
+            if (created > 0 || updated > 0) {
+              queryClient.invalidateQueries({ queryKey: ['units'] });
+              queryClient.invalidateQueries({ queryKey: ['baseUnits'] });
+              
+              let message = `Import completed! ${created} created, ${updated} updated`;
+              if (skipped > 0) {
+                message += `, ${skipped} skipped`;
+              }
+              if (errors.length > 0) {
+                message += `. ${errors.length} error(s) occurred.`;
+              }
+              alert(message);
+            }
             setShowImportModal(false);
-            alert('Units import completed successfully!');
           }}
           entity="units"
           title="Import Units"
+          targetEndpoint="/api/units/import"
         />
       )}
 

@@ -126,8 +126,9 @@ export const createSale = async (req, res, next) => {
       quotation_notes: order_type === 'quotation' ? quotation_notes : null
     }, { transaction });
 
-    // Track if any manufactured items exist
+    // Track if any manufactured items exist and if any had assignments
     let hasManufacturedItems = false;
+    let hasAssignments = false;
 
     // Process each item
     for (const item of items) {
@@ -160,32 +161,39 @@ export const createSale = async (req, res, next) => {
       }, { transaction });
 
       // Handle manufactured_virtual products - CRITICAL LOGIC
-      // Only process inventory deduction for actual invoices (not drafts/quotations)
-      if (product.type === 'manufactured_virtual' && shouldDeductInventory) {
+      // For Roofing Manufacturing ERP: Allow creating invoices without immediate inventory deduction
+      // Materials will be assigned later via /api/production/assign-material endpoint
+      if (product.type === 'manufactured_virtual') {
         hasManufacturedItems = true;
 
-        // Use centralized inventory service
-        const result = await processManufacturedVirtualItem({
-          product,
-          quantity,
-          itemAssignments: item_assignments,
-          salesItem,
-          transaction
-        });
+        // Only process inventory deduction if item_assignments are provided
+        // This allows creating invoices in 'queue' status without immediate deduction
+        if (shouldDeductInventory && item_assignments && Array.isArray(item_assignments) && item_assignments.length > 0) {
+          hasAssignments = true;
+          
+          // Use centralized inventory service
+          const result = await processManufacturedVirtualItem({
+            product,
+            quantity,
+            itemAssignments: item_assignments,
+            salesItem,
+            transaction
+          });
 
-        if (!result.success) {
-          await transaction.rollback();
-          return res.status(400).json({ error: result.error });
+          if (!result.success) {
+            await transaction.rollback();
+            return res.status(400).json({ error: result.error });
+          }
         }
-      } else if (product.type === 'manufactured_virtual' && !shouldDeductInventory) {
-        // For drafts/quotations, just mark that it has manufactured items (for display purposes)
-        hasManufacturedItems = true;
+        // If no item_assignments provided, order will be in 'queue' status
+        // Materials can be assigned later via /api/production/assign-material
       }
     }
 
-    // Update production status if manufactured items exist (only for actual invoices)
-    if (hasManufacturedItems && shouldDeductInventory) {
-      salesOrder.production_status = 'queue';
+    // Update production status if manufactured items exist
+    // Status will be 'queue' if no assignments provided, or 'processing' if assignments were provided
+    if (hasManufacturedItems) {
+      salesOrder.production_status = hasAssignments ? 'processing' : 'queue';
       await salesOrder.save({ transaction });
     }
 

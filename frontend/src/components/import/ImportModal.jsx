@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { UploadCloud, FileSpreadsheet, X, AlertCircle } from 'lucide-react';
+import { UploadCloud, FileSpreadsheet, X, AlertCircle, Download } from 'lucide-react';
 import api from '../../utils/api';
+import { downloadEntityTemplate } from '../../utils/importTemplates';
 
 const entityLabels = {
   products: 'Products',
@@ -73,8 +74,44 @@ const ImportModal = ({ isOpen, onClose, entity, title = 'Import Data', onSuccess
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
+      // Validate response results
+      const results = response.data?.results || response.data || {};
+      const created = results.created || 0;
+      const updated = results.updated || 0;
+      const skipped = results.skipped || 0;
+      const errors = results.errors || [];
+      const totalSuccessful = created + updated;
+
+      // If no records were created or updated, show error
+      if (totalSuccessful === 0) {
+        const errorMessage = errors.length > 0
+          ? `Import failed: ${errors[0].error || 'No records were created or updated. Check your data format.'}`
+          : 'Import failed: No records were created or updated. Please check your data format and try again.';
+        setError(errorMessage);
+        // Keep modal open so user can see the error
+        return;
+      }
+
+      // If there were some successes but also errors, show warning but proceed
+      if (errors.length > 0) {
+        const errorSummary = errors.length === 1
+          ? errors[0].error
+          : `${errors.length} rows had errors. First error: ${errors[0].error}`;
+        setError(`Import completed with warnings: ${errorSummary}`);
+        // Still close modal and call onSuccess since some records were created
+        setTimeout(() => {
+          onSuccess?.(response.data);
+          setSelectedFile(null);
+          setError(null);
+          onClose();
+        }, 3000);
+        return;
+      }
+
+      // Success - no errors
       onSuccess?.(response.data);
       setSelectedFile(null);
+      setError(null);
       onClose();
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to import file. Please try again.');
@@ -152,25 +189,38 @@ const ImportModal = ({ isOpen, onClose, entity, title = 'Import Data', onSuccess
             </div>
           )}
 
-          <div className="flex items-center justify-end space-x-3 border-t border-gray-100 pt-4">
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedFile(null);
-                setError(null);
-                onClose();
-              }}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="flex items-center rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSubmitting ? 'Importing...' : 'Start Import'}
-            </button>
+          <div className="flex items-center justify-between border-t border-gray-100 pt-4">
+            {entity && (
+              <button
+                type="button"
+                onClick={() => downloadEntityTemplate(entity)}
+                className="flex items-center space-x-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <Download className="h-4 w-4" />
+                <span>Download Template</span>
+              </button>
+            )}
+            {!entity && <div></div>}
+            <div className="flex items-center space-x-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedFile(null);
+                  setError(null);
+                  onClose();
+                }}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="flex items-center rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSubmitting ? 'Importing...' : 'Start Import'}
+              </button>
+            </div>
           </div>
         </form>
       </div>

@@ -2,11 +2,10 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
-import { Upload, Download, FileText, CheckCircle, AlertCircle, X } from 'lucide-react';
+import { Upload, Download, FileText, CheckCircle, AlertCircle, X, Package } from 'lucide-react';
 
-const ImportContacts = () => {
+const ImportProducts = () => {
   const { hasPermission } = useAuth();
-  const [contactType, setContactType] = useState('customers');
   const [selectedFile, setSelectedFile] = useState(null);
   const [importResults, setImportResults] = useState(null);
   const [formError, setFormError] = useState('');
@@ -14,11 +13,11 @@ const ImportContacts = () => {
 
   // Import mutation
   const importMutation = useMutation({
-    mutationFn: async ({ type, file }) => {
+    mutationFn: async ({ file }) => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await api.post(`/import/${type}`, formData, {
+      const response = await api.post('/import/products', formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         }
@@ -33,7 +32,7 @@ const ImportContacts = () => {
       setTimeout(() => setFormSuccess(''), 5000);
     },
     onError: (err) => {
-      setFormError(err.response?.data?.error || 'Failed to import contacts');
+      setFormError(err.response?.data?.error || 'Failed to import products');
       setImportResults(null);
       setTimeout(() => setFormError(''), 5000);
     }
@@ -81,27 +80,32 @@ const ImportContacts = () => {
     setFormError('');
     setFormSuccess('');
     importMutation.mutate({
-      type: contactType,
       file: selectedFile
     });
   };
 
   const downloadTemplate = () => {
-    // Create CSV template
-    const headers = contactType === 'customers' 
-      ? ['name', 'phone', 'email', 'address', 'ledger_balance']
-      : ['name', 'phone', 'email', 'address'];
+    // Create CSV template for products
+    const headers = [
+      'sku',
+      'name',
+      'type',
+      'base_unit',
+      'sale_price',
+      'cost_price',
+      'tax_rate',
+      'brand',
+      'category'
+    ];
     
     const csvContent = headers.join(',') + '\n' +
-      (contactType === 'customers'
-        ? 'John Doe,+2348012345678,john@example.com,123 Main St,0'
-        : 'ABC Suppliers,+2348012345678,supplier@example.com,456 Business Ave') + '\n';
+      'PROD-001,Example Product,standard,piece,1000.00,600.00,7.5,Example Brand,Electronics' + '\n';
 
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${contactType}_template.csv`;
+    a.download = 'products_template.csv';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -112,7 +116,7 @@ const ImportContacts = () => {
     return (
       <div className="p-6">
         <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg">
-          You do not have permission to import contacts.
+          You do not have permission to import products.
         </div>
       </div>
     );
@@ -121,8 +125,8 @@ const ImportContacts = () => {
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Import Contacts</h1>
-        <p className="text-gray-600">Import customers or suppliers from CSV or Excel files</p>
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">Import Products</h1>
+        <p className="text-gray-600">Import products from CSV or Excel files</p>
       </div>
 
       {/* Success/Error Messages */}
@@ -143,42 +147,6 @@ const ImportContacts = () => {
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Import Settings</h2>
         
         <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Contact Type
-            </label>
-            <div className="flex space-x-4">
-              <label className="flex items-center space-x-2">
-                <input
-                  type="radio"
-                  value="customers"
-                  checked={contactType === 'customers'}
-                  onChange={(e) => {
-                    setContactType(e.target.value);
-                    setSelectedFile(null);
-                    setImportResults(null);
-                  }}
-                  className="text-primary-600 focus:ring-primary-500"
-                />
-                <span>Customers</span>
-              </label>
-              <label className="flex items-center space-x-2">
-                <input
-                  type="radio"
-                  value="suppliers"
-                  checked={contactType === 'suppliers'}
-                  onChange={(e) => {
-                    setContactType(e.target.value);
-                    setSelectedFile(null);
-                    setImportResults(null);
-                  }}
-                  className="text-primary-600 focus:ring-primary-500"
-                />
-                <span>Suppliers</span>
-              </label>
-            </div>
-          </div>
-
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               File Upload
@@ -223,11 +191,11 @@ const ImportContacts = () => {
             </button>
             <button
               onClick={handleImport}
-              disabled={!selectedFile || importMutation.isLoading}
+              disabled={!selectedFile || importMutation.isPending}
               className="flex items-center space-x-2 px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Upload className="h-5 w-5" />
-              <span>{importMutation.isLoading ? 'Importing...' : 'Import Contacts'}</span>
+              <span>{importMutation.isPending ? 'Importing...' : 'Import Products'}</span>
             </button>
           </div>
         </div>
@@ -238,58 +206,43 @@ const ImportContacts = () => {
         <h2 className="text-lg font-semibold text-gray-900 mb-4">File Format Guide</h2>
         <div className="space-y-4">
           <div>
-            <h3 className="font-medium text-gray-900 mb-2">
-              {contactType === 'customers' ? 'Customer' : 'Supplier'} CSV Format
-            </h3>
+            <h3 className="font-medium text-gray-900 mb-2">Product CSV Format</h3>
             <div className="bg-gray-50 rounded-lg p-4 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-300">
-                    {contactType === 'customers' ? (
-                      <>
-                        <th className="text-left py-2 px-3">name</th>
-                        <th className="text-left py-2 px-3">phone</th>
-                        <th className="text-left py-2 px-3">email</th>
-                        <th className="text-left py-2 px-3">address</th>
-                        <th className="text-left py-2 px-3">ledger_balance</th>
-                      </>
-                    ) : (
-                      <>
-                        <th className="text-left py-2 px-3">name</th>
-                        <th className="text-left py-2 px-3">phone</th>
-                        <th className="text-left py-2 px-3">email</th>
-                        <th className="text-left py-2 px-3">address</th>
-                      </>
-                    )}
+                    <th className="text-left py-2 px-3">sku</th>
+                    <th className="text-left py-2 px-3">name</th>
+                    <th className="text-left py-2 px-3">type</th>
+                    <th className="text-left py-2 px-3">base_unit</th>
+                    <th className="text-left py-2 px-3">sale_price</th>
+                    <th className="text-left py-2 px-3">cost_price</th>
+                    <th className="text-left py-2 px-3">tax_rate</th>
+                    <th className="text-left py-2 px-3">brand</th>
+                    <th className="text-left py-2 px-3">category</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    {contactType === 'customers' ? (
-                      <>
-                        <td className="py-2 px-3">John Doe</td>
-                        <td className="py-2 px-3">+2348012345678</td>
-                        <td className="py-2 px-3">john@example.com</td>
-                        <td className="py-2 px-3">123 Main Street</td>
-                        <td className="py-2 px-3">0</td>
-                      </>
-                    ) : (
-                      <>
-                        <td className="py-2 px-3">ABC Suppliers</td>
-                        <td className="py-2 px-3">+2348012345678</td>
-                        <td className="py-2 px-3">supplier@example.com</td>
-                        <td className="py-2 px-3">456 Business Ave</td>
-                      </>
-                    )}
+                    <td className="py-2 px-3">PROD-001</td>
+                    <td className="py-2 px-3">Example Product</td>
+                    <td className="py-2 px-3">standard</td>
+                    <td className="py-2 px-3">piece</td>
+                    <td className="py-2 px-3">1000.00</td>
+                    <td className="py-2 px-3">600.00</td>
+                    <td className="py-2 px-3">7.5</td>
+                    <td className="py-2 px-3">Example Brand</td>
+                    <td className="py-2 px-3">Electronics</td>
                   </tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div className="text-sm text-gray-600 space-y-1">
-            <p><strong>Required fields:</strong> name</p>
-            <p><strong>Optional fields:</strong> phone, email, address{contactType === 'customers' && ', ledger_balance'}</p>
-            <p><strong>Note:</strong> Existing contacts with the same name or email will be updated instead of created.</p>
+            <p><strong>Required fields:</strong> sku, name, type, base_unit, sale_price</p>
+            <p><strong>Optional fields:</strong> cost_price, tax_rate, brand, category</p>
+            <p><strong>Product types:</strong> standard, compound, raw_tracked, manufactured_virtual</p>
+            <p><strong>Note:</strong> Existing products with the same SKU will be updated instead of created.</p>
           </div>
         </div>
       </div>
@@ -341,18 +294,7 @@ const ImportContacts = () => {
   );
 };
 
-export default ImportContacts;
-
-
-
-
-
-
-
-
-
-
-
+export default ImportProducts;
 
 
 

@@ -33,6 +33,7 @@ import categoryRoutes from './categoryRoutes.js';
 import warrantyRoutes from './warrantyRoutes.js';
 import batchSettingsRoutes from './batchSettingsRoutes.js';
 import ledgerRoutes from './ledgerRoutes.js';
+import productionRoutes from './productionRoutes.js';
 
 const router = express.Router();
 
@@ -70,6 +71,7 @@ router.use('/categories', categoryRoutes);
 router.use('/warranties', warrantyRoutes);
 router.use('/settings/batches', batchSettingsRoutes);
 router.use('/ledger', ledgerRoutes);
+router.use('/production', productionRoutes);
 router.use('/', importExportRoutes);
 
 export default router;

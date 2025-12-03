@@ -94,7 +94,7 @@ export const importData = async (req, res, next) => {
   try {
     // CRITICAL: Validate entity FIRST (fail fast - before any file processing)
     const { entity } = req.params;
-    const validEntities = ['products', 'inventory', 'customers', 'suppliers'];
+    const validEntities = ['products', 'inventory', 'customers', 'suppliers', 'categories', 'units'];
 
     if (!entity || !validEntities.includes(entity)) {
       console.error('[Import] Invalid entity:', entity);
@@ -170,6 +170,12 @@ export const importData = async (req, res, next) => {
           break;
         case 'suppliers':
           results = await importService.importSuppliers(data, req.user);
+          break;
+        case 'categories':
+          results = await importService.importCategories(data, req.user);
+          break;
+        case 'units':
+          results = await importService.importUnits(data, req.user);
           break;
         default:
           return res.status(400).json({ error: 'Invalid entity type' });

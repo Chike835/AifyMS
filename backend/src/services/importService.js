@@ -1,4 +1,4 @@
-import { Product, InventoryBatch, Branch, Customer, Supplier } from '../models/index.js';
+import { Product, InventoryBatch, Branch, Customer, Supplier, Category, Unit } from '../models/index.js';
 import { Op } from 'sequelize';
 import XLSX from 'xlsx';
 
@@ -668,6 +668,194 @@ export const importSuppliers = async (data, user, errors = []) => {
         results.updated++;
       } else {
         await Supplier.create(supplierData);
+        results.created++;
+      }
+    } catch (error) {
+      results.errors.push({
+        row: rowNum,
+        error: error.message || 'Unknown error'
+      });
+      results.skipped++;
+    }
+  }
+
+  return results;
+};
+
+/**
+ * Import categories from CSV/JSON data
+ * Expected columns: name, parent_name, description, is_active
+ */
+export const importCategories = async (data, user, errors = []) => {
+  const results = {
+    created: 0,
+    updated: 0,
+    skipped: 0,
+    errors: []
+  };
+
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    const rowNum = i + 2;
+
+    try {
+      // Validate required fields
+      if (!row.name) {
+        results.errors.push({
+          row: rowNum,
+          error: 'Missing required field: name'
+        });
+        results.skipped++;
+        continue;
+      }
+
+      // Find parent category if parent_name is provided
+      let parentId = null;
+      if (row.parent_name) {
+        const parentCategory = await Category.findOne({
+          where: { name: row.parent_name.trim() }
+        });
+        if (parentCategory) {
+          parentId = parentCategory.id;
+        } else {
+          results.errors.push({
+            row: rowNum,
+            error: `Parent category "${row.parent_name}" not found`
+          });
+          results.skipped++;
+          continue;
+        }
+      }
+
+      // Check if category exists (by name and parent_id)
+      const existingCategory = await Category.findOne({
+        where: {
+          name: row.name.trim(),
+          parent_id: parentId
+        }
+      });
+
+      const categoryData = {
+        name: row.name.trim(),
+        parent_id: parentId,
+        description: row.description ? row.description.trim() : null,
+        is_active: row.is_active !== undefined 
+          ? (String(row.is_active).toLowerCase() === 'true' || row.is_active === '1' || row.is_active === 1)
+          : true
+      };
+
+      if (existingCategory) {
+        await existingCategory.update(categoryData);
+        results.updated++;
+      } else {
+        await Category.create(categoryData);
+        results.created++;
+      }
+    } catch (error) {
+      results.errors.push({
+        row: rowNum,
+        error: error.message || 'Unknown error'
+      });
+      results.skipped++;
+    }
+  }
+
+  return results;
+};
+
+/**
+ * Import units from CSV/JSON data
+ * Expected columns: name, abbreviation, base_unit_name, conversion_factor, is_base_unit, is_active
+ */
+export const importUnits = async (data, user, errors = []) => {
+  const results = {
+    created: 0,
+    updated: 0,
+    skipped: 0,
+    errors: []
+  };
+
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    const rowNum = i + 2;
+
+    try {
+      // Validate required fields
+      if (!row.name || !row.abbreviation) {
+        results.errors.push({
+          row: rowNum,
+          error: 'Missing required fields: name, abbreviation'
+        });
+        results.skipped++;
+        continue;
+      }
+
+      // Find base unit if base_unit_name is provided
+      let baseUnitId = null;
+      if (row.base_unit_name) {
+        const baseUnit = await Unit.findOne({
+          where: { name: row.base_unit_name.trim() }
+        });
+        if (baseUnit) {
+          baseUnitId = baseUnit.id;
+        } else {
+          results.errors.push({
+            row: rowNum,
+            error: `Base unit "${row.base_unit_name}" not found`
+          });
+          results.skipped++;
+          continue;
+        }
+      }
+
+      // Parse conversion_factor
+      const conversionFactor = row.conversion_factor !== undefined && row.conversion_factor !== ''
+        ? parseFloat(row.conversion_factor)
+        : 1;
+
+      if (isNaN(conversionFactor) || conversionFactor <= 0) {
+        results.errors.push({
+          row: rowNum,
+          error: 'Invalid conversion_factor. Must be a positive number'
+        });
+        results.skipped++;
+        continue;
+      }
+
+      // Parse is_base_unit
+      const isBaseUnit = row.is_base_unit !== undefined
+        ? (String(row.is_base_unit).toLowerCase() === 'true' || row.is_base_unit === '1' || row.is_base_unit === 1)
+        : false;
+
+      // Parse is_active
+      const isActive = row.is_active !== undefined
+        ? (String(row.is_active).toLowerCase() === 'true' || row.is_active === '1' || row.is_active === 1)
+        : true;
+
+      // Check if unit exists (by name or abbreviation)
+      const existingUnit = await Unit.findOne({
+        where: {
+          [Op.or]: [
+            { name: row.name.trim() },
+            { abbreviation: row.abbreviation.trim() }
+          ]
+        }
+      });
+
+      const unitData = {
+        name: row.name.trim(),
+        abbreviation: row.abbreviation.trim(),
+        base_unit_id: baseUnitId,
+        conversion_factor: conversionFactor,
+        is_base_unit: isBaseUnit,
+        is_active: isActive
+      };
+
+      if (existingUnit) {
+        await existingUnit.update(unitData);
+        results.updated++;
+      } else {
+        await Unit.create(unitData);
         results.created++;
       }
     } catch (error) {

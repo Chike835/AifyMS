@@ -45,7 +45,7 @@ const SalesOrder = sequelize.define('SalesOrder', {
     defaultValue: 'unpaid'
   },
   production_status: {
-    type: DataTypes.ENUM('queue', 'produced', 'delivered', 'na'),
+    type: DataTypes.ENUM('queue', 'processing', 'produced', 'delivered', 'na'),
     defaultValue: 'na'
   },
   is_legacy: {

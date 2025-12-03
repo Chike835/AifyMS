@@ -9,6 +9,69 @@ import { multiply, sum, equals, subtract, lessThan, lessThanOrEqual } from '../u
  */
 
 /**
+ * Calculate required raw material quantity based on sales item quantity and recipe
+ * 
+ * @param {Object} params - Calculation parameters
+ * @param {Object} params.virtualProduct - Product model instance (manufactured_virtual)
+ * @param {number|string} params.salesQuantity - Quantity of the virtual product to be sold
+ * @param {Object} params.transaction - Sequelize transaction object (optional)
+ * @returns {Promise<{success: boolean, requiredQuantity?: number, error?: string, recipe?: Object}>} Result object
+ */
+export const calculateRequiredRawMaterial = async ({
+  virtualProduct,
+  salesQuantity,
+  transaction = null
+}) => {
+  try {
+    if (!virtualProduct || virtualProduct.type !== 'manufactured_virtual') {
+      return {
+        success: false,
+        error: 'Product must be of type manufactured_virtual'
+      };
+    }
+
+    if (!salesQuantity || salesQuantity <= 0) {
+      return {
+        success: false,
+        error: 'Sales quantity must be greater than 0'
+      };
+    }
+
+    // Get recipe for this virtual product
+    const recipe = await Recipe.findOne({
+      where: { virtual_product_id: virtualProduct.id },
+      transaction
+    });
+
+    if (!recipe) {
+      return {
+        success: false,
+        error: `No recipe found for product: ${virtualProduct.name}`
+      };
+    }
+
+    // Calculate required raw quantity
+    const requiredQuantity = multiply(salesQuantity, recipe.conversion_factor);
+
+    return {
+      success: true,
+      requiredQuantity,
+      recipe: {
+        id: recipe.id,
+        name: recipe.name,
+        conversion_factor: recipe.conversion_factor,
+        wastage_margin: recipe.wastage_margin
+      }
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message || 'Error calculating required raw material'
+    };
+  }
+};
+
+/**
  * Process manufactured virtual item with inventory deductions
  * 
  * @param {Object} params - Processing parameters
@@ -223,7 +286,8 @@ export const processManufacturedVirtualItemForConversion = async ({
 
 export default {
   processManufacturedVirtualItem,
-  processManufacturedVirtualItemForConversion
+  processManufacturedVirtualItemForConversion,
+  calculateRequiredRawMaterial
 };
 
 

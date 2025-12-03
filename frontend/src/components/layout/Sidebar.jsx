@@ -35,9 +35,10 @@ import {
   Plus,
   List,
   Home,
+  X,
 } from 'lucide-react';
 
-const Sidebar = () => {
+const Sidebar = ({ isCollapsed, onToggle }) => {
   const { user, hasPermission, logout } = useAuth();
   const location = useLocation();
   const [expandedGroups, setExpandedGroups] = useState({});
@@ -79,10 +80,11 @@ const Sidebar = () => {
       type: 'group',
       name: 'Contacts',
       icon: UserCheck,
-      permission: 'payment_view',
+      permission: null,
       items: [
         { name: 'Customers', path: '/customers', icon: UserCheck, permission: 'payment_view' },
         { name: 'Suppliers', path: '/suppliers', icon: Building2, permission: 'product_view' },
+        { name: 'Payment Portal', path: '/payments', icon: CreditCard, permission: 'payment_view' },
         { name: 'Import Contacts', path: '/import-contacts', icon: Upload, permission: 'data_import' },
       ],
     },
@@ -118,6 +120,7 @@ const Sidebar = () => {
             { name: 'Units', path: '/inventory/settings/units', icon: Settings, permission: 'product_view' },
             { name: 'Categories', path: '/inventory/settings/categories', icon: Settings, permission: 'product_view' },
             { name: 'Batches', path: '/inventory/settings/batches', icon: Settings, permission: 'settings_manage' },
+            { name: 'Gauges & Colors', path: '/inventory/settings/gauges-colors', icon: Settings, permission: 'settings_manage' },
             { name: 'Brands', path: '/settings', icon: Settings, permission: 'product_view', action: 'brands' },
             { name: 'Warranties', path: '/inventory/settings/warranties', icon: Settings, permission: 'product_view' },
           ],
@@ -362,9 +365,21 @@ const Sidebar = () => {
 
   return (
     <div className="w-64 bg-gray-900 text-white min-h-screen flex flex-col">
-      <div className="p-6 border-b border-gray-800">
-        <h1 className="text-xl font-bold">Aify ERP</h1>
-        <p className="text-sm text-gray-400 mt-1">v2.0.0</p>
+      <div className="p-6 border-b border-gray-800 flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold">Aify ERP</h1>
+          <p className="text-sm text-gray-400 mt-1">v2.0.0</p>
+        </div>
+        {/* Close button for mobile */}
+        {onToggle && (
+          <button
+            onClick={onToggle}
+            className="lg:hidden text-gray-400 hover:text-white transition-colors"
+            aria-label="Close sidebar"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        )}
       </div>
 
       <nav className="flex-1 p-4 space-y-2 overflow-y-auto">

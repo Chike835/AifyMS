@@ -87,6 +87,7 @@ AMS/
 /products                   Products
 /products/update-price      Update Prices
 /inventory/print-labels     Print Labels
+/inventory/import           Import Products
 /manufacturing/status       Production Status
 /manufacturing/recipes      Recipes
 /production-queue           Production Queue
