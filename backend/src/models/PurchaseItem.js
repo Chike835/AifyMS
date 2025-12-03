@@ -50,6 +50,24 @@ const PurchaseItem = sequelize.define('PurchaseItem', {
       key: 'id'
     }
   },
+  // Purchase unit conversion fields
+  purchase_unit_id: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    references: {
+      model: 'units',
+      key: 'id'
+    }
+  },
+  purchased_quantity: {
+    type: DataTypes.DECIMAL(15, 3),
+    allowNull: true
+  },
+  conversion_factor: {
+    type: DataTypes.DECIMAL(15, 6),
+    defaultValue: 1,
+    allowNull: true
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

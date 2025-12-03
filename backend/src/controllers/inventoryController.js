@@ -1,4 +1,4 @@
-import { InventoryBatch, Product, Branch, BatchType, StockTransfer, StockAdjustment, User } from '../models/index.js';
+import { InventoryBatch, Product, Branch, BatchType, StockTransfer, StockAdjustment, User, ActivityLog, Category } from '../models/index.js';
 import { Op } from 'sequelize';
 import sequelize from '../config/db.js';
 
@@ -443,6 +443,168 @@ export const getLowStock = async (req, res, next) => {
       count: batches.length
     });
   } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/inventory/convert-batch
+ * Convert Loose material into specific Coils (Slitting workflow)
+ */
+export const convertBatch = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { source_batch_id, new_instance_code, weight, attribute_data = {} } = req.body;
+    const user_id = req.user.id;
+
+    if (!source_batch_id || !new_instance_code || !weight) {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        error: 'Missing required fields: source_batch_id, new_instance_code, weight' 
+      });
+    }
+
+    if (parseFloat(weight) <= 0) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Weight must be greater than 0' });
+    }
+
+    // Lock and fetch source batch
+    const sourceBatch = await InventoryBatch.findByPk(source_batch_id, {
+      lock: transaction.LOCK.UPDATE,
+      transaction,
+      include: [
+        { model: Product, as: 'product', attributes: ['id', 'name', 'sku', 'type', 'base_unit'] },
+        { model: Branch, as: 'branch', attributes: ['id', 'name'] },
+        { model: BatchType, as: 'batch_type', attributes: ['id', 'name'] },
+        { model: Category, as: 'category', attributes: ['id', 'name', 'attribute_schema'] }
+      ]
+    });
+
+    if (!sourceBatch) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Source batch not found' });
+    }
+
+    // Check permissions
+    if (req.user.role_name !== 'Super Admin' && req.user.branch_id !== sourceBatch.branch_id) {
+      await transaction.rollback();
+      return res.status(403).json({ error: 'You do not have permission to convert batches from this branch' });
+    }
+
+    // Verify source batch is Loose type
+    const looseBatchType = await BatchType.findOne({
+      where: { name: 'Loose', is_active: true },
+      transaction
+    });
+
+    if (!looseBatchType || sourceBatch.batch_type_id !== looseBatchType.id) {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        error: 'Source batch must be of type "Loose" for slitting operation' 
+      });
+    }
+
+    // Check if sufficient quantity available
+    const weightToConvert = parseFloat(weight);
+    if (weightToConvert > parseFloat(sourceBatch.remaining_quantity)) {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        error: `Insufficient quantity. Available: ${sourceBatch.remaining_quantity}, Requested: ${weight}` 
+      });
+    }
+
+    // Check if new instance code already exists
+    const existingBatch = await InventoryBatch.findOne({
+      where: { instance_code: new_instance_code.trim() },
+      transaction
+    });
+
+    if (existingBatch) {
+      await transaction.rollback();
+      return res.status(409).json({ 
+        error: `Instance code "${new_instance_code}" already exists` 
+      });
+    }
+
+    // Find Coil batch type
+    const coilBatchType = await BatchType.findOne({
+      where: { name: 'Coil', is_active: true },
+      transaction
+    });
+
+    if (!coilBatchType) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Coil batch type not found. Please create it in Batch Settings.' });
+    }
+
+    // Merge attribute data from source batch and provided data
+    const mergedAttributeData = {
+      ...(sourceBatch.attribute_data || {}),
+      ...attribute_data
+    };
+
+    // Create child batch (Coil)
+    const childBatch = await InventoryBatch.create({
+      product_id: sourceBatch.product_id,
+      branch_id: sourceBatch.branch_id,
+      category_id: sourceBatch.category_id,
+      instance_code: new_instance_code.trim(),
+      batch_type_id: coilBatchType.id,
+      grouped: true,
+      batch_identifier: new_instance_code.trim(),
+      initial_quantity: weightToConvert,
+      remaining_quantity: weightToConvert,
+      status: 'in_stock',
+      attribute_data: mergedAttributeData
+    }, { transaction });
+
+    // Deduct weight from source batch
+    sourceBatch.remaining_quantity = parseFloat(sourceBatch.remaining_quantity) - weightToConvert;
+    if (sourceBatch.remaining_quantity <= 0) {
+      sourceBatch.status = 'depleted';
+    }
+    await sourceBatch.save({ transaction });
+
+    // Log activity
+    try {
+      await ActivityLog.create({
+        user_id,
+        action_type: 'CREATE',
+        module: 'inventory',
+        description: `Slitting: Converted ${weightToConvert} ${sourceBatch.product?.base_unit || ''} from Loose batch to Coil ${new_instance_code}`,
+        branch_id: sourceBatch.branch_id,
+        reference_type: 'inventory_batch',
+        reference_id: childBatch.id
+      }, { transaction });
+    } catch (logError) {
+      console.error('Error creating activity log:', logError);
+      // Don't fail the operation if logging fails
+    }
+
+    await transaction.commit();
+
+    // Reload with associations
+    const childBatchWithDetails = await InventoryBatch.findByPk(childBatch.id, {
+      include: [
+        { model: Product, as: 'product', attributes: ['id', 'sku', 'name', 'base_unit'] },
+        { model: Branch, as: 'branch', attributes: ['id', 'name', 'code'] },
+        { model: BatchType, as: 'batch_type', attributes: ['id', 'name', 'description'] },
+        { model: Category, as: 'category', attributes: ['id', 'name'] }
+      ]
+    });
+
+    res.status(201).json({
+      message: 'Batch converted successfully (Slitting completed)',
+      child_batch: childBatchWithDetails,
+      source_batch: {
+        id: sourceBatch.id,
+        remaining_quantity: sourceBatch.remaining_quantity,
+        status: sourceBatch.status
+      }
+    });
+  } catch (error) {
+    await transaction.rollback();
     next(error);
   }
 };

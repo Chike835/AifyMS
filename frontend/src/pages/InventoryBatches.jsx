@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { Package, Plus, ArrowRightLeft, Edit, Trash2, Search, Filter } from 'lucide-react';
 import ListToolbar from '../components/common/ListToolbar';
 import ExportModal from '../components/import/ExportModal';
+import AttributeRenderer from '../components/AttributeRenderer';
+import SlittingModal from '../components/SlittingModal';
 
 const InventoryBatches = () => {
   const { hasPermission, user } = useAuth();
@@ -14,6 +16,7 @@ const InventoryBatches = () => {
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showSlittingModal, setShowSlittingModal] = useState(false);
   const [selectedBatch, setSelectedBatch] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -99,6 +102,38 @@ const InventoryBatches = () => {
     },
     enabled: !!formData.category_id,
   });
+
+  // Fetch selected category details (for attribute schema)
+  const { data: selectedCategory } = useQuery({
+    queryKey: ['category', formData.category_id],
+    queryFn: async () => {
+      if (!formData.category_id) return null;
+      const response = await api.get(`/categories/${formData.category_id}`);
+      return response.data.category || null;
+    },
+    enabled: !!formData.category_id
+  });
+
+  // Fetch selected product details (for default attribute values)
+  const { data: selectedProduct } = useQuery({
+    queryKey: ['product', formData.product_id],
+    queryFn: async () => {
+      if (!formData.product_id) return null;
+      const response = await api.get(`/products/${formData.product_id}`);
+      return response.data.product || null;
+    },
+    enabled: !!formData.product_id
+  });
+
+  // Update attribute_data when product or category changes
+  useEffect(() => {
+    if (selectedProduct?.attribute_default_values && selectedCategory?.attribute_schema) {
+      setFormData(prev => ({
+        ...prev,
+        attribute_data: { ...selectedProduct.attribute_default_values, ...prev.attribute_data }
+      }));
+    }
+  }, [selectedProduct?.attribute_default_values, selectedCategory?.attribute_schema]);
 
   // Create batch mutation
   const createMutation = useMutation({
@@ -248,6 +283,11 @@ const InventoryBatches = () => {
   const handleAdjust = (batch) => {
     setSelectedBatch(batch);
     setShowAdjustModal(true);
+  };
+
+  const handleSlitting = (batch) => {
+    setSelectedBatch(batch);
+    setShowSlittingModal(true);
   };
 
   if (isLoading) {
@@ -452,6 +492,15 @@ const InventoryBatches = () => {
                             title="Transfer"
                           >
                             <ArrowRightLeft className="h-4 w-4" />
+                          </button>
+                        )}
+                        {hasPermission('batch_create') && batch.batch_type?.name === 'Loose' && (
+                          <button
+                            onClick={() => handleSlitting(batch)}
+                            className="text-green-600 hover:text-green-900"
+                            title="Slitting (Convert to Coil)"
+                          >
+                            <Package className="h-4 w-4" />
                           </button>
                         )}
                         {hasPermission('batch_edit', 'stock_adjust') && (
@@ -766,6 +815,20 @@ const InventoryBatches = () => {
                   </div>
                 </div>
               )}
+
+              {/* Dynamic Attributes Section for Edit */}
+              {selectedCategory?.attribute_schema && selectedCategory.attribute_schema.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <h4 className="text-sm font-semibold text-gray-900 mb-4">Batch Attributes</h4>
+                  <AttributeRenderer
+                    schema={selectedCategory.attribute_schema}
+                    values={formData.attribute_data || {}}
+                    onChange={(newValues) => setFormData({ ...formData, attribute_data: newValues })}
+                    defaultValues={selectedProduct?.attribute_default_values || {}}
+                    className="grid grid-cols-2 gap-4"
+                  />
+                </div>
+              )}
               <div className="flex space-x-4 pt-4">
                 <button
                   type="button"
@@ -827,6 +890,16 @@ const InventoryBatches = () => {
           </div>
         </div>
       )}
+
+      {/* Slitting Modal */}
+      <SlittingModal
+        isOpen={showSlittingModal}
+        onClose={() => {
+          setShowSlittingModal(false);
+          setSelectedBatch(null);
+        }}
+        sourceBatch={selectedBatch}
+      />
     </div>
   );
 };

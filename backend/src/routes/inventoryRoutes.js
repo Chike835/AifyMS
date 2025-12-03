@@ -7,7 +7,8 @@ import {
   generateLabels,
   getLabelTemplate,
   getLowStock,
-  getBatchHistory
+  getBatchHistory,
+  convertBatch
 } from '../controllers/inventoryController.js';
 import {
   createBatch,
@@ -67,6 +68,9 @@ router.get('/low-stock', requirePermission('product_view'), getLowStock);
 
 // GET /api/inventory/batches/:id/history - Get batch history (requires product_view)
 router.get('/batches/:id/history', requirePermission('product_view'), getBatchHistory);
+
+// POST /api/inventory/convert-batch - Convert Loose to Coil (Slitting) (requires batch_create)
+router.post('/convert-batch', requirePermission('batch_create'), convertBatch);
 
 export default router;
 

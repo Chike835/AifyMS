@@ -71,6 +71,37 @@ export const createProduct = async (req, res, next) => {
       return res.status(409).json({ error: 'Product with this SKU already exists' });
     }
 
+    // Validate attribute_default_values against category schema if provided
+    if (category_id && req.body.attribute_default_values) {
+      const category = await Category.findByPk(category_id, { transaction });
+      if (category && category.attribute_schema && Array.isArray(category.attribute_schema)) {
+        const schema = category.attribute_schema;
+        const providedAttributes = req.body.attribute_default_values || {};
+        
+        // Validate each attribute in schema
+        for (const attr of schema) {
+          if (attr.required && !providedAttributes[attr.name]) {
+            await transaction.rollback();
+            return res.status(400).json({ 
+              error: `Required attribute "${attr.name}" is missing` 
+            });
+          }
+          
+          // Validate attribute type and values
+          if (providedAttributes[attr.name] !== undefined) {
+            if (attr.type === 'select' && attr.options) {
+              if (!attr.options.includes(providedAttributes[attr.name])) {
+                await transaction.rollback();
+                return res.status(400).json({ 
+                  error: `Invalid value for attribute "${attr.name}". Must be one of: ${attr.options.join(', ')}` 
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+
     // Create product
     const product = await Product.create({
       sku,
@@ -99,7 +130,8 @@ export const createProduct = async (req, res, next) => {
       alert_quantity: alert_quantity || 0,
       reorder_quantity: reorder_quantity || 0,
       woocommerce_enabled: woocommerce_enabled || false,
-      is_active: true
+      is_active: true,
+      attribute_default_values: req.body.attribute_default_values || {}
     }, { transaction });
 
     // Handle business location assignments
@@ -426,6 +458,38 @@ export const updateProduct = async (req, res, next) => {
     if (reorder_quantity !== undefined) updateData.reorder_quantity = reorder_quantity || 0;
     if (woocommerce_enabled !== undefined) updateData.woocommerce_enabled = woocommerce_enabled;
     if (is_active !== undefined) updateData.is_active = is_active;
+    if (req.body.attribute_default_values !== undefined) {
+      // Validate attribute_default_values against category schema if category_id exists
+      const productCategoryId = category_id !== undefined ? category_id : product.category_id;
+      if (productCategoryId) {
+        const category = await Category.findByPk(productCategoryId, { transaction });
+        if (category && category.attribute_schema && Array.isArray(category.attribute_schema)) {
+          const schema = category.attribute_schema;
+          const providedAttributes = req.body.attribute_default_values || {};
+          
+          for (const attr of schema) {
+            if (attr.required && !providedAttributes[attr.name]) {
+              await transaction.rollback();
+              return res.status(400).json({ 
+                error: `Required attribute "${attr.name}" is missing` 
+              });
+            }
+            
+            if (providedAttributes[attr.name] !== undefined) {
+              if (attr.type === 'select' && attr.options) {
+                if (!attr.options.includes(providedAttributes[attr.name])) {
+                  await transaction.rollback();
+                  return res.status(400).json({ 
+                    error: `Invalid value for attribute "${attr.name}". Must be one of: ${attr.options.join(', ')}` 
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+      updateData.attribute_default_values = req.body.attribute_default_values;
+    }
 
     await product.update(updateData, { transaction });
 

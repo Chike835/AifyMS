@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronUp, ChevronDown, Plus, ImageIcon, X } from 'lucide-react';
 import api from '../utils/api';
+import AttributeRenderer from '../components/AttributeRenderer';
 
 // Toggle Switch Component
 const Toggle = ({ checked, onChange, label }) => (
@@ -180,6 +181,7 @@ const AddProduct = () => {
   const [businessLocationIds, setBusinessLocationIds] = useState([]);
   const [weight, setWeight] = useState('');
   const [reorderQuantity, setReorderQuantity] = useState('');
+  const [attributeValues, setAttributeValues] = useState({});
 
   // Pricing
   const [isTaxable, setIsTaxable] = useState(false);
@@ -215,6 +217,17 @@ const AddProduct = () => {
       const data = res.data;
       return Array.isArray(data) ? data : (data.categories || []);
     }
+  });
+
+  // Fetch selected category details (for attribute schema)
+  const { data: selectedCategory } = useQuery({
+    queryKey: ['category', categoryId],
+    queryFn: async () => {
+      if (!categoryId) return null;
+      const res = await api.get(`/categories/${categoryId}`);
+      return res.data.category || null;
+    },
+    enabled: !!categoryId
   });
 
   const { data: brandsData } = useQuery({
@@ -385,7 +398,8 @@ const AddProduct = () => {
         reorder_quantity: reorderQuantity ? parseFloat(reorderQuantity) : null,
         manage_stock: manageStock,
         not_for_selling: notForSelling,
-        business_location_ids: businessLocationIds
+        business_location_ids: businessLocationIds,
+        attribute_default_values: Object.keys(attributeValues).length > 0 ? attributeValues : undefined
       };
 
       const response = await api.post('/products', payload);
@@ -523,6 +537,19 @@ const AddProduct = () => {
               onChange={setReorderQuantity}
             />
           </div>
+
+          {/* Dynamic Attributes Section */}
+          {selectedCategory?.attribute_schema && selectedCategory.attribute_schema.length > 0 && (
+            <div className="mt-6 pt-6 border-t border-gray-200">
+              <h4 className="text-sm font-semibold text-gray-900 mb-4">Product Attributes</h4>
+              <AttributeRenderer
+                schema={selectedCategory.attribute_schema}
+                values={attributeValues}
+                onChange={setAttributeValues}
+                className="grid grid-cols-1 md:grid-cols-2 gap-6"
+              />
+            </div>
+          )}
         </CollapsibleSection>
 
         {/* Pricing Section */}

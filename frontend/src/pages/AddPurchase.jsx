@@ -13,7 +13,7 @@ const AddPurchase = () => {
   const [supplierId, setSupplierId] = useState('');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState([
-    { product_id: '', quantity: '', unit_cost: '', instance_code: '' }
+    { product_id: '', quantity: '', unit_cost: '', instance_code: '', purchase_unit_id: '', purchased_quantity: '' }
   ]);
 
   // Fetch suppliers
@@ -31,6 +31,15 @@ const AddPurchase = () => {
     queryFn: async () => {
       const response = await api.get('/products');
       return response.data.products || [];
+    }
+  });
+
+  // Fetch units
+  const { data: unitsData } = useQuery({
+    queryKey: ['units'],
+    queryFn: async () => {
+      const response = await api.get('/units');
+      return Array.isArray(response.data) ? response.data : (response.data.units || []);
     }
   });
 
@@ -56,6 +65,7 @@ const AddPurchase = () => {
 
   const suppliers = suppliersData || [];
   const products = productsData || [];
+  const units = unitsData || [];
 
   // Get product by ID
   const getProduct = (productId) => {
@@ -70,7 +80,7 @@ const AddPurchase = () => {
 
   // Add new item row
   const addItem = () => {
-    setItems([...items, { product_id: '', quantity: '', unit_cost: '', instance_code: '' }]);
+    setItems([...items, { product_id: '', quantity: '', unit_cost: '', instance_code: '', purchase_unit_id: '', purchased_quantity: '' }]);
   };
 
   // Remove item row
@@ -79,6 +89,56 @@ const AddPurchase = () => {
       const newItems = items.filter((_, i) => i !== index);
       setItems(newItems);
     }
+  };
+
+  // Get units for a product (all units that can convert to product's base unit)
+  const getUnitsForProduct = (productId) => {
+    const product = getProduct(productId);
+    if (!product || !product.unit_id) return units;
+    
+    // Return all units, but prioritize the product's base unit
+    return units.sort((a, b) => {
+      if (a.id === product.unit_id) return -1;
+      if (b.id === product.unit_id) return 1;
+      return 0;
+    });
+  };
+
+  // Calculate conversion factor and base quantity
+  const calculateConversion = (item) => {
+    const product = getProduct(item.product_id);
+    if (!product || !item.purchase_unit_id || !item.purchased_quantity) {
+      return { baseQuantity: parseFloat(item.quantity) || 0, conversionFactor: 1, purchaseUnit: null };
+    }
+
+    const purchaseUnit = units.find(u => u.id === item.purchase_unit_id);
+    const baseUnit = units.find(u => u.id === product.unit_id);
+    
+    if (!purchaseUnit || !baseUnit) {
+      return { baseQuantity: parseFloat(item.quantity) || 0, conversionFactor: 1, purchaseUnit };
+    }
+
+    // If same unit, no conversion
+    if (purchaseUnit.id === baseUnit.id) {
+      return { 
+        baseQuantity: parseFloat(item.purchased_quantity) || 0, 
+        conversionFactor: 1, 
+        purchaseUnit 
+      };
+    }
+
+    // Calculate conversion factor
+    let conversionFactor = 1;
+    if (purchaseUnit.base_unit_id === baseUnit.id) {
+      conversionFactor = parseFloat(purchaseUnit.conversion_factor) || 1;
+    } else if (baseUnit.base_unit_id === purchaseUnit.id) {
+      conversionFactor = 1 / (parseFloat(baseUnit.conversion_factor) || 1);
+    } else if (purchaseUnit.is_base_unit && baseUnit.base_unit_id === purchaseUnit.id) {
+      conversionFactor = 1 / (parseFloat(baseUnit.conversion_factor) || 1);
+    }
+
+    const baseQuantity = (parseFloat(item.purchased_quantity) || 0) * conversionFactor;
+    return { baseQuantity, conversionFactor, purchaseUnit };
   };
 
   // Update item field
@@ -96,6 +156,16 @@ const AddPurchase = () => {
       if (product?.cost_price) {
         newItems[index].unit_cost = parseFloat(product.cost_price).toFixed(2);
       }
+      // Reset purchase unit to product's base unit
+      if (product?.unit_id) {
+        newItems[index].purchase_unit_id = product.unit_id;
+      }
+    }
+
+    // If purchase_unit_id or purchased_quantity changes, update base quantity
+    if (field === 'purchase_unit_id' || field === 'purchased_quantity') {
+      const conversion = calculateConversion(newItems[index]);
+      newItems[index].quantity = conversion.baseQuantity.toFixed(3);
     }
 
     setItems(newItems);
@@ -141,12 +211,17 @@ const AddPurchase = () => {
     const purchaseData = {
       supplier_id: supplierId || null,
       notes: notes.trim() || null,
-      items: validItems.map(item => ({
-        product_id: item.product_id,
-        quantity: parseFloat(item.quantity),
-        unit_cost: parseFloat(item.unit_cost),
-        instance_code: item.instance_code?.trim() || null
-      }))
+      items: validItems.map(item => {
+        const conversion = calculateConversion(item);
+        return {
+          product_id: item.product_id,
+          quantity: conversion.baseQuantity,
+          unit_cost: parseFloat(item.unit_cost),
+          instance_code: item.instance_code?.trim() || null,
+          purchase_unit_id: item.purchase_unit_id || null,
+          purchased_quantity: item.purchase_unit_id ? parseFloat(item.purchased_quantity || item.quantity) : null
+        };
+      })
     };
 
     createMutation.mutate(purchaseData);
@@ -243,9 +318,9 @@ const AddPurchase = () => {
 
               return (
                 <div key={index} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-14 gap-4">
                     {/* Product Selection */}
-                    <div className="md:col-span-4">
+                    <div className="md:col-span-3">
                       <label className="block text-xs font-medium text-gray-500 mb-1">
                         Product *
                       </label>
@@ -264,25 +339,62 @@ const AddPurchase = () => {
                       </select>
                     </div>
 
-                    {/* Quantity */}
+                    {/* Purchase Unit */}
                     <div className="md:col-span-2">
                       <label className="block text-xs font-medium text-gray-500 mb-1">
-                        Quantity * {product?.base_unit ? `(${product.base_unit})` : ''}
+                        Purchase Unit
+                      </label>
+                      <select
+                        value={item.purchase_unit_id || product?.unit_id || ''}
+                        onChange={(e) => updateItem(index, 'purchase_unit_id', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                      >
+                        <option value="">Select Unit</option>
+                        {getUnitsForProduct(item.product_id).map((unit) => (
+                          <option key={unit.id} value={unit.id}>
+                            {unit.name} ({unit.abbreviation})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Purchased Quantity */}
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-medium text-gray-500 mb-1">
+                        Purchased Qty *
                       </label>
                       <input
                         type="number"
                         step="0.001"
                         min="0.001"
-                        value={item.quantity}
-                        onChange={(e) => updateItem(index, 'quantity', e.target.value)}
+                        value={item.purchased_quantity || item.quantity}
+                        onChange={(e) => updateItem(index, 'purchased_quantity', e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
                         placeholder="0.00"
                         required
                       />
                     </div>
 
-                    {/* Unit Cost */}
+                    {/* Stored Quantity (Base Unit) - Read-only preview */}
                     <div className="md:col-span-2">
+                      <label className="block text-xs font-medium text-gray-500 mb-1">
+                        Stored Qty {product?.base_unit ? `(${product.base_unit})` : ''}
+                      </label>
+                      <div className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-sm text-gray-700">
+                        {(() => {
+                          const conversion = calculateConversion(item);
+                          return conversion.baseQuantity.toFixed(3);
+                        })()}
+                      </div>
+                      {item.purchase_unit_id && item.purchase_unit_id !== product?.unit_id && (
+                        <p className="text-xs text-blue-600 mt-1">
+                          Conversion: {calculateConversion(item).conversionFactor.toFixed(4)}x
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Unit Cost */}
+                    <div className="md:col-span-1">
                       <label className="block text-xs font-medium text-gray-500 mb-1">
                         Unit Cost *
                       </label>
@@ -299,7 +411,7 @@ const AddPurchase = () => {
                     </div>
 
                     {/* Instance Code (for raw_tracked) */}
-                    <div className="md:col-span-2">
+                    <div className="md:col-span-1">
                       <label className="block text-xs font-medium text-gray-500 mb-1">
                         {isTracked ? 'Coil/Pallet # *' : 'Instance Code'}
                       </label>
@@ -322,7 +434,7 @@ const AddPurchase = () => {
                     </div>
 
                     {/* Subtotal & Delete */}
-                    <div className="md:col-span-2 flex items-end justify-between">
+                    <div className="md:col-span-1 flex items-end justify-between">
                       <div>
                         <label className="block text-xs font-medium text-gray-500 mb-1">
                           Subtotal

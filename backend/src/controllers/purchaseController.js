@@ -6,7 +6,8 @@ import {
   Supplier, 
   Branch, 
   User, 
-  InventoryBatch 
+  InventoryBatch,
+  Unit
 } from '../models/index.js';
 import { Op } from 'sequelize';
 
@@ -140,6 +141,11 @@ export const getPurchaseById = async (req, res) => {
               model: InventoryBatch,
               as: 'inventory_batch',
               attributes: ['id', 'instance_code', 'initial_quantity', 'remaining_quantity', 'status']
+            },
+            {
+              model: Unit,
+              as: 'purchase_unit',
+              attributes: ['id', 'name', 'abbreviation']
             }
           ]
         }
@@ -206,7 +212,7 @@ export const createPurchase = async (req, res) => {
 
     const productMap = new Map(products.map(p => [p.id, p]));
 
-    // Validate items
+    // Validate items and handle unit conversion
     for (const item of items) {
       const product = productMap.get(item.product_id);
       if (!product) {
@@ -216,7 +222,81 @@ export const createPurchase = async (req, res) => {
         });
       }
 
-      if (!item.quantity || item.quantity <= 0) {
+      // Handle unit conversion if purchase_unit_id is provided
+      let baseQuantity = parseFloat(item.quantity);
+      let conversionFactor = 1;
+      let purchaseUnitId = null;
+      let purchasedQuantity = null;
+
+      if (item.purchase_unit_id) {
+        // Fetch the purchase unit to get conversion factor
+        const purchaseUnit = await Unit.findByPk(item.purchase_unit_id, { transaction });
+        if (!purchaseUnit) {
+          await transaction.rollback();
+          return res.status(400).json({ 
+            error: `Purchase unit not found: ${item.purchase_unit_id}` 
+          });
+        }
+
+        // Get the product's base unit
+        const baseUnit = await Unit.findOne({
+          where: { id: product.unit_id },
+          transaction
+        });
+
+        if (!baseUnit) {
+          await transaction.rollback();
+          return res.status(400).json({ 
+            error: `Product base unit not found for product: ${product.name}` 
+          });
+        }
+
+        // If purchase unit is different from base unit, calculate conversion
+        if (purchaseUnit.id !== baseUnit.id) {
+          // Find conversion path: purchase_unit -> base_unit
+          // If purchase_unit has base_unit_id pointing to product's base unit
+          if (purchaseUnit.base_unit_id === baseUnit.id) {
+            conversionFactor = parseFloat(purchaseUnit.conversion_factor) || 1;
+          } else if (purchaseUnit.is_base_unit) {
+            // Purchase unit is a base unit, need reverse conversion
+            const derivedUnit = await Unit.findOne({
+              where: { base_unit_id: purchaseUnit.id, id: baseUnit.id },
+              transaction
+            });
+            if (derivedUnit) {
+              conversionFactor = 1 / (parseFloat(derivedUnit.conversion_factor) || 1);
+            }
+          } else {
+            // Try to find a path through base_unit_id chain
+            let currentUnit = purchaseUnit;
+            conversionFactor = 1;
+            while (currentUnit && currentUnit.base_unit_id !== baseUnit.id) {
+              conversionFactor *= parseFloat(currentUnit.conversion_factor) || 1;
+              if (currentUnit.base_unit_id) {
+                currentUnit = await Unit.findByPk(currentUnit.base_unit_id, { transaction });
+              } else {
+                break;
+              }
+            }
+            if (currentUnit && currentUnit.base_unit_id === baseUnit.id) {
+              conversionFactor *= parseFloat(currentUnit.conversion_factor) || 1;
+            }
+          }
+
+          purchasedQuantity = parseFloat(item.purchased_quantity || item.quantity);
+          baseQuantity = purchasedQuantity * conversionFactor;
+          purchaseUnitId = purchaseUnit.id;
+        } else {
+          // Same unit, no conversion needed
+          purchasedQuantity = parseFloat(item.quantity);
+          baseQuantity = purchasedQuantity;
+        }
+      } else {
+        // No purchase unit specified, use quantity as-is
+        baseQuantity = parseFloat(item.quantity);
+      }
+
+      if (!baseQuantity || baseQuantity <= 0) {
         await transaction.rollback();
         return res.status(400).json({ 
           error: `Invalid quantity for product ${product.name}` 
@@ -252,15 +332,22 @@ export const createPurchase = async (req, res) => {
           });
         }
       }
+
+      // Store calculated values in item for later use
+      item._baseQuantity = baseQuantity;
+      item._conversionFactor = conversionFactor;
+      item._purchaseUnitId = purchaseUnitId;
+      item._purchasedQuantity = purchasedQuantity;
     }
 
     // Generate purchase number
     const purchase_number = await generatePurchaseNumber();
 
-    // Calculate total amount
+    // Calculate total amount (using purchased_quantity if available, otherwise quantity)
     let total_amount = 0;
     for (const item of items) {
-      total_amount += parseFloat(item.quantity) * parseFloat(item.unit_cost);
+      const qty = item._purchasedQuantity || parseFloat(item.quantity);
+      total_amount += qty * parseFloat(item.unit_cost);
     }
 
     // Create the purchase
@@ -281,18 +368,20 @@ export const createPurchase = async (req, res) => {
 
     for (const item of items) {
       const product = productMap.get(item.product_id);
-      const subtotal = parseFloat(item.quantity) * parseFloat(item.unit_cost);
+      const baseQuantity = item._baseQuantity || parseFloat(item.quantity);
+      const purchasedQty = item._purchasedQuantity || parseFloat(item.quantity);
+      const subtotal = purchasedQty * parseFloat(item.unit_cost);
 
       let inventoryBatchId = null;
 
-      // For raw_tracked products, create inventory batch
+      // For raw_tracked products, create inventory batch (using base quantity)
       if (product.type === 'raw_tracked') {
         const inventoryBatch = await InventoryBatch.create({
           product_id: item.product_id,
           branch_id: purchaseBranchId,
           instance_code: item.instance_code.trim(),
-          initial_quantity: parseFloat(item.quantity),
-          remaining_quantity: parseFloat(item.quantity),
+          initial_quantity: baseQuantity,
+          remaining_quantity: baseQuantity,
           status: 'in_stock'
         }, { transaction });
 
@@ -300,15 +389,18 @@ export const createPurchase = async (req, res) => {
         createdBatches.push(inventoryBatch);
       }
 
-      // Create purchase item
+      // Create purchase item (store both purchased and base quantities)
       const purchaseItem = await PurchaseItem.create({
         purchase_id: purchase.id,
         product_id: item.product_id,
-        quantity: parseFloat(item.quantity),
+        quantity: baseQuantity, // Base unit quantity (stored in inventory)
         unit_cost: parseFloat(item.unit_cost),
         subtotal,
         instance_code: item.instance_code?.trim() || null,
-        inventory_batch_id: inventoryBatchId
+        inventory_batch_id: inventoryBatchId,
+        purchase_unit_id: item._purchaseUnitId || null,
+        purchased_quantity: item._purchaseUnitId ? purchasedQty : null,
+        conversion_factor: item._conversionFactor || 1
       }, { transaction });
 
       createdItems.push(purchaseItem);
@@ -372,6 +464,11 @@ export const createPurchase = async (req, res) => {
               model: InventoryBatch,
               as: 'inventory_batch',
               attributes: ['id', 'instance_code', 'initial_quantity', 'status']
+            },
+            {
+              model: Unit,
+              as: 'purchase_unit',
+              attributes: ['id', 'name', 'abbreviation']
             }
           ]
         }

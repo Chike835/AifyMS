@@ -447,6 +447,16 @@ export const associateModels = () => {
     as: 'purchase_items'
   });
 
+  // PurchaseItem - Unit (Many-to-One: Purchase Unit)
+  PurchaseItem.belongsTo(Unit, {
+    foreignKey: 'purchase_unit_id',
+    as: 'purchase_unit'
+  });
+  Unit.hasMany(PurchaseItem, {
+    foreignKey: 'purchase_unit_id',
+    as: 'purchase_items'
+  });
+
   // ExpenseCategory - Branch (Many-to-One)
   ExpenseCategory.belongsTo(Branch, {
     foreignKey: 'branch_id',

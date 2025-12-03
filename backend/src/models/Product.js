@@ -136,6 +136,11 @@ const Product = sequelize.define('Product', {
     type: DataTypes.BOOLEAN,
     defaultValue: true
   },
+  attribute_default_values: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    defaultValue: {}
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

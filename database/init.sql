@@ -333,11 +333,15 @@ CREATE TABLE purchase_items (
     subtotal DECIMAL(15, 2) NOT NULL,
     instance_code VARCHAR(100),
     inventory_batch_id UUID REFERENCES inventory_batches(id),
+    purchase_unit_id UUID REFERENCES units(id),
+    purchased_quantity DECIMAL(15, 3),
+    conversion_factor DECIMAL(15, 6) DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CHECK (quantity > 0),
     CHECK (unit_cost >= 0),
     CHECK (subtotal >= 0)
 );
+CREATE INDEX idx_purchase_items_purchase_unit_id ON purchase_items(purchase_unit_id);
 
 -- Stock Transfers table (tracking inventory movement between branches)
 CREATE TABLE stock_transfers (
@@ -615,13 +619,15 @@ ALTER TABLE products
     ADD COLUMN IF NOT EXISTS alert_quantity DECIMAL(15, 3) DEFAULT 0,
     ADD COLUMN IF NOT EXISTS reorder_quantity DECIMAL(15, 3) DEFAULT 0,
     ADD COLUMN IF NOT EXISTS woocommerce_enabled BOOLEAN DEFAULT false,
-    ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+    ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true,
+    ADD COLUMN IF NOT EXISTS attribute_default_values JSONB DEFAULT '{}'::jsonb;
 
 CREATE INDEX IF NOT EXISTS idx_products_unit_id ON products(unit_id);
 CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);
 CREATE INDEX IF NOT EXISTS idx_products_sub_category_id ON products(sub_category_id);
 CREATE INDEX IF NOT EXISTS idx_products_is_active ON products(is_active);
 CREATE INDEX IF NOT EXISTS idx_products_not_for_selling ON products(not_for_selling);
+CREATE INDEX IF NOT EXISTS idx_products_attribute_default_values ON products USING GIN(attribute_default_values);
 
 -- Product Business Locations junction table (Many-to-Many relationship)
 CREATE TABLE IF NOT EXISTS product_business_locations (
