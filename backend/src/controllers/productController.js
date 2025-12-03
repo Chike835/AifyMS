@@ -71,8 +71,8 @@ export const createProduct = async (req, res, next) => {
       return res.status(409).json({ error: 'Product with this SKU already exists' });
     }
 
-    // Validate attribute_default_values against category schema if provided
-    if (category_id && req.body.attribute_default_values) {
+    // Validate attribute_default_values against category schema if category is provided
+    if (category_id) {
       const category = await Category.findByPk(category_id, { transaction });
       if (category && category.attribute_schema && Array.isArray(category.attribute_schema)) {
         const schema = category.attribute_schema;
@@ -458,37 +458,42 @@ export const updateProduct = async (req, res, next) => {
     if (reorder_quantity !== undefined) updateData.reorder_quantity = reorder_quantity || 0;
     if (woocommerce_enabled !== undefined) updateData.woocommerce_enabled = woocommerce_enabled;
     if (is_active !== undefined) updateData.is_active = is_active;
-    if (req.body.attribute_default_values !== undefined) {
-      // Validate attribute_default_values against category schema if category_id exists
-      const productCategoryId = category_id !== undefined ? category_id : product.category_id;
-      if (productCategoryId) {
-        const category = await Category.findByPk(productCategoryId, { transaction });
-        if (category && category.attribute_schema && Array.isArray(category.attribute_schema)) {
-          const schema = category.attribute_schema;
-          const providedAttributes = req.body.attribute_default_values || {};
+    const productCategoryId = category_id !== undefined ? category_id : product.category_id;
+    const incomingAttributeDefaults = req.body.attribute_default_values;
+    const effectiveAttributeDefaults = incomingAttributeDefaults !== undefined
+      ? incomingAttributeDefaults
+      : (product.attribute_default_values || {});
+
+    if (productCategoryId) {
+      const category = await Category.findByPk(productCategoryId, { transaction });
+      if (category && category.attribute_schema && Array.isArray(category.attribute_schema)) {
+        const schema = category.attribute_schema;
+        const providedAttributes = effectiveAttributeDefaults || {};
+        
+        for (const attr of schema) {
+          if (attr.required && providedAttributes[attr.name] === undefined) {
+            await transaction.rollback();
+            return res.status(400).json({ 
+              error: `Required attribute "${attr.name}" is missing` 
+            });
+          }
           
-          for (const attr of schema) {
-            if (attr.required && providedAttributes[attr.name] === undefined) {
-              await transaction.rollback();
-              return res.status(400).json({ 
-                error: `Required attribute "${attr.name}" is missing` 
-              });
-            }
-            
-            if (providedAttributes[attr.name] !== undefined) {
-              if (attr.type === 'select' && attr.options) {
-                if (!attr.options.includes(providedAttributes[attr.name])) {
-                  await transaction.rollback();
-                  return res.status(400).json({ 
-                    error: `Invalid value for attribute "${attr.name}". Must be one of: ${attr.options.join(', ')}` 
-                  });
-                }
+          if (providedAttributes[attr.name] !== undefined) {
+            if (attr.type === 'select' && attr.options) {
+              if (!attr.options.includes(providedAttributes[attr.name])) {
+                await transaction.rollback();
+                return res.status(400).json({ 
+                  error: `Invalid value for attribute "${attr.name}". Must be one of: ${attr.options.join(', ')}` 
+                });
               }
             }
           }
         }
       }
-      updateData.attribute_default_values = req.body.attribute_default_values;
+    }
+
+    if (incomingAttributeDefaults !== undefined) {
+      updateData.attribute_default_values = incomingAttributeDefaults;
     }
 
     await product.update(updateData, { transaction });

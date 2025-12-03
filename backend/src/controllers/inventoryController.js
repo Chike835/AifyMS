@@ -544,6 +544,29 @@ export const convertBatch = async (req, res, next) => {
       ...attribute_data
     };
 
+    // Validate merged attributes against category schema
+    const categorySchema = sourceBatch.category?.attribute_schema;
+    if (categorySchema && Array.isArray(categorySchema) && categorySchema.length > 0) {
+      for (const attr of categorySchema) {
+        const value = mergedAttributeData[attr.name];
+        if (attr.required && value === undefined) {
+          await transaction.rollback();
+          return res.status(400).json({
+            error: `Required attribute "${attr.name}" is missing`
+          });
+        }
+
+        if (value !== undefined && attr.type === 'select' && Array.isArray(attr.options)) {
+          if (!attr.options.includes(value)) {
+            await transaction.rollback();
+            return res.status(400).json({
+              error: `Invalid value for attribute "${attr.name}". Must be one of: ${attr.options.join(', ')}`
+            });
+          }
+        }
+      }
+    }
+
     // Create child batch (Coil)
     const childBatch = await InventoryBatch.create({
       product_id: sourceBatch.product_id,

@@ -214,7 +214,7 @@ export const getBatches = async (req, res, next) => {
         {
           model: Category,
           as: 'category',
-          attributes: ['id', 'name', 'unit_type']
+          attributes: ['id', 'name', 'unit_type', 'attribute_schema']
         },
         {
           model: BatchType,
