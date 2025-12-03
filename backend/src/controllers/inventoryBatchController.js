@@ -239,7 +239,7 @@ export const getBatches = async (req, res, next) => {
         {
           model: BatchType,
           as: 'batch_type',
-          attributes: ['id', 'name', 'description']
+          attributes: ['id', 'name', 'description', 'can_slit']
         }
       ],
       order: [['created_at', 'DESC']]
@@ -554,7 +554,7 @@ export const getAvailableBatches = async (req, res, next) => {
         {
           model: BatchType,
           as: 'batch_type',
-          attributes: ['id', 'name', 'description']
+          attributes: ['id', 'name', 'description', 'can_slit']
         }
       ],
       order: [['instance_code', 'ASC']]

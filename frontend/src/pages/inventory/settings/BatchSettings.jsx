@@ -14,7 +14,8 @@ const BatchSettings = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [formData, setFormData] = useState({
     name: '',
-    description: ''
+    description: '',
+    can_slit: false
   });
 
   const canManageSettings = hasPermission('settings_manage');
@@ -147,7 +148,7 @@ const BatchSettings = () => {
   });
 
   const resetForm = () => {
-    setFormData({ name: '', description: '' });
+    setFormData({ name: '', description: '', can_slit: false });
   };
 
   const handleCreateSubmit = (e) => {
@@ -159,7 +160,8 @@ const BatchSettings = () => {
     setSelectedType(type);
     setFormData({
       name: type.name,
-      description: type.description || ''
+      description: type.description || '',
+      can_slit: type.can_slit || false
     });
     setShowEditModal(true);
   };
@@ -272,6 +274,12 @@ const BatchSettings = () => {
                       >
                         {type.is_active ? 'Active' : 'Inactive'}
                       </span>
+                      {type.can_slit && (
+                        <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-800 flex items-center space-x-1">
+                          <Package className="h-3 w-3" />
+                          <span>Slitting Enabled</span>
+                        </span>
+                      )}
                     </div>
                   </div>
                   {hasPermission('settings_manage') && (
@@ -400,6 +408,18 @@ const BatchSettings = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
               </div>
+              <div>
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    checked={formData.can_slit || false}
+                    onChange={(e) => setFormData({ ...formData, can_slit: e.target.checked })}
+                    className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 w-4 h-4"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Allow Slitting</span>
+                </label>
+                <p className="text-xs text-gray-500 mt-1 ml-6">Enable slitting feature for batches of this type</p>
+              </div>
               <div className="flex space-x-4 pt-4">
                 <button
                   type="button"
@@ -464,6 +484,18 @@ const BatchSettings = () => {
                   rows="3"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
+              </div>
+              <div>
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    checked={formData.can_slit || false}
+                    onChange={(e) => setFormData({ ...formData, can_slit: e.target.checked })}
+                    className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 w-4 h-4"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Allow Slitting</span>
+                </label>
+                <p className="text-xs text-gray-500 mt-1 ml-6">Enable slitting feature for batches of this type</p>
               </div>
               <div className="flex space-x-4 pt-4">
                 <button

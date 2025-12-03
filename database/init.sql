@@ -190,7 +190,8 @@ CREATE TABLE batch_types (
     description TEXT,
     created_by UUID REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    is_active BOOLEAN DEFAULT true
+    is_active BOOLEAN DEFAULT true,
+    can_slit BOOLEAN DEFAULT FALSE
 );
 CREATE INDEX idx_batch_types_name ON batch_types(name);
 CREATE INDEX idx_batch_types_active ON batch_types(is_active);
@@ -1038,11 +1039,11 @@ INSERT INTO business_settings (setting_key, setting_value, setting_type, categor
 -- SEED DATA: BATCH TYPES
 -- ============================================
 
-INSERT INTO batch_types (id, name, description) VALUES
-    (uuid_generate_v4(), 'Coil', 'Rolled materials (e.g., Aluminium coils)'),
-    (uuid_generate_v4(), 'Pallet', 'Stacked materials on pallets'),
-    (uuid_generate_v4(), 'Carton', 'Boxed materials'),
-    (uuid_generate_v4(), 'Loose', 'Untracked bulk materials')
+INSERT INTO batch_types (id, name, description, can_slit) VALUES
+    (uuid_generate_v4(), 'Coil', 'Rolled materials (e.g., Aluminium coils)', FALSE),
+    (uuid_generate_v4(), 'Pallet', 'Stacked materials on pallets', FALSE),
+    (uuid_generate_v4(), 'Carton', 'Boxed materials', FALSE),
+    (uuid_generate_v4(), 'Loose', 'Untracked bulk materials', TRUE)
 ON CONFLICT (name) DO NOTHING;
 
 -- ============================================

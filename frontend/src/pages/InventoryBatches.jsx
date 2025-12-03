@@ -132,47 +132,19 @@ const InventoryBatches = () => {
     enabled: !!formData.product_id
   });
 
-  // Fetch manufacturing settings (for gauge_enabled_categories)
-  const { data: manufacturingSettings } = useQuery({
-    queryKey: ['manufacturingSettings', branchScope || 'global'],
-    queryFn: async () => {
-      const response = await api.get('/settings', {
-        params: {
-          category: 'manufacturing',
-          branch_id: branchScope || undefined
-        }
-      });
-      return response.data.settings || {};
-    }
-  });
-
-  // Helper function to normalize category name
-  const normalizeCategoryName = (name) => {
-    return name?.toLowerCase().replace(/\s+/g, '_') || '';
-  };
-
-  // Check if selected product's category is enabled for gauge input
+  // Check if gauge_mm exists in the category's attribute schema
   const isGaugeEnabledForCategory = () => {
-    if (!manufacturingSettings?.gauge_enabled_categories?.value) {
+    const category = selectedProduct?.categoryRef || selectedCategory;
+    if (!category?.attribute_schema || !Array.isArray(category.attribute_schema)) {
       return false;
     }
-    const enabledCategories = manufacturingSettings.gauge_enabled_categories.value || [];
-    if (!Array.isArray(enabledCategories)) {
-      return false;
-    }
-    // Check product's category first, then fall back to selected category
-    const categoryName = selectedProduct?.categoryRef?.name || selectedCategory?.name || '';
-    if (!categoryName) {
-      return false;
-    }
-    const normalizedName = normalizeCategoryName(categoryName);
-    return enabledCategories.includes(normalizedName);
+    return category.attribute_schema.some(attr => attr.name === 'gauge_mm');
   };
 
   // Update attribute_data when product or category changes, with atomic gauge_mm cleanup
   useEffect(() => {
     setFormData(prev => {
-      const currentCategoryName = selectedProduct?.categoryRef?.name || selectedCategory?.name || '';
+      const category = selectedProduct?.categoryRef || selectedCategory;
       let updatedAttributeData = { ...prev.attribute_data };
       
       // Merge product defaults if available
@@ -180,16 +152,18 @@ const InventoryBatches = () => {
         updatedAttributeData = { ...selectedProduct.attribute_default_values, ...updatedAttributeData };
       }
       
-      // Check if category is gauge-enabled and remove gauge_mm if not
-      if (currentCategoryName) {
-        const normalizedName = normalizeCategoryName(currentCategoryName);
-        const enabledCategories = manufacturingSettings?.gauge_enabled_categories?.value || [];
-        const isEnabled = Array.isArray(enabledCategories) && enabledCategories.includes(normalizedName);
+      // Check if category has gauge_mm in attribute_schema and remove gauge_mm if not
+      if (category?.attribute_schema && Array.isArray(category.attribute_schema)) {
+        const hasGaugeMm = category.attribute_schema.some(attr => attr.name === 'gauge_mm');
         
-        if (!isEnabled && updatedAttributeData.gauge_mm !== undefined) {
+        if (!hasGaugeMm && updatedAttributeData.gauge_mm !== undefined) {
           const { gauge_mm, ...restAttributeData } = updatedAttributeData;
           updatedAttributeData = restAttributeData;
         }
+      } else if (updatedAttributeData.gauge_mm !== undefined) {
+        // If no category or schema, remove gauge_mm
+        const { gauge_mm, ...restAttributeData } = updatedAttributeData;
+        updatedAttributeData = restAttributeData;
       }
       
       // Only update if attribute_data actually changed (avoid unnecessary re-renders)
@@ -202,7 +176,7 @@ const InventoryBatches = () => {
         attribute_data: updatedAttributeData
       };
     });
-  }, [formData.product_id, selectedProduct?.categoryRef?.name, selectedProduct?.attribute_default_values, selectedCategory?.name, selectedCategory?.attribute_schema, manufacturingSettings?.gauge_enabled_categories?.value]);
+  }, [formData.product_id, selectedProduct?.categoryRef, selectedProduct?.attribute_default_values, selectedCategory]);
 
   // Create batch mutation
   const createMutation = useMutation({
@@ -563,7 +537,7 @@ const InventoryBatches = () => {
                             <ArrowRightLeft className="h-4 w-4" />
                           </button>
                         )}
-                        {hasPermission('batch_create') && batch.batch_type?.name === 'Loose' && (
+                        {hasPermission('batch_create') && batch.batch_type?.can_slit && (
                           <button
                             onClick={() => handleSlitting(batch)}
                             className="text-green-600 hover:text-green-900"

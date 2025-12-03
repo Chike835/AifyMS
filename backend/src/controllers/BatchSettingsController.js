@@ -39,7 +39,7 @@ export const getAllTypes = async (req, res, next) => {
  */
 export const createType = async (req, res, next) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, can_slit } = req.body;
 
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Batch type name is required' });
@@ -58,7 +58,8 @@ export const createType = async (req, res, next) => {
       name: name.trim(),
       description: description?.trim() || null,
       created_by: req.user.id,
-      is_active: true
+      is_active: true,
+      can_slit: can_slit === true
     });
 
     // Load with creator
@@ -88,7 +89,7 @@ export const createType = async (req, res, next) => {
 export const updateType = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { name, description, is_active } = req.body;
+    const { name, description, is_active, can_slit } = req.body;
 
     const batchType = await BatchType.findByPk(id);
     if (!batchType) {
@@ -125,6 +126,10 @@ export const updateType = async (req, res, next) => {
         }
       }
       batchType.is_active = is_active;
+    }
+
+    if (can_slit !== undefined) {
+      batchType.can_slit = can_slit === true;
     }
 
     await batchType.save();

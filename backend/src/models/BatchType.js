@@ -28,6 +28,10 @@ const BatchType = sequelize.define('BatchType', {
     type: DataTypes.BOOLEAN,
     defaultValue: true
   },
+  can_slit: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW
