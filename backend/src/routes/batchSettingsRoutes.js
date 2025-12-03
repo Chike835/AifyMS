@@ -23,8 +23,8 @@ router.post('/types', requirePermission('settings_manage'), createType);
 router.put('/types/:id', requirePermission('settings_manage'), updateType);
 router.delete('/types/:id', requirePermission('settings_manage'), deleteType);
 
-// Get types by category (public for product creation, but authenticated)
-router.get('/types/category/:categoryId', getTypesByCategory);
+// Get types by category (used during product creation - requires view permission)
+router.get('/types/category/:categoryId', requirePermission('product_view'), getTypesByCategory);
 
 // Category-Batch Type Assignment Management (requires settings_manage)
 router.get('/assignments', requirePermission('settings_manage'), getCategoryAssignments);

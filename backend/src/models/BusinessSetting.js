@@ -9,8 +9,7 @@ const BusinessSetting = sequelize.define('BusinessSetting', {
   },
   setting_key: {
     type: DataTypes.STRING(100),
-    allowNull: false,
-    unique: true
+    allowNull: false
   },
   setting_value: {
     type: DataTypes.TEXT,
@@ -25,6 +24,14 @@ const BusinessSetting = sequelize.define('BusinessSetting', {
     type: DataTypes.STRING(50),
     allowNull: false
   },
+  branch_id: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    references: {
+      model: 'branches',
+      key: 'id'
+    }
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW
@@ -38,7 +45,13 @@ const BusinessSetting = sequelize.define('BusinessSetting', {
   timestamps: true,
   createdAt: 'created_at',
   updatedAt: 'updated_at',
-  underscored: true
+  underscored: true,
+  indexes: [
+    {
+      unique: true,
+      fields: ['setting_key', 'branch_id']
+    }
+  ]
 });
 
 export default BusinessSetting;

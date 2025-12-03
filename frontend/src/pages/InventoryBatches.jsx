@@ -83,11 +83,18 @@ const InventoryBatches = () => {
     },
   });
 
-  // Fetch categories
+  const branchScope = user?.branch_id || null;
+
+  // Fetch categories scoped by branch
   const { data: categories } = useQuery({
-    queryKey: ['categories'],
+    queryKey: ['categories', branchScope || 'global'],
     queryFn: async () => {
-      const response = await api.get('/categories');
+      const response = await api.get('/categories', {
+        params: {
+          branch_id: branchScope || undefined,
+          include_global: 'true'
+        }
+      });
       return response.data.categories || [];
     },
   });
@@ -127,9 +134,14 @@ const InventoryBatches = () => {
 
   // Fetch manufacturing settings (for gauge_enabled_categories)
   const { data: manufacturingSettings } = useQuery({
-    queryKey: ['manufacturingSettings'],
+    queryKey: ['manufacturingSettings', branchScope || 'global'],
     queryFn: async () => {
-      const response = await api.get('/settings?category=manufacturing');
+      const response = await api.get('/settings', {
+        params: {
+          category: 'manufacturing',
+          branch_id: branchScope || undefined
+        }
+      });
       return response.data.settings || {};
     }
   });

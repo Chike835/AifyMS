@@ -9,18 +9,21 @@ import ExportModal from '../components/import/ExportModal';
 import ImportModal from '../components/import/ImportModal';
 
 const Categories = () => {
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const queryClient = useQueryClient();
+  const isSuperAdmin = user?.role_name === 'Super Admin';
   const [showModal, setShowModal] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
     parent_id: '',
     description: '',
-    is_active: true
+    is_active: true,
+    branch_id: ''
   });
   const [formError, setFormError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedBranchId, setSelectedBranchId] = useState(isSuperAdmin ? '' : (user?.branch_id || ''));
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -39,13 +42,33 @@ const Categories = () => {
   // Import modal
   const [showImportModal, setShowImportModal] = useState(false);
 
-  // Fetch categories
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['categories'],
+  const { data: branchesData } = useQuery({
+    queryKey: ['branches'],
     queryFn: async () => {
-      const response = await api.get('/categories');
+      const response = await api.get('/branches');
+      return response.data.branches || [];
+    },
+    enabled: isSuperAdmin
+  });
+  const branches = branchesData || [];
+
+  const branchFilter = isSuperAdmin ? (selectedBranchId || null) : (user?.branch_id || null);
+  const canViewCategories = hasPermission('product_view');
+  const categoryQueryKey = ['categories', branchFilter || 'global'];
+
+  // Fetch categories scoped by branch
+  const { data, isLoading, error } = useQuery({
+    queryKey: categoryQueryKey,
+    queryFn: async () => {
+      const response = await api.get('/categories', {
+        params: {
+          branch_id: branchFilter || undefined,
+          include_global: 'true'
+        }
+      });
       return response.data.categories || [];
-    }
+    },
+    enabled: canViewCategories
   });
 
   // Create mutation
@@ -55,7 +78,7 @@ const Categories = () => {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['categories'] });
+      queryClient.invalidateQueries({ queryKey: categoryQueryKey });
       closeModal();
     },
     onError: (error) => {
@@ -70,7 +93,7 @@ const Categories = () => {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['categories'] });
+      queryClient.invalidateQueries({ queryKey: categoryQueryKey });
       closeModal();
     },
     onError: (error) => {
@@ -85,7 +108,7 @@ const Categories = () => {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['categories'] });
+      queryClient.invalidateQueries({ queryKey: categoryQueryKey });
     },
     onError: (error) => {
       alert(error.response?.data?.error || 'Failed to delete category');
@@ -94,7 +117,13 @@ const Categories = () => {
 
   const openCreateModal = () => {
     setSelectedCategory(null);
-    setFormData({ name: '', parent_id: '', description: '', is_active: true });
+    setFormData({ 
+      name: '', 
+      parent_id: '', 
+      description: '', 
+      is_active: true,
+      branch_id: isSuperAdmin ? (selectedBranchId || '') : ''
+    });
     setFormError('');
     setShowModal(true);
   };
@@ -105,7 +134,8 @@ const Categories = () => {
       name: category.name || '',
       parent_id: category.parent_id || '',
       description: category.description || '',
-      is_active: category.is_active !== undefined ? category.is_active : true
+      is_active: category.is_active !== undefined ? category.is_active : true,
+      branch_id: isSuperAdmin ? (category.branch_id || '') : ''
     });
     setFormError('');
     setShowModal(true);
@@ -114,7 +144,13 @@ const Categories = () => {
   const closeModal = () => {
     setShowModal(false);
     setSelectedCategory(null);
-    setFormData({ name: '', parent_id: '', description: '', is_active: true });
+    setFormData({ 
+      name: '', 
+      parent_id: '', 
+      description: '', 
+      is_active: true,
+      branch_id: isSuperAdmin ? (selectedBranchId || '') : ''
+    });
     setFormError('');
   };
 
@@ -134,6 +170,10 @@ const Categories = () => {
       is_active: formData.is_active
     };
 
+    if (isSuperAdmin) {
+      submitData.branch_id = formData.branch_id || null;
+    }
+
     if (selectedCategory) {
       updateMutation.mutate({ id: selectedCategory.id, data: submitData });
     } else {
@@ -147,11 +187,41 @@ const Categories = () => {
     }
   };
 
+  if (!canViewCategories) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg">
+          You do not have permission to view categories.
+        </div>
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
       </div>
+      {isSuperAdmin && (
+        <div className="mb-6 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-4 sm:flex-row sm:items-center sm:gap-4">
+          <div className="flex flex-col">
+            <span className="text-sm font-medium text-gray-700">Branch Scope</span>
+            <span className="text-xs text-gray-500">Select a branch to view its categories (global categories are always included).</span>
+          </div>
+          <select
+            value={selectedBranchId}
+            onChange={(e) => setSelectedBranchId(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 sm:max-w-xs"
+          >
+            <option value="">Global Categories Only</option>
+            {branches.map((branch) => (
+              <option key={branch.id} value={branch.id}>
+                {branch.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
     );
   }
 
@@ -238,7 +308,7 @@ const Categories = () => {
             
             // Only refresh if records were actually created/updated
             if (created > 0 || updated > 0) {
-              queryClient.invalidateQueries({ queryKey: ['categories'] });
+              queryClient.invalidateQueries({ queryKey: categoryQueryKey });
               
               let message = `Import completed! ${created} created, ${updated} updated`;
               if (skipped > 0) {
@@ -253,7 +323,7 @@ const Categories = () => {
           }}
           entity="categories"
           title="Import Categories"
-          targetEndpoint="/api/categories/import"
+          targetEndpoint={`/api/categories/import${isSuperAdmin && selectedBranchId ? `?branch_id=${selectedBranchId}` : ''}`}
         />
       )}
 
@@ -362,6 +432,24 @@ const Categories = () => {
                     required
                   />
                 </div>
+
+                {isSuperAdmin && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Branch Scope</label>
+                    <select
+                      value={formData.branch_id}
+                      onChange={(e) => setFormData({ ...formData, branch_id: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    >
+                      <option value="">Global (All Branches)</option>
+                      {branches.map((branch) => (
+                        <option key={branch.id} value={branch.id}>
+                          {branch.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Parent Category</label>

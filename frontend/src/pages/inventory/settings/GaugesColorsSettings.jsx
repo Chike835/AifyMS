@@ -5,40 +5,54 @@ import api from '../../../utils/api';
 import { Settings, Plus, Edit, Trash2, X, Gauge, Palette, Check } from 'lucide-react';
 
 const GaugesColorsSettings = () => {
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('gauges');
   const [showModal, setShowModal] = useState(false);
   const [editingValue, setEditingValue] = useState(null);
   const [formData, setFormData] = useState({ value: '' });
+  const branchScope = user?.branch_id || null;
+  const canManageSettings = hasPermission('settings_manage');
+  const manufacturingSettingsKey = ['manufacturingSettings', branchScope || 'global'];
 
   // Fetch manufacturing settings
   const { data: settingsData, isLoading: settingsLoading } = useQuery({
-    queryKey: ['manufacturingSettings'],
+    queryKey: manufacturingSettingsKey,
     queryFn: async () => {
-      const response = await api.get('/settings?category=manufacturing');
+      const response = await api.get('/settings', {
+        params: {
+          category: 'manufacturing',
+          branch_id: branchScope || undefined
+        }
+      });
       return response.data.settings || {};
-    }
+    },
+    enabled: canManageSettings
   });
 
   // Fetch categories for gauge enabled categories
   const { data: categories, isLoading: categoriesLoading } = useQuery({
-    queryKey: ['categories'],
+    queryKey: ['categories', branchScope || 'global'],
     queryFn: async () => {
-      const response = await api.get('/categories');
+      const response = await api.get('/categories', {
+        params: {
+          branch_id: branchScope || undefined,
+          include_global: 'true'
+        }
+      });
       return response.data.categories || [];
     },
-    enabled: activeTab === 'gauges'
+    enabled: canManageSettings && activeTab === 'gauges'
   });
 
   // Update setting mutation
   const updateSettingMutation = useMutation({
     mutationFn: async ({ key, value }) => {
-      const response = await api.put(`/settings/${key}`, { value });
+      const response = await api.put(`/settings/${key}`, { value, branch_id: branchScope || null });
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['manufacturingSettings'] });
+      queryClient.invalidateQueries({ queryKey: manufacturingSettingsKey });
       if (activeTab !== 'gauges') {
         closeModal();
       }
@@ -147,12 +161,11 @@ const GaugesColorsSettings = () => {
 
   const getSettingKey = () => {
     const keyMap = {
-      'gauges': 'manufacturing_gauges',
       'aluminium_colors': 'manufacturing_aluminium_colors',
       'stone_tile_colors': 'manufacturing_stone_tile_colors',
       'stone_tile_design': 'manufacturing_stone_tile_design'
     };
-    return keyMap[activeTab] || 'manufacturing_gauges';
+    return keyMap[activeTab] || null;
   };
 
   const getTabLabel = () => {
@@ -163,12 +176,6 @@ const GaugesColorsSettings = () => {
       'stone_tile_design': 'Stone Tile Design'
     };
     return labels[activeTab] || 'Gauges';
-  };
-
-  const validateGauge = (value) => {
-    const num = parseFloat(value);
-    if (isNaN(num)) return false;
-    return num >= 0.1 && num <= 1.0;
   };
 
   const handleSubmit = (e) => {
@@ -186,7 +193,18 @@ const GaugesColorsSettings = () => {
     }
   };
 
-  const currentValues = getSettingValue(getSettingKey());
+  // Only compute currentValues for non-gauges tabs
+  const currentValues = activeTab !== 'gauges' ? getSettingValue(getSettingKey()) : [];
+
+  if (!canManageSettings) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg">
+          You do not have permission to manage gauge settings.
+        </div>
+      </div>
+    );
+  }
 
   if (settingsLoading || (activeTab === 'gauges' && categoriesLoading)) {
     return (

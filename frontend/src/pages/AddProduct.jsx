@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronUp, ChevronDown, Plus, ImageIcon, X } from 'lucide-react';
 import api from '../utils/api';
 import AttributeRenderer from '../components/AttributeRenderer';
+import { useAuth } from '../context/AuthContext';
 
 // Toggle Switch Component
 const Toggle = ({ checked, onChange, label }) => (
@@ -165,6 +166,7 @@ const sellingPriceTaxTypes = [
 const AddProduct = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   // Page-level toggles
   const [manageStock, setManageStock] = useState(false);
@@ -210,10 +212,16 @@ const AddProduct = () => {
     }
   });
 
+  const categoryBranchScope = user?.branch_id || null;
   const { data: categoriesData } = useQuery({
-    queryKey: ['categories'],
+    queryKey: ['categories', categoryBranchScope || 'global'],
     queryFn: async () => {
-      const res = await api.get('/categories');
+      const res = await api.get('/categories', {
+        params: {
+          branch_id: categoryBranchScope || undefined,
+          include_global: 'true'
+        }
+      });
       const data = res.data;
       return Array.isArray(data) ? data : (data.categories || []);
     }

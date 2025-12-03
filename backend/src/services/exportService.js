@@ -1,4 +1,4 @@
-import { Product, InventoryBatch, SalesOrder, Customer, Branch } from '../models/index.js';
+import { Product, InventoryBatch, SalesOrder, Customer, Branch, Purchase, PurchaseItem, Supplier } from '../models/index.js';
 import { Op } from 'sequelize';
 
 /**
@@ -161,6 +161,110 @@ export const exportCustomers = async () => {
   }));
 
   const headers = ['name', 'phone', 'email', 'address', 'ledger_balance'];
+  return arrayToCSV(csvData, headers);
+};
+
+/**
+ * Export purchases to CSV (flattened format: one row per purchase item)
+ */
+export const exportPurchases = async (filters = {}) => {
+  const where = {};
+
+  if (filters.branch_id) {
+    where.branch_id = filters.branch_id;
+  }
+
+  if (filters.supplier_id) {
+    where.supplier_id = filters.supplier_id;
+  }
+
+  if (filters.status) {
+    where.status = filters.status;
+  }
+
+  if (filters.payment_status) {
+    where.payment_status = filters.payment_status;
+  }
+
+  if (filters.start_date && filters.end_date) {
+    where.created_at = {
+      [Op.between]: [new Date(filters.start_date), new Date(filters.end_date)]
+    };
+  }
+
+  const purchases = await Purchase.findAll({
+    where,
+    include: [
+      { model: Supplier, as: 'supplier' },
+      { model: Branch, as: 'branch' },
+      {
+        model: PurchaseItem,
+        as: 'items',
+        include: [
+          { model: Product, as: 'product' }
+        ]
+      }
+    ],
+    order: [['created_at', 'DESC']]
+  });
+
+  // Flatten: one row per purchase item
+  const csvData = [];
+  for (const purchase of purchases) {
+    if (purchase.items && purchase.items.length > 0) {
+      for (const item of purchase.items) {
+        csvData.push({
+          purchase_number: purchase.purchase_number,
+          supplier_name: purchase.supplier?.name || '',
+          branch_code: purchase.branch?.code || '',
+          branch_name: purchase.branch?.name || '',
+          total_amount: purchase.total_amount,
+          payment_status: purchase.payment_status,
+          status: purchase.status,
+          notes: purchase.notes || '',
+          created_at: purchase.created_at,
+          product_sku: item.product?.sku || '',
+          product_name: item.product?.name || '',
+          quantity: item.quantity,
+          unit_cost: item.unit_cost,
+          subtotal: item.subtotal,
+          instance_code: item.instance_code || '',
+          purchase_unit: item.purchase_unit_id ? 'custom' : '',
+          purchased_quantity: item.purchased_quantity || '',
+          conversion_factor: item.conversion_factor || 1
+        });
+      }
+    } else {
+      // Purchase with no items (shouldn't happen, but handle gracefully)
+      csvData.push({
+        purchase_number: purchase.purchase_number,
+        supplier_name: purchase.supplier?.name || '',
+        branch_code: purchase.branch?.code || '',
+        branch_name: purchase.branch?.name || '',
+        total_amount: purchase.total_amount,
+        payment_status: purchase.payment_status,
+        status: purchase.status,
+        notes: purchase.notes || '',
+        created_at: purchase.created_at,
+        product_sku: '',
+        product_name: '',
+        quantity: '',
+        unit_cost: '',
+        subtotal: '',
+        instance_code: '',
+        purchase_unit: '',
+        purchased_quantity: '',
+        conversion_factor: ''
+      });
+    }
+  }
+
+  const headers = [
+    'purchase_number', 'supplier_name', 'branch_code', 'branch_name',
+    'total_amount', 'payment_status', 'status', 'notes', 'created_at',
+    'product_sku', 'product_name', 'quantity', 'unit_cost', 'subtotal',
+    'instance_code', 'purchase_unit', 'purchased_quantity', 'conversion_factor'
+  ];
   return arrayToCSV(csvData, headers);
 };
 

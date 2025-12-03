@@ -2,6 +2,21 @@ import { InventoryBatch, Product, Branch, Category, BatchType, CategoryBatchType
 import { Op } from 'sequelize';
 import sequelize from '../config/db.js';
 
+const isSuperAdmin = (req) => req.user?.role_name === 'Super Admin';
+
+const buildCategoryAccessError = (req, category, branchId) => {
+  if (!category) {
+    return { status: 404, message: 'Category not found' };
+  }
+  if (category.branch_id && branchId && category.branch_id !== branchId) {
+    return { status: 400, message: 'Category is not available for the selected branch' };
+  }
+  if (category.branch_id && !isSuperAdmin(req) && req.user?.branch_id !== category.branch_id) {
+    return { status: 403, message: 'You do not have access to this category' };
+  }
+  return null;
+};
+
 /**
  * POST /api/inventory/batches
  * Create a new inventory batch
@@ -57,19 +72,20 @@ export const createBatch = async (req, res, next) => {
     }
 
     // Verify category if provided
+    let categoryRecord = null;
     if (category_id) {
-      const category = await Category.findByPk(category_id);
-      if (!category) {
-        return res.status(404).json({ error: 'Category not found' });
+      categoryRecord = await Category.findByPk(category_id);
+      const categoryAccessError = buildCategoryAccessError(req, categoryRecord, branch_id);
+      if (categoryAccessError) {
+        return res.status(categoryAccessError.status).json({ error: categoryAccessError.message });
       }
 
-      // Validate attribute_data against category.attribute_schema if provided
-      if (category.attribute_schema && Array.isArray(category.attribute_schema)) {
-        const requiredAttrs = category.attribute_schema.filter(attr => attr.required);
+      if (categoryRecord.attribute_schema && Array.isArray(categoryRecord.attribute_schema)) {
+        const requiredAttrs = categoryRecord.attribute_schema.filter(attr => attr.required);
         for (const attr of requiredAttrs) {
           if (!attribute_data[attr.name]) {
-            return res.status(400).json({ 
-              error: `Required attribute '${attr.name}' is missing` 
+            return res.status(400).json({
+              error: `Required attribute '${attr.name}' is missing`
             });
           }
         }
@@ -89,6 +105,10 @@ export const createBatch = async (req, res, next) => {
           required: false
         }]
       });
+      const categoryAccessError = buildCategoryAccessError(req, category, branch_id);
+      if (categoryAccessError) {
+        return res.status(categoryAccessError.status).json({ error: categoryAccessError.message });
+      }
       if (category?.batch_types?.length > 0) {
         finalBatchTypeId = category.batch_types[0].id;
       }
@@ -315,9 +335,10 @@ export const updateBatch = async (req, res, next) => {
     if (category_id !== undefined) {
       if (category_id) {
         const category = await Category.findByPk(category_id, { transaction });
-        if (!category) {
+        const categoryAccessError = buildCategoryAccessError(req, category, batch.branch_id);
+        if (categoryAccessError) {
           await transaction.rollback();
-          return res.status(404).json({ error: 'Category not found' });
+          return res.status(categoryAccessError.status).json({ error: categoryAccessError.message });
         }
       }
       batch.category_id = category_id;
@@ -386,6 +407,11 @@ export const updateBatch = async (req, res, next) => {
       // Validate against category schema if category exists
       if (batch.category_id) {
         const category = await Category.findByPk(batch.category_id, { transaction });
+        const categoryAccessError = buildCategoryAccessError(req, category, batch.branch_id);
+        if (categoryAccessError) {
+          await transaction.rollback();
+          return res.status(categoryAccessError.status).json({ error: categoryAccessError.message });
+        }
         if (category?.attribute_schema && Array.isArray(category.attribute_schema)) {
           const requiredAttrs = category.attribute_schema.filter(attr => attr.required);
           for (const attr of requiredAttrs) {

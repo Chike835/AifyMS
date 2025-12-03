@@ -386,73 +386,134 @@ export const getSaleById = async (req, res, next) => {
 };
 
 /**
+ * Define valid production status transitions
+ * State machine: na -> queue -> processing -> produced -> delivered
+ */
+const PRODUCTION_STATUS_TRANSITIONS = {
+  'na': ['queue'],
+  'queue': ['processing'],
+  'processing': ['produced'],
+  'produced': ['delivered'],
+  'delivered': [] // Terminal state - no transitions allowed
+};
+
+/**
+ * Validate production status transition
+ * @param {string} currentStatus - Current production status
+ * @param {string} newStatus - Desired production status
+ * @returns {Object} { valid: boolean, error?: string }
+ */
+const validateProductionStatusTransition = (currentStatus, newStatus) => {
+  // Check if new status is valid
+  const validStatuses = Object.keys(PRODUCTION_STATUS_TRANSITIONS);
+  if (!validStatuses.includes(newStatus)) {
+    return {
+      valid: false,
+      error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
+    };
+  }
+
+  // Check if transition is allowed
+  const allowedTransitions = PRODUCTION_STATUS_TRANSITIONS[currentStatus];
+  if (!allowedTransitions || !allowedTransitions.includes(newStatus)) {
+    // Special case: allow staying in the same status (idempotent)
+    if (currentStatus === newStatus) {
+      return { valid: true };
+    }
+    
+    // Build error message
+    if (currentStatus === 'delivered') {
+      return {
+        valid: false,
+        error: 'Cannot change status from "delivered". Order is already completed.'
+      };
+    }
+    
+    if (allowedTransitions && allowedTransitions.length > 0) {
+      return {
+        valid: false,
+        error: `Invalid transition from "${currentStatus}" to "${newStatus}". Allowed transitions: ${allowedTransitions.join(', ')}`
+      };
+    }
+    
+    return {
+      valid: false,
+      error: `Invalid transition from "${currentStatus}" to "${newStatus}"`
+    };
+  }
+
+  return { valid: true };
+};
+
+/**
  * PUT /api/sales/:id/production-status
  * Update production status (with worker name for 'produced' status)
+ * Enforces state machine transitions with transactional safety
  */
 export const updateProductionStatus = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+
   try {
     const { id } = req.params;
     const { production_status, worker_name } = req.body;
 
-    const validStatuses = ['queue', 'processing', 'produced', 'delivered', 'na'];
-    if (!validStatuses.includes(production_status)) {
-      return res.status(400).json({ 
-        error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` 
-      });
+    // Validate input
+    if (!production_status) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'production_status is required' });
     }
 
-    const order = await SalesOrder.findByPk(id);
+    // Get order with row-level lock to prevent race conditions
+    const order = await SalesOrder.findByPk(id, {
+      lock: transaction.LOCK.UPDATE,
+      transaction
+    });
+
     if (!order) {
+      await transaction.rollback();
       return res.status(404).json({ error: 'Sales order not found' });
     }
 
-    // Validate worker_name is provided when moving to 'produced'
-    if (production_status === 'produced' && (!worker_name || worker_name.trim() === '')) {
-      return res.status(400).json({ 
-        error: 'worker_name is required when setting status to "produced"' 
-      });
+    // Validate state machine transition
+    const transitionValidation = validateProductionStatusTransition(
+      order.production_status,
+      production_status
+    );
+
+    if (!transitionValidation.valid) {
+      await transaction.rollback();
+      return res.status(400).json({ error: transitionValidation.error });
     }
 
-    // Only allow status transitions: queue -> processing -> produced -> delivered
-    if (order.production_status === 'na' && production_status !== 'queue') {
-      return res.status(400).json({ 
-        error: 'Cannot set production status. Order has no manufactured items.' 
-      });
+    // Store current status before update
+    const previousStatus = order.production_status;
+
+    // Validate worker_name is provided when transitioning TO 'produced'
+    if (production_status === 'produced' && previousStatus !== 'produced') {
+      if (!worker_name || worker_name.trim() === '') {
+        await transaction.rollback();
+        return res.status(400).json({ 
+          error: 'worker_name is required when setting status to "produced"' 
+        });
+      }
     }
 
-    // Prevent skipping 'processing' state: queue cannot go directly to 'produced' or 'delivered'
-    if (order.production_status === 'queue' && production_status === 'produced') {
-      return res.status(400).json({ 
-        error: 'Cannot skip "processing" status. Order must have materials assigned first.' 
-      });
-    }
-
-    if (order.production_status === 'queue' && production_status === 'delivered') {
-      return res.status(400).json({ 
-        error: 'Cannot skip "produced" status. Order must be produced first.' 
-      });
-    }
-
-    // Prevent skipping 'produced' state: processing cannot go directly to 'delivered'
-    if (order.production_status === 'processing' && production_status === 'delivered') {
-      return res.status(400).json({ 
-        error: 'Cannot skip "produced" status. Order must be produced first.' 
-      });
-    }
-
+    // Update production status
     order.production_status = production_status;
     
-    // Store worker name in a note field or use dispatcher_name field temporarily
-    // For now, we'll use dispatcher_name to store worker name when produced
-    if (production_status === 'produced' && worker_name) {
-      // We can add a worker_name field later, for now use dispatcher_name as temporary storage
-      // This will be overwritten when order is delivered
-      order.dispatcher_name = worker_name;
+    // Store worker name when transitioning to 'produced'
+    // Use dispatcher_name field temporarily (will be overwritten when order is delivered)
+    if (production_status === 'produced' && previousStatus !== 'produced' && worker_name) {
+      order.dispatcher_name = worker_name.trim();
     }
 
-    await order.save();
+    // Save within transaction
+    await order.save({ transaction });
 
-    // Fetch complete order
+    // Commit transaction
+    await transaction.commit();
+
+    // Fetch complete order (outside transaction for better performance)
     const completeOrder = await SalesOrder.findByPk(order.id, {
       include: [
         { model: Customer, as: 'customer' },
@@ -470,6 +531,7 @@ export const updateProductionStatus = async (req, res, next) => {
       order: completeOrder
     });
   } catch (error) {
+    await transaction.rollback();
     next(error);
   }
 };
@@ -1115,10 +1177,15 @@ export const updateSale = async (req, res, next) => {
 /**
  * DELETE /api/sales/:id
  * Cancel/void a sales order
+ * Reverses ItemAssignments and restores inventory with transactional safety
  */
 export const cancelSale = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+
   try {
     const { id } = req.params;
+    
+    // Get order with row-level lock to prevent race conditions
     const order = await SalesOrder.findByPk(id, {
       include: [
         { model: Customer, as: 'customer' },
@@ -1139,67 +1206,72 @@ export const cancelSale = async (req, res, next) => {
             }
           ]
         }
-      ]
+      ],
+      lock: transaction.LOCK.UPDATE,
+      transaction
     });
 
     if (!order) {
+      await transaction.rollback();
       return res.status(404).json({ error: 'Sales order not found' });
     }
 
     // Only allow cancellation of unpaid orders
     if (order.payment_status === 'paid') {
+      await transaction.rollback();
       return res.status(400).json({ error: 'Cannot cancel a paid order' });
     }
 
-    // If order was invoiced and has inventory deductions, reverse them
+    // Reverse ItemAssignments and restore inventory for invoices with assignments
     if (order.order_type === 'invoice' && order.items) {
-      const transaction = await sequelize.transaction();
-      try {
-        for (const item of order.items) {
-          if (item.assignments && item.assignments.length > 0) {
-            for (const assignment of item.assignments) {
-              const batch = await InventoryBatch.findByPk(
-                assignment.inventory_batch_id,
-                { transaction }
+      for (const item of order.items) {
+        if (item.assignments && item.assignments.length > 0) {
+          for (const assignment of item.assignments) {
+            // Get inventory batch with row-level lock
+            const batch = await InventoryBatch.findByPk(
+              assignment.inventory_batch_id,
+              { 
+                lock: transaction.LOCK.UPDATE,
+                transaction 
+              }
+            );
+            
+            if (batch) {
+              // Reverse the inventory deduction using precision math
+              batch.remaining_quantity = add(
+                parseFloat(batch.remaining_quantity || 0), 
+                parseFloat(assignment.quantity_deducted || 0)
               );
               
-              if (batch) {
-                // Reverse the inventory deduction using precision math
-                batch.remaining_quantity = add(batch.remaining_quantity, assignment.quantity_deducted);
-                if (batch.status === 'depleted' && greaterThan(batch.remaining_quantity, 0)) {
-                  batch.status = 'in_stock';
-                }
-                await batch.save({ transaction });
+              // Restore status if batch was depleted
+              if (batch.status === 'depleted' && greaterThan(batch.remaining_quantity, 0)) {
+                batch.status = 'in_stock';
               }
+              
+              await batch.save({ transaction });
             }
+            
+            // Delete ItemAssignment record (explicit deletion for clarity)
+            // Note: This will also be deleted via CASCADE when SalesItem is destroyed,
+            // but explicit deletion ensures proper transaction handling
+            await ItemAssignment.destroy({
+              where: { id: assignment.id },
+              transaction
+            });
           }
         }
-
-        // Mark order as cancelled (we can add a cancelled status or just delete)
-        // For now, we'll add a cancelled flag or just delete if it's a draft/quotation
-        if (order.order_type === 'draft' || order.order_type === 'quotation') {
-          await SalesItem.destroy({ where: { order_id: id }, transaction });
-          await order.destroy({ transaction });
-        } else {
-          // For invoices, we might want to keep a record, but mark as cancelled
-          // For now, we'll just delete
-          await SalesItem.destroy({ where: { order_id: id }, transaction });
-          await order.destroy({ transaction });
-        }
-
-        await transaction.commit();
-        res.json({ message: 'Sales order cancelled successfully' });
-      } catch (error) {
-        await transaction.rollback();
-        throw error;
       }
-    } else {
-      // For drafts/quotations or orders without inventory, just delete
-      await SalesItem.destroy({ where: { order_id: id } });
-      await order.destroy();
-      res.json({ message: 'Sales order cancelled successfully' });
     }
+
+    // Delete sales items and order
+    // ItemAssignments will be automatically deleted via CASCADE, but we've already handled them above
+    await SalesItem.destroy({ where: { order_id: id }, transaction });
+    await order.destroy({ transaction });
+
+    await transaction.commit();
+    res.json({ message: 'Sales order cancelled successfully' });
   } catch (error) {
+    await transaction.rollback();
     next(error);
   }
 };

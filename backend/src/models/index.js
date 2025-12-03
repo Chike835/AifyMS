@@ -153,6 +153,14 @@ export const associateModels = () => {
     foreignKey: 'customer_id',
     as: 'customer'
   });
+  Payment.belongsTo(PaymentAccount, {
+    foreignKey: 'payment_account_id',
+    as: 'payment_account'
+  });
+  PaymentAccount.hasMany(Payment, {
+    foreignKey: 'payment_account_id',
+    as: 'payments'
+  });
 
   // Product - InventoryBatch (One-to-Many: Raw Material)
   Product.hasMany(InventoryBatch, {
@@ -295,6 +303,14 @@ export const associateModels = () => {
     foreignKey: 'sub_category_id',
     as: 'subCategory'
   });
+  Category.belongsTo(Branch, {
+    foreignKey: 'branch_id',
+    as: 'branch'
+  });
+  Branch.hasMany(Category, {
+    foreignKey: 'branch_id',
+    as: 'categories'
+  });
 
   // InventoryBatch - StockTransfer (One-to-Many)
   InventoryBatch.hasMany(StockTransfer, {
@@ -354,6 +370,14 @@ export const associateModels = () => {
   StockAdjustment.belongsTo(User, {
     foreignKey: 'user_id',
     as: 'user'
+  });
+  BusinessSetting.belongsTo(Branch, {
+    foreignKey: 'branch_id',
+    as: 'branch'
+  });
+  Branch.hasMany(BusinessSetting, {
+    foreignKey: 'branch_id',
+    as: 'business_settings'
   });
 
   // InventoryBatch - Wastage (One-to-Many)

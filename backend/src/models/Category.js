@@ -36,6 +36,14 @@ const Category = sequelize.define('Category', {
     type: DataTypes.BOOLEAN,
     defaultValue: true
   },
+  branch_id: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    references: {
+      model: 'branches',
+      key: 'id'
+    }
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

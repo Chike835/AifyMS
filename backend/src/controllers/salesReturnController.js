@@ -12,6 +12,7 @@ import {
   InventoryBatch,
   ItemAssignment
 } from '../models/index.js';
+import { add, greaterThan } from '../utils/mathUtils.js';
 
 /**
  * Generate a unique return number
@@ -320,10 +321,17 @@ export const approveSalesReturn = async (req, res, next) => {
             );
 
             if (batch) {
-              batch.remaining_quantity = parseFloat(batch.remaining_quantity) + restoreQty;
-              if (batch.status === 'depleted' && batch.remaining_quantity > 0) {
+              // Restore inventory using precision math
+              batch.remaining_quantity = add(
+                parseFloat(batch.remaining_quantity || 0), 
+                restoreQty
+              );
+              
+              // Restore status if batch was depleted
+              if (batch.status === 'depleted' && greaterThan(batch.remaining_quantity, 0)) {
                 batch.status = 'in_stock';
               }
+              
               await batch.save({ transaction });
             }
           }

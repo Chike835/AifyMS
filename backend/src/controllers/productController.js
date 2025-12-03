@@ -2,6 +2,31 @@ import { Product, PriceHistory, User, InventoryBatch, Branch, Category, Unit, Ta
 import { Op } from 'sequelize';
 import sequelize from '../config/db.js';
 
+const isSuperAdmin = (req) => req.user?.role_name === 'Super Admin';
+
+const ensureCategoryAccess = async (req, categoryId, transaction) => {
+  if (!categoryId) {
+    return null;
+  }
+
+  const category = await Category.findByPk(categoryId, { transaction });
+  if (!category) {
+    const error = new Error('Category not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (category.branch_id && !isSuperAdmin(req)) {
+    if (!req.user?.branch_id || req.user.branch_id !== category.branch_id) {
+      const error = new Error('You do not have access to this category');
+      error.statusCode = 403;
+      throw error;
+    }
+  }
+
+  return category;
+};
+
 /**
  * POST /api/products
  * Create a new product
@@ -71,11 +96,21 @@ export const createProduct = async (req, res, next) => {
       return res.status(409).json({ error: 'Product with this SKU already exists' });
     }
 
+    let categoryRecord = null;
+    try {
+      categoryRecord = await ensureCategoryAccess(req, category_id, transaction);
+      if (sub_category_id) {
+        await ensureCategoryAccess(req, sub_category_id, transaction);
+      }
+    } catch (categoryError) {
+      await transaction.rollback();
+      return res.status(categoryError.statusCode || 500).json({ error: categoryError.message });
+    }
+
     // Validate attribute_default_values against category schema if category is provided
-    if (category_id) {
-      const category = await Category.findByPk(category_id, { transaction });
-      if (category && category.attribute_schema && Array.isArray(category.attribute_schema)) {
-        const schema = category.attribute_schema;
+    if (categoryRecord) {
+      if (categoryRecord.attribute_schema && Array.isArray(categoryRecord.attribute_schema)) {
+        const schema = categoryRecord.attribute_schema;
         const providedAttributes = req.body.attribute_default_values || {};
         
         // Validate each attribute in schema
@@ -459,15 +494,24 @@ export const updateProduct = async (req, res, next) => {
     if (woocommerce_enabled !== undefined) updateData.woocommerce_enabled = woocommerce_enabled;
     if (is_active !== undefined) updateData.is_active = is_active;
     const productCategoryId = category_id !== undefined ? category_id : product.category_id;
+    let categoryRecord = null;
+    try {
+      categoryRecord = await ensureCategoryAccess(req, productCategoryId, transaction);
+      if (sub_category_id !== undefined && sub_category_id) {
+        await ensureCategoryAccess(req, sub_category_id, transaction);
+      }
+    } catch (categoryError) {
+      await transaction.rollback();
+      return res.status(categoryError.statusCode || 500).json({ error: categoryError.message });
+    }
     const incomingAttributeDefaults = req.body.attribute_default_values;
     const effectiveAttributeDefaults = incomingAttributeDefaults !== undefined
       ? incomingAttributeDefaults
       : (product.attribute_default_values || {});
 
-    if (productCategoryId) {
-      const category = await Category.findByPk(productCategoryId, { transaction });
-      if (category && category.attribute_schema && Array.isArray(category.attribute_schema)) {
-        const schema = category.attribute_schema;
+    if (categoryRecord) {
+      if (categoryRecord.attribute_schema && Array.isArray(categoryRecord.attribute_schema)) {
+        const schema = categoryRecord.attribute_schema;
         const providedAttributes = effectiveAttributeDefaults || {};
         
         for (const attr of schema) {

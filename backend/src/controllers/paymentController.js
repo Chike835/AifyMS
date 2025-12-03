@@ -15,6 +15,36 @@ const formatCurrency = (amount) => {
   }).format(amount || 0);
 };
 
+const loadPaymentAccountForUser = async (accountId, req, options = {}) => {
+  if (!accountId) {
+    const error = new Error('Payment account is required');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const paymentAccount = await PaymentAccount.findByPk(accountId, {
+    transaction: options.transaction,
+    lock: options.lock
+  });
+
+  if (!paymentAccount) {
+    const error = new Error('Payment account not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (req.user?.role_name !== 'Super Admin') {
+    const userBranchId = req.user?.branch_id;
+    if (paymentAccount.branch_id && userBranchId && paymentAccount.branch_id !== userBranchId) {
+      const error = new Error('You do not have access to this payment account');
+      error.statusCode = 403;
+      throw error;
+    }
+  }
+
+  return paymentAccount;
+};
+
 /**
  * POST /api/payments
  * Create a payment with status 'pending_confirmation'
@@ -25,7 +55,8 @@ export const createPayment = async (req, res, next) => {
       customer_id,
       amount,
       method,
-      reference_note
+      reference_note,
+      payment_account_id
     } = req.body;
 
     // Validation
@@ -52,12 +83,21 @@ export const createPayment = async (req, res, next) => {
       return res.status(404).json({ error: 'Customer not found' });
     }
 
+    // Validate payment account
+    let paymentAccount = null;
+    try {
+      paymentAccount = await loadPaymentAccountForUser(payment_account_id, req);
+    } catch (accountError) {
+      return res.status(accountError.statusCode || 500).json({ error: accountError.message });
+    }
+
     // Create payment with pending_confirmation status
     const payment = await Payment.create({
       customer_id,
       amount,
       method,
       status: 'pending_confirmation',
+      payment_account_id: paymentAccount?.id || null,
       created_by: req.user.id,
       reference_note: reference_note || null
     });
@@ -66,7 +106,8 @@ export const createPayment = async (req, res, next) => {
     const paymentWithDetails = await Payment.findByPk(payment.id, {
       include: [
         { model: Customer, as: 'customer' },
-        { model: User, as: 'creator', attributes: ['id', 'full_name', 'email'] }
+        { model: User, as: 'creator', attributes: ['id', 'full_name', 'email'] },
+        { model: PaymentAccount, as: 'payment_account', attributes: ['id', 'name', 'account_type'] }
       ]
     });
 
@@ -99,6 +140,7 @@ export const confirmPayment = async (req, res, next) => {
   
   try {
     const { id } = req.params;
+    const { payment_account_id: overridePaymentAccountId } = req.body || {};
 
     // Get payment with lock
     const payment = await Payment.findByPk(id, {
@@ -134,10 +176,35 @@ export const confirmPayment = async (req, res, next) => {
       return res.status(404).json({ error: 'Customer not found' });
     }
 
+    let accountId = payment.payment_account_id;
+    if (!accountId && overridePaymentAccountId) {
+      accountId = overridePaymentAccountId;
+    } else if (accountId && overridePaymentAccountId && accountId !== overridePaymentAccountId) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Payment already linked to a different payment account' });
+    }
+
+    if (!accountId) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Payment account is required to confirm this payment' });
+    }
+
+    let paymentAccount;
+    try {
+      paymentAccount = await loadPaymentAccountForUser(accountId, req, {
+        transaction,
+        lock: transaction.LOCK.UPDATE
+      });
+    } catch (accountError) {
+      await transaction.rollback();
+      return res.status(accountError.statusCode || 500).json({ error: accountError.message });
+    }
+
     // Update payment status
     payment.status = 'confirmed';
     payment.confirmed_by = req.user.id;
     payment.confirmed_at = new Date();
+    payment.payment_account_id = paymentAccount.id;
     await payment.save({ transaction });
 
     // Update customer ledger balance (increment - customer owes less)
@@ -151,6 +218,7 @@ export const confirmPayment = async (req, res, next) => {
       order: [['created_at', 'DESC']],
       transaction
     });
+    const branchId = recentSale?.branch_id || paymentAccount?.branch_id || req.user.branch_id;
 
     await createLedgerEntry(
       payment.customer_id,
@@ -162,11 +230,25 @@ export const confirmPayment = async (req, res, next) => {
         description: `Payment ${payment.method}`,
         debit_amount: 0,
         credit_amount: parseFloat(payment.amount),
-        branch_id: recentSale?.branch_id || req.user.branch_id,
+        branch_id: branchId,
         created_by: req.user.id
       },
       transaction
     );
+
+    // Record deposit into payment account
+    await AccountTransaction.create({
+      account_id: paymentAccount.id,
+      transaction_type: 'deposit',
+      amount: parseFloat(payment.amount),
+      reference_type: 'payment',
+      reference_id: payment.id,
+      notes: `Customer payment (${payment.method})`,
+      user_id: req.user.id
+    }, { transaction });
+
+    paymentAccount.current_balance = parseFloat(paymentAccount.current_balance || 0) + parseFloat(payment.amount);
+    await paymentAccount.save({ transaction });
 
     // Commit transaction (only after all operations succeed, including ledger entry)
     await transaction.commit();
@@ -176,7 +258,8 @@ export const confirmPayment = async (req, res, next) => {
       include: [
         { model: Customer, as: 'customer' },
         { model: User, as: 'creator', attributes: ['id', 'full_name', 'email'] },
-        { model: User, as: 'confirmer', attributes: ['id', 'full_name', 'email'] }
+        { model: User, as: 'confirmer', attributes: ['id', 'full_name', 'email'] },
+        { model: PaymentAccount, as: 'payment_account', attributes: ['id', 'name', 'account_type'] }
       ]
     });
 
@@ -243,7 +326,8 @@ export const getPayments = async (req, res, next) => {
       include: [
         { model: Customer, as: 'customer' },
         { model: User, as: 'creator', attributes: ['id', 'full_name', 'email', 'branch_id'] },
-        { model: User, as: 'confirmer', attributes: ['id', 'full_name', 'email'] }
+        { model: User, as: 'confirmer', attributes: ['id', 'full_name', 'email'] },
+        { model: PaymentAccount, as: 'payment_account', attributes: ['id', 'name', 'account_type'] }
       ],
       order: [['created_at', 'DESC']],
       limit: parseInt(limit),
@@ -306,7 +390,8 @@ export const getRecentPayments = async (req, res, next) => {
       include: [
         { model: Customer, as: 'customer', attributes: ['id', 'name', 'phone'] },
         { model: User, as: 'creator', attributes: ['id', 'full_name', 'email', 'branch_id'] },
-        { model: User, as: 'confirmer', attributes: ['id', 'full_name', 'email'] }
+        { model: User, as: 'confirmer', attributes: ['id', 'full_name', 'email'] },
+        { model: PaymentAccount, as: 'payment_account', attributes: ['id', 'name', 'account_type'] }
       ],
       order: [['created_at', 'DESC']],
       limit: 50
@@ -343,7 +428,8 @@ export const getPendingPayments = async (req, res, next) => {
       where,
       include: [
         { model: Customer, as: 'customer' },
-        { model: User, as: 'creator', attributes: ['id', 'full_name', 'email', 'branch_id'] }
+        { model: User, as: 'creator', attributes: ['id', 'full_name', 'email', 'branch_id'] },
+        { model: PaymentAccount, as: 'payment_account', attributes: ['id', 'name', 'account_type'] }
       ],
       order: [['created_at', 'ASC']]
     });
@@ -365,7 +451,8 @@ export const addAdvance = async (req, res, next) => {
       customer_id,
       amount,
       method,
-      reference_note
+      reference_note,
+      payment_account_id
     } = req.body;
 
     // Validation
@@ -392,12 +479,20 @@ export const addAdvance = async (req, res, next) => {
       return res.status(404).json({ error: 'Customer not found' });
     }
 
+    let paymentAccount = null;
+    try {
+      paymentAccount = await loadPaymentAccountForUser(payment_account_id, req);
+    } catch (accountError) {
+      return res.status(accountError.statusCode || 500).json({ error: accountError.message });
+    }
+
     // Create payment with pending_confirmation status
     const payment = await Payment.create({
       customer_id,
       amount,
       method,
       status: 'pending_confirmation',
+      payment_account_id: paymentAccount?.id || null,
       created_by: req.user.id,
       reference_note: reference_note || null
     });
@@ -406,7 +501,8 @@ export const addAdvance = async (req, res, next) => {
     const paymentWithDetails = await Payment.findByPk(payment.id, {
       include: [
         { model: Customer, as: 'customer' },
-        { model: User, as: 'creator', attributes: ['id', 'full_name', 'email'] }
+        { model: User, as: 'creator', attributes: ['id', 'full_name', 'email'] },
+        { model: PaymentAccount, as: 'payment_account', attributes: ['id', 'name', 'account_type'] }
       ]
     });
 
@@ -438,6 +534,7 @@ export const confirmAdvancePayment = async (req, res, next) => {
   
   try {
     const { id } = req.params;
+    const { payment_account_id: overridePaymentAccountId } = req.body || {};
 
     // Get payment with lock
     const payment = await Payment.findByPk(id, {
@@ -467,10 +564,35 @@ export const confirmAdvancePayment = async (req, res, next) => {
       return res.status(404).json({ error: 'Customer not found' });
     }
 
+    let accountId = payment.payment_account_id;
+    if (!accountId && overridePaymentAccountId) {
+      accountId = overridePaymentAccountId;
+    } else if (accountId && overridePaymentAccountId && accountId !== overridePaymentAccountId) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Payment already linked to a different payment account' });
+    }
+
+    if (!accountId) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Payment account is required to confirm this payment' });
+    }
+
+    let paymentAccount;
+    try {
+      paymentAccount = await loadPaymentAccountForUser(accountId, req, {
+        transaction,
+        lock: transaction.LOCK.UPDATE
+      });
+    } catch (accountError) {
+      await transaction.rollback();
+      return res.status(accountError.statusCode || 500).json({ error: accountError.message });
+    }
+
     // Update payment status
     payment.status = 'confirmed';
     payment.confirmed_by = req.user.id;
     payment.confirmed_at = new Date();
+    payment.payment_account_id = paymentAccount.id;
     await payment.save({ transaction });
 
     // Update customer ledger balance (decrease - customer paid advance)
@@ -483,6 +605,7 @@ export const confirmAdvancePayment = async (req, res, next) => {
       order: [['created_at', 'DESC']],
       transaction
     });
+    const branchId = recentSale?.branch_id || paymentAccount?.branch_id || req.user.branch_id;
 
     await createLedgerEntry(
       payment.customer_id,
@@ -494,11 +617,24 @@ export const confirmAdvancePayment = async (req, res, next) => {
         description: `Advance Payment ${payment.method}`,
         debit_amount: 0,
         credit_amount: parseFloat(payment.amount),
-        branch_id: recentSale?.branch_id || req.user.branch_id,
+        branch_id: branchId,
         created_by: req.user.id
       },
       transaction
     );
+
+    await AccountTransaction.create({
+      account_id: paymentAccount.id,
+      transaction_type: 'deposit',
+      amount: parseFloat(payment.amount),
+      reference_type: 'advance_payment',
+      reference_id: payment.id,
+      notes: `Advance payment (${payment.method})`,
+      user_id: req.user.id
+    }, { transaction });
+
+    paymentAccount.current_balance = parseFloat(paymentAccount.current_balance || 0) + parseFloat(payment.amount);
+    await paymentAccount.save({ transaction });
 
     // Commit transaction (only after all operations succeed, including ledger entry)
     await transaction.commit();
@@ -508,7 +644,8 @@ export const confirmAdvancePayment = async (req, res, next) => {
       include: [
         { model: Customer, as: 'customer' },
         { model: User, as: 'creator', attributes: ['id', 'full_name', 'email'] },
-        { model: User, as: 'confirmer', attributes: ['id', 'full_name', 'email'] }
+        { model: User, as: 'confirmer', attributes: ['id', 'full_name', 'email'] },
+        { model: PaymentAccount, as: 'payment_account', attributes: ['id', 'name', 'account_type'] }
       ]
     });
 

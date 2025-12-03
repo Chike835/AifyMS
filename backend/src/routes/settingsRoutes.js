@@ -10,8 +10,19 @@ import {
 
 const router = express.Router();
 
-// Get settings (authenticated users can view)
-router.get('/', authenticate, getSettings);
+const settingsManageMiddleware = requirePermission('settings_manage');
+const SAFE_SETTINGS_CATEGORIES = new Set(['manufacturing']);
+
+const ensureSettingsAccess = (req, res, next) => {
+  const requestedCategory = req.query?.category;
+  if (requestedCategory && SAFE_SETTINGS_CATEGORIES.has(requestedCategory)) {
+    return next();
+  }
+  return settingsManageMiddleware(req, res, next);
+};
+
+// Get settings (authenticated users can view manufacturing data; other categories require settings_manage)
+router.get('/', authenticate, ensureSettingsAccess, getSettings);
 
 // Update single setting (requires permission)
 router.put('/:key', authenticate, requirePermission('settings_manage'), updateSetting);

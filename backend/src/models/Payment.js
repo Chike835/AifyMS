@@ -27,6 +27,14 @@ const Payment = sequelize.define('Payment', {
     type: DataTypes.ENUM('pending_confirmation', 'confirmed', 'voided'),
     defaultValue: 'pending_confirmation'
   },
+  payment_account_id: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    references: {
+      model: 'payment_accounts',
+      key: 'id'
+    }
+  },
   created_by: {
     type: DataTypes.UUID,
     allowNull: false,

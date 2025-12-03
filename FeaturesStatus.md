@@ -61,7 +61,7 @@
 
 | Feature Category | Sub-Feature | Built (AI) | Working (User) |
 |-----------------|-------------|------------|----------------|
-| **Manufacturing** | Production status tracking (Unpaid → Pending → In Production → Produced → Delivered) | [x] | [ ] |
+| **Manufacturing** | Production status tracking with state machine (na → queue → processing → produced → delivered) | [x] | [ ] |
 | **Manufacturing** | Production queue management | [x] | [ ] |
 | **Manufacturing** | Wastage tracking integration | [x] | [ ] |
 | **Manufacturing** | Recipe management (CRUD) | [x] | [ ] |
@@ -78,6 +78,7 @@
 | **Purchases** | Purchase orders management | [x] | [ ] |
 | **Purchases** | Purchase returns processing | [x] | [ ] |
 | **Purchases** | Inventory instance registration on purchase | [x] | [ ] |
+| **Purchases** | Purchase import/export functionality (CSV/Excel) | [x] | [ ] |
 | **Purchases** | Purchases list page (/purchases) | [x] | [ ] |
 | **Purchases** | Add purchase page (/purchases/add) | [x] | [ ] |
 | **Purchases** | Purchase returns page (/purchases/returns) | [x] | [ ] |
@@ -91,6 +92,7 @@
 | **Sales** | POS functionality | [x] | [ ] |
 | **Sales** | Sales order management (basic) | [x] | [ ] |
 | **Sales** | Sales order management (drafts, quotations, returns, shipments, discounts) | [x] | [ ] |
+| **Sales** | Item assignment reversal on sale cancellation/return | [x] | [ ] |
 | **Sales** | Delivery notes and custom documents | [x] | [ ] |
 | **Sales** | Shipment tracking and dispatcher workflow | [x] | [ ] |
 | **Sales** | POS interface page (/pos) | [x] | [ ] |
@@ -224,7 +226,6 @@
 |-----------------|-------------|------------|----------------|
 | **Attributes** | Brand management | [x] | [ ] |
 | **Attributes** | Color management | [x] | [ ] |
-| **Attributes** | Gauge management (fixed list) | [x] | [ ] |
 | **Attributes** | Gauge category toggles (dynamic range) | [x] | [ ] |
 | **Attributes** | Attribute management interface | [x] | [ ] |
 

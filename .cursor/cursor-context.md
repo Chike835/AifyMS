@@ -228,9 +228,15 @@ graph TB
    - Updates `InventoryInstance.branch_id` to destination branch
    - Requires approval for inter-branch transfers
 
+4. **Item Assignment Reversal:**
+   - When a sale is cancelled or returned, `ItemAssignment` records are reversed
+   - Inventory quantities are restored using precision math utilities
+   - Batch status is restored from 'depleted' to 'in_stock' if quantity > 0
+   - All operations are wrapped in transactions with row-level locking for data integrity
+
 **Key Tables:**
 - `inventory_instances`: Physical items with unique codes
-- `item_assignments`: Links sales items to specific inventory instances
+- `item_assignments`: Links sales items to specific inventory instances (reversible on cancellation/return)
 - `stock_transfers`: Tracks movement between branches
 - `stock_adjustments`: Records quantity corrections with reasons
 
@@ -261,13 +267,30 @@ graph TB
 
 **Key Settings:**
 - `business_settings.gauge_enabled_categories`: JSON array of normalized category names (e.g., `["aluminium", "stone_tile"]`)
-- `business_settings.manufacturing_gauges`: Retained for backward compatibility (legacy fixed list)
+- Legacy `manufacturing_gauges` setting has been removed; gauge input is now fully dynamic based on category toggles
 
 **Implementation Details:**
 - Category name normalization: `name.toLowerCase().replace(/\s+/g, '_')`
 - Gauge values stored as floats with 2-decimal precision: `Math.round(value * 100) / 100`
 - Frontend gauge input only renders when product's category matches enabled list
 - Backend enforces validation only for enabled categories to prevent unnecessary errors
+
+---
+
+### 7. Branch-Scoped Categories & Business Settings
+
+**Feature:** Category and business configuration data now respect branch boundaries.
+
+**Data Flow:**
+1. **Category CRUD:** `Category` records include `branch_id`. API responses automatically filter to the requesting branch plus global (null) categories. Super Admins can optionally scope queries/changes via `branch_id` query/body params.
+2. **Frontend Queries:** All React Query hooks that retrieve categories or manufacturing settings include `branch_id` in both the query key and API params. Super Admin UI provides branch filters when managing categories.
+3. **Business Settings:** `BusinessSetting` rows also include `branch_id` with a composite uniqueness constraint (`setting_key`, `branch_id`). GET `/settings` returns branch-specific overrides layered atop global defaults. PUT/PATCH endpoints accept an optional `branch_id` to update branch overrides while leaving global defaults intact.
+4. **Validation:** Server-side helpers block branch-scoped users from reading or mutating categories/settings outside their branch, while still allowing access to global records.
+
+**Key Implementation Details:**
+- Category import/export APIs accept `branch_id`.
+- Backend controllers sharing category IDs (products, inventory batches, batch settings) validate branch access before processing.
+- Frontend modals default new categories to the user's branch; Super Admins can choose between global or branch-specific scope.
 
 ---
 
@@ -375,7 +398,7 @@ Request → authenticate → requirePermission → Controller
 ### 5. Manufacturing Workflow
 - Sales of `manufactured_virtual` products trigger production queue
 - Recipes define conversion factors (e.g., 1 Meter = 0.8 KG)
-- Production status: `queue` → `produced` → `delivered`
+- Production status state machine: `na` → `queue` → `processing` → `produced` → `delivered` (with transactional safety and row-level locking)
 - Material reservation happens at point of sale (coil selection)
 
 ### 6. Maker-Checker Workflow (Payments)
@@ -472,6 +495,8 @@ Request → authenticate → requirePermission → Controller
 - `DELETE /api/expenses/categories/:id` - Delete expense category
 
 **Import/Export:**
+- Products, Inventory, Customers, Suppliers, Categories, Units, Purchases
+- Purchase import/export uses flattened format (one row per purchase item with purchase-level fields repeated)
 - `POST /api/import/products` - Import products from CSV/Excel
 - `GET /api/export/products` - Export products to CSV/Excel
 
@@ -772,8 +797,10 @@ const menuItems = [
 3. Calculates required raw material: 100 × 0.8 = 80 KG
 4. User selects specific coil (InventoryInstance) with sufficient quantity
 5. Creates SalesOrder with `production_status = 'queue'`
-6. Production worker updates status to `produced` when complete
-7. Dispatcher updates status to `delivered` when shipped
+6. Production worker updates status to `processing` when materials are assigned
+7. Production worker updates status to `produced` when complete (requires worker_name)
+8. Dispatcher updates status to `delivered` when shipped
+9. State machine enforces valid transitions with transactional safety and prevents backwards/illegal transitions
 
 ### Payment Confirmation Workflow
 1. Cashier logs payment → `Payment.status = 'pending_confirmation'`

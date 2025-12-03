@@ -94,7 +94,7 @@ export const importData = async (req, res, next) => {
   try {
     // CRITICAL: Validate entity FIRST (fail fast - before any file processing)
     const { entity } = req.params;
-    const validEntities = ['products', 'inventory', 'customers', 'suppliers', 'categories', 'units'];
+    const validEntities = ['products', 'inventory', 'customers', 'suppliers', 'categories', 'units', 'purchases'];
 
     if (!entity || !validEntities.includes(entity)) {
       console.error('[Import] Invalid entity:', entity);
@@ -177,6 +177,9 @@ export const importData = async (req, res, next) => {
         case 'units':
           results = await importService.importUnits(data, req.user);
           break;
+        case 'purchases':
+          results = await importService.importPurchases(data, req.user);
+          break;
         default:
           return res.status(400).json({ error: 'Invalid entity type' });
       }
@@ -207,7 +210,7 @@ export const importData = async (req, res, next) => {
 export const exportData = async (req, res, next) => {
   try {
     const { entity } = req.params;
-    const validEntities = ['products', 'inventory', 'sales', 'customers'];
+    const validEntities = ['products', 'inventory', 'sales', 'customers', 'purchases'];
 
     if (!validEntities.includes(entity)) {
       return res.status(400).json({
@@ -249,6 +252,10 @@ export const exportData = async (req, res, next) => {
       case 'customers':
         csvContent = await exportService.exportCustomers();
         filename = `customers_${new Date().toISOString().split('T')[0]}.csv`;
+        break;
+      case 'purchases':
+        csvContent = await exportService.exportPurchases(filters);
+        filename = `purchases_${new Date().toISOString().split('T')[0]}.csv`;
         break;
       default:
         return res.status(400).json({ error: 'Invalid entity type' });

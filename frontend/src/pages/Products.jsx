@@ -34,7 +34,7 @@ const productTypeLabels = {
 const Products = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
 
   // Filter states
   const [showFilters, setShowFilters] = useState(false);
@@ -125,10 +125,16 @@ const Products = () => {
   });
 
   // Fetch reference data for filters
+  const categoryBranchScope = user?.branch_id || null;
   const { data: categoriesData } = useQuery({
-    queryKey: ['categories'],
+    queryKey: ['categories', categoryBranchScope || 'global'],
     queryFn: async () => {
-      const res = await api.get('/categories');
+      const res = await api.get('/categories', {
+        params: {
+          branch_id: categoryBranchScope || undefined,
+          include_global: 'true'
+        }
+      });
       return res.data.categories || res.data || [];
     }
   });

@@ -5,7 +5,7 @@ import api from '../../../utils/api';
 import { Package, Plus, Edit, Trash2, X, Check, Search } from 'lucide-react';
 
 const BatchSettings = () => {
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const queryClient = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -17,6 +17,8 @@ const BatchSettings = () => {
     description: ''
   });
 
+  const canManageSettings = hasPermission('settings_manage');
+
   // Fetch all batch types
   const { data: batchTypesData, isLoading: typesLoading } = useQuery({
     queryKey: ['batchTypes'],
@@ -24,24 +26,38 @@ const BatchSettings = () => {
       const response = await api.get('/settings/batches/types');
       return response.data.batch_types || [];
     },
+    enabled: canManageSettings
   });
 
   // Fetch all categories
+  const categoryBranchScope = user?.branch_id || null;
+  const assignmentQueryKey = ['categoryBatchAssignments', categoryBranchScope || 'global'];
   const { data: categoriesData, isLoading: categoriesLoading } = useQuery({
-    queryKey: ['categories'],
+    queryKey: ['categories', categoryBranchScope || 'global'],
     queryFn: async () => {
-      const response = await api.get('/categories');
+      const response = await api.get('/categories', {
+        params: {
+          branch_id: categoryBranchScope || undefined,
+          include_global: 'true'
+        }
+      });
       return response.data.categories || [];
     },
+    enabled: canManageSettings
   });
 
   // Fetch category-batch type assignments
   const { data: assignmentsData, isLoading: assignmentsLoading } = useQuery({
-    queryKey: ['categoryBatchAssignments'],
+    queryKey: assignmentQueryKey,
     queryFn: async () => {
-      const response = await api.get('/settings/batches/assignments');
+      const response = await api.get('/settings/batches/assignments', {
+        params: {
+          branch_id: categoryBranchScope || undefined
+        }
+      });
       return response.data.assignments || [];
     },
+    enabled: canManageSettings
   });
 
   // Create batch type mutation
@@ -87,7 +103,7 @@ const BatchSettings = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['batchTypes'] });
-      queryClient.invalidateQueries({ queryKey: ['categoryBatchAssignments'] });
+      queryClient.invalidateQueries({ queryKey: assignmentQueryKey });
       alert('Batch type deleted successfully!');
     },
     onError: (error) => {
@@ -105,7 +121,7 @@ const BatchSettings = () => {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['categoryBatchAssignments'] });
+      queryClient.invalidateQueries({ queryKey: assignmentQueryKey });
       alert('Batch type assigned to category successfully!');
     },
     onError: (error) => {
@@ -122,7 +138,7 @@ const BatchSettings = () => {
       return response.data;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['categoryBatchAssignments'] });
+      queryClient.invalidateQueries({ queryKey: assignmentQueryKey });
       alert(data?.message || 'Batch type removed from category successfully!');
     },
     onError: (error) => {
@@ -188,6 +204,16 @@ const BatchSettings = () => {
   const filteredCategories = categories.filter(cat =>
     !searchTerm || cat.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  if (!canManageSettings) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg">
+          You do not have permission to manage batch settings.
+        </div>
+      </div>
+    );
+  }
 
   if (typesLoading || categoriesLoading || assignmentsLoading) {
     return (

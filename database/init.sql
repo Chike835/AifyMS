@@ -162,10 +162,12 @@ CREATE TABLE categories (
     unit_type VARCHAR(50),
     attribute_schema JSONB DEFAULT '[]'::jsonb,
     is_active BOOLEAN DEFAULT true,
+    branch_id UUID REFERENCES branches(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_categories_parent_id ON categories(parent_id);
 CREATE INDEX idx_categories_attribute_schema ON categories USING GIN(attribute_schema);
+CREATE INDEX idx_categories_branch_id ON categories(branch_id);
 
 -- Warranties table
 CREATE TABLE warranties (
@@ -300,6 +302,7 @@ CREATE TABLE payments (
     amount DECIMAL(15, 2) NOT NULL,
     method payment_method NOT NULL,
     status payment_status DEFAULT 'pending_confirmation',
+    payment_account_id UUID REFERENCES payment_accounts(id),
     created_by UUID NOT NULL REFERENCES users(id),
     confirmed_by UUID REFERENCES users(id),
     confirmed_at TIMESTAMP,
@@ -583,15 +586,18 @@ CREATE TABLE product_attributes_brands (
 -- Business Settings table
 CREATE TABLE business_settings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    setting_key VARCHAR(100) NOT NULL UNIQUE,
+    setting_key VARCHAR(100) NOT NULL,
     setting_value TEXT,
     setting_type VARCHAR(20) DEFAULT 'string' CHECK (setting_type IN ('string', 'number', 'boolean', 'json')),
     category VARCHAR(50) NOT NULL,
+    branch_id UUID REFERENCES branches(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT business_settings_unique_key_branch UNIQUE (setting_key, branch_id)
 );
 CREATE INDEX idx_business_settings_category ON business_settings(category);
 CREATE INDEX idx_business_settings_key ON business_settings(setting_key);
+CREATE INDEX idx_business_settings_branch_id ON business_settings(branch_id);
 
 -- ============================================
 -- ALTER EXISTING TABLES
@@ -1002,32 +1008,31 @@ WHERE r.name = 'Production Worker'
 -- SEED DATA: BUSINESS SETTINGS
 -- ============================================
 
-INSERT INTO business_settings (setting_key, setting_value, setting_type, category) VALUES
-    ('business_name', 'Aify Global', 'string', 'general'),
-    ('business_address', '', 'string', 'general'),
-    ('business_phone', '', 'string', 'general'),
-    ('business_email', '', 'string', 'general'),
-    ('business_logo', '', 'string', 'general'),
-    ('currency_symbol', '₦', 'string', 'general'),
-    ('currency_code', 'NGN', 'string', 'general'),
-    ('date_format', 'DD/MM/YYYY', 'string', 'general'),
-    ('time_format', '24h', 'string', 'general'),
-    ('fiscal_year_start', '01-01', 'string', 'financial'),
-    ('invoice_prefix', 'INV', 'string', 'invoice'),
-    ('invoice_footer', 'Thank you for your business!', 'string', 'invoice'),
-    ('invoice_terms', 'Payment due within 30 days', 'string', 'invoice'),
-    ('invoice_show_tax', 'true', 'boolean', 'invoice'),
-    ('invoice_show_discount', 'true', 'boolean', 'invoice'),
-    ('barcode_type', 'CODE128', 'string', 'barcode'),
-    ('barcode_width', '2', 'number', 'barcode'),
-    ('barcode_height', '100', 'number', 'barcode'),
-    ('barcode_show_text', 'true', 'boolean', 'barcode'),
-    ('barcode_text_position', 'bottom', 'string', 'barcode'),
-    ('manufacturing_gauges', '["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1.0"]', 'json', 'manufacturing'),
-    ('gauge_enabled_categories', '["aluminium", "stone_tile"]', 'json', 'manufacturing'),
-    ('manufacturing_aluminium_colors', '["Charcoal", "Terracotta", "Blue", "Green", "Red", "Brown", "Grey", "White"]', 'json', 'manufacturing'),
-    ('manufacturing_stone_tile_colors', '["Natural", "Grey", "Brown", "Charcoal", "Terracotta"]', 'json', 'manufacturing'),
-    ('manufacturing_stone_tile_design', '["Shingle", "Tile", "Slate", "Roman"]', 'json', 'manufacturing');
+INSERT INTO business_settings (setting_key, setting_value, setting_type, category, branch_id) VALUES
+    ('business_name', 'Aify Global', 'string', 'general', NULL),
+    ('business_address', '', 'string', 'general', NULL),
+    ('business_phone', '', 'string', 'general', NULL),
+    ('business_email', '', 'string', 'general', NULL),
+    ('business_logo', '', 'string', 'general', NULL),
+    ('currency_symbol', '₦', 'string', 'general', NULL),
+    ('currency_code', 'NGN', 'string', 'general', NULL),
+    ('date_format', 'DD/MM/YYYY', 'string', 'general', NULL),
+    ('time_format', '24h', 'string', 'general', NULL),
+    ('fiscal_year_start', '01-01', 'string', 'financial', NULL),
+    ('invoice_prefix', 'INV', 'string', 'invoice', NULL),
+    ('invoice_footer', 'Thank you for your business!', 'string', 'invoice', NULL),
+    ('invoice_terms', 'Payment due within 30 days', 'string', 'invoice', NULL),
+    ('invoice_show_tax', 'true', 'boolean', 'invoice', NULL),
+    ('invoice_show_discount', 'true', 'boolean', 'invoice', NULL),
+    ('barcode_type', 'CODE128', 'string', 'barcode', NULL),
+    ('barcode_width', '2', 'number', 'barcode', NULL),
+    ('barcode_height', '100', 'number', 'barcode', NULL),
+    ('barcode_show_text', 'true', 'boolean', 'barcode', NULL),
+    ('barcode_text_position', 'bottom', 'string', 'barcode', NULL),
+    ('gauge_enabled_categories', '["aluminium", "stone_tile"]', 'json', 'manufacturing', NULL),
+    ('manufacturing_aluminium_colors', '["Charcoal", "Terracotta", "Blue", "Green", "Red", "Brown", "Grey", "White"]', 'json', 'manufacturing', NULL),
+    ('manufacturing_stone_tile_colors', '["Natural", "Grey", "Brown", "Charcoal", "Terracotta"]', 'json', 'manufacturing', NULL),
+    ('manufacturing_stone_tile_design', '["Shingle", "Tile", "Slate", "Roman"]', 'json', 'manufacturing', NULL);
 
 -- ============================================
 -- SEED DATA: BATCH TYPES

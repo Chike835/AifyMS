@@ -1,6 +1,7 @@
-import { Product, InventoryBatch, Branch, Customer, Supplier, Category, Unit } from '../models/index.js';
+import { Product, InventoryBatch, Branch, Customer, Supplier, Category, Unit, Purchase, PurchaseItem } from '../models/index.js';
 import { Op } from 'sequelize';
 import XLSX from 'xlsx';
+import sequelize from '../config/db.js';
 
 /**
  * Normalize CSV headers to handle case sensitivity, BOM characters, and common aliases
@@ -890,5 +891,206 @@ export const parseExcel = (buffer) => {
   });
 
   return rows;
+};
+
+/**
+ * Import purchases from CSV/JSON data (flattened format: one row per purchase item)
+ * Expected columns: purchase_number, supplier_name, branch_code, total_amount, payment_status, status, notes, created_at,
+ *                   product_sku, quantity, unit_cost, subtotal, instance_code, purchase_unit, purchased_quantity, conversion_factor
+ */
+export const importPurchases = async (data, user, errors = []) => {
+  const results = {
+    created: 0,
+    updated: 0,
+    skipped: 0,
+    errors: []
+  };
+
+  // Group rows by purchase_number
+  const purchaseMap = new Map();
+  
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    const rowNum = i + 2;
+
+    try {
+      // Validate required fields
+      if (!row.purchase_number || !row.product_sku || row.quantity === undefined || row.unit_cost === undefined) {
+        results.errors.push({
+          row: rowNum,
+          error: 'Missing required fields: purchase_number, product_sku, quantity, unit_cost'
+        });
+        results.skipped++;
+        continue;
+      }
+
+      const purchaseNumber = row.purchase_number.trim();
+      
+      if (!purchaseMap.has(purchaseNumber)) {
+        purchaseMap.set(purchaseNumber, {
+          purchaseData: {
+            purchase_number: purchaseNumber,
+            supplier_name: row.supplier_name?.trim() || '',
+            branch_code: row.branch_code?.trim() || '',
+            total_amount: parseFloat(row.total_amount || 0),
+            payment_status: row.payment_status?.trim() || 'unpaid',
+            status: row.status?.trim() || 'confirmed',
+            notes: row.notes?.trim() || '',
+            created_at: row.created_at ? new Date(row.created_at) : new Date()
+          },
+          items: []
+        });
+      }
+
+      purchaseMap.get(purchaseNumber).items.push({
+        product_sku: row.product_sku.trim(),
+        quantity: parseFloat(row.quantity),
+        unit_cost: parseFloat(row.unit_cost),
+        subtotal: parseFloat(row.subtotal || row.quantity * row.unit_cost),
+        instance_code: row.instance_code?.trim() || null,
+        purchase_unit: row.purchase_unit?.trim() || null,
+        purchased_quantity: row.purchased_quantity ? parseFloat(row.purchased_quantity) : null,
+        conversion_factor: row.conversion_factor ? parseFloat(row.conversion_factor) : 1
+      });
+    } catch (error) {
+      results.errors.push({
+        row: rowNum,
+        error: error.message || 'Unknown error'
+      });
+      results.skipped++;
+    }
+  }
+
+  // Process each purchase
+  for (const [purchaseNumber, purchaseInfo] of purchaseMap.entries()) {
+    const transaction = await sequelize.transaction();
+    
+    try {
+      // Find or create branch
+      let branch = null;
+      if (purchaseInfo.purchaseData.branch_code) {
+        branch = await Branch.findOne({
+          where: { code: purchaseInfo.purchaseData.branch_code },
+          transaction
+        });
+      }
+      
+      // Use user's branch if branch_code not found
+      const branchId = branch?.id || user?.branch_id;
+      if (!branchId) {
+        await transaction.rollback();
+        results.errors.push({
+          row: `Purchase ${purchaseNumber}`,
+          error: 'Branch not found and user has no branch assigned'
+        });
+        results.skipped++;
+        continue;
+      }
+
+      // Find supplier if provided
+      let supplierId = null;
+      if (purchaseInfo.purchaseData.supplier_name) {
+        const supplier = await Supplier.findOne({
+          where: { 
+            name: purchaseInfo.purchaseData.supplier_name,
+            branch_id: branchId
+          },
+          transaction
+        });
+        supplierId = supplier?.id || null;
+      }
+
+      // Check if purchase already exists
+      let purchase = await Purchase.findOne({
+        where: { purchase_number: purchaseNumber },
+        transaction
+      });
+
+      if (purchase) {
+        // Update existing purchase
+        await purchase.update({
+          supplier_id: supplierId,
+          branch_id: branchId,
+          total_amount: purchaseInfo.purchaseData.total_amount,
+          payment_status: purchaseInfo.purchaseData.payment_status,
+          status: purchaseInfo.purchaseData.status,
+          notes: purchaseInfo.purchaseData.notes
+        }, { transaction });
+
+        // Delete existing items and recreate
+        await PurchaseItem.destroy({
+          where: { purchase_id: purchase.id },
+          transaction
+        });
+        results.updated++;
+      } else {
+        // Create new purchase
+        purchase = await Purchase.create({
+          purchase_number: purchaseNumber,
+          supplier_id: supplierId,
+          branch_id: branchId,
+          user_id: user?.id || null,
+          total_amount: purchaseInfo.purchaseData.total_amount,
+          payment_status: purchaseInfo.purchaseData.payment_status,
+          status: purchaseInfo.purchaseData.status,
+          notes: purchaseInfo.purchaseData.notes,
+          created_at: purchaseInfo.purchaseData.created_at
+        }, { transaction });
+        results.created++;
+      }
+
+      // Create purchase items
+      for (const itemData of purchaseInfo.items) {
+        // Find product by SKU
+        const product = await Product.findOne({
+          where: { sku: itemData.product_sku },
+          transaction
+        });
+
+        if (!product) {
+          await transaction.rollback();
+          results.errors.push({
+            row: `Purchase ${purchaseNumber}`,
+            error: `Product with SKU "${itemData.product_sku}" not found`
+          });
+          results.skipped++;
+          continue;
+        }
+
+        // Find purchase unit if provided
+        let purchaseUnitId = null;
+        if (itemData.purchase_unit) {
+          const unit = await Unit.findOne({
+            where: { name: itemData.purchase_unit },
+            transaction
+          });
+          purchaseUnitId = unit?.id || null;
+        }
+
+        await PurchaseItem.create({
+          purchase_id: purchase.id,
+          product_id: product.id,
+          quantity: itemData.quantity,
+          unit_cost: itemData.unit_cost,
+          subtotal: itemData.subtotal,
+          instance_code: itemData.instance_code,
+          purchase_unit_id: purchaseUnitId,
+          purchased_quantity: itemData.purchased_quantity,
+          conversion_factor: itemData.conversion_factor
+        }, { transaction });
+      }
+
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      results.errors.push({
+        row: `Purchase ${purchaseNumber}`,
+        error: error.message || 'Unknown error'
+      });
+      results.skipped++;
+    }
+  }
+
+  return results;
 };
 
