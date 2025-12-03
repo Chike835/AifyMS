@@ -96,7 +96,7 @@ const InventoryBatch = sequelize.define('InventoryBatch', {
         instance.batch_identifier = instance.instance_code;
       }
     },
-    beforeSave: async (instance) => {
+    beforeSave: async (instance, options) => {
       // Validate attribute_data based on product type
       if (instance.product_id && instance.attribute_data) {
         // Use sequelize.models to avoid circular dependency
@@ -104,13 +104,20 @@ const InventoryBatch = sequelize.define('InventoryBatch', {
         const Category = sequelize.models.Category;
         
         if (Product && Category) {
-          const product = await Product.findByPk(instance.product_id, {
+          const queryOptions = {
             include: [{
               model: Category,
               as: 'categoryRef',
               required: false
             }]
-          });
+          };
+          
+          // Include transaction if provided to maintain transaction isolation
+          if (options?.transaction) {
+            queryOptions.transaction = options.transaction;
+          }
+          
+          const product = await Product.findByPk(instance.product_id, queryOptions);
 
           if (product) {
             const categoryName = product.categoryRef?.name?.toLowerCase() || '';

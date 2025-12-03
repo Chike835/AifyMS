@@ -191,8 +191,27 @@ const Warranties = () => {
       <DataControlBar
         importEndpoint="/api/warranties/import"
         exportEndpoint="/api/warranties/export"
-        entityName="Warranties"
-        onImportSuccess={() => queryClient.invalidateQueries({ queryKey: ['warranties'] })}
+        entityName="warranties"
+        onImportSuccess={(data) => {
+          const results = data?.results || data || {};
+          const created = results.created || 0;
+          const updated = results.updated || 0;
+          const skipped = results.skipped || 0;
+          const errors = results.errors || [];
+          
+          if (created > 0 || updated > 0) {
+            queryClient.invalidateQueries({ queryKey: ['warranties'] });
+            
+            let message = `Import completed! ${created} created, ${updated} updated`;
+            if (skipped > 0) {
+              message += `, ${skipped} skipped`;
+            }
+            if (errors.length > 0) {
+              message += `. ${errors.length} error(s) occurred.`;
+            }
+            alert(message);
+          }
+        }}
       />
 
       {/* List Toolbar */}

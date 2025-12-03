@@ -91,8 +91,27 @@ const Settings = () => {
         <DataControlBar
           importEndpoint="/api/attributes/brands/import"
           exportEndpoint="/api/attributes/brands/export"
-          entityName="Brands"
-          onImportSuccess={() => queryClient.invalidateQueries({ queryKey: ['attributes'] })}
+          entityName="brands"
+          onImportSuccess={(data) => {
+            const results = data?.results || data || {};
+            const created = results.created || 0;
+            const updated = results.updated || 0;
+            const skipped = results.skipped || 0;
+            const errors = results.errors || [];
+            
+            if (created > 0 || updated > 0) {
+              queryClient.invalidateQueries({ queryKey: ['attributes'] });
+              
+              let message = `Import completed! ${created} created, ${updated} updated`;
+              if (skipped > 0) {
+                message += `, ${skipped} skipped`;
+              }
+              if (errors.length > 0) {
+                message += `. ${errors.length} error(s) occurred.`;
+              }
+              alert(message);
+            }
+          }}
         />
       )}
 

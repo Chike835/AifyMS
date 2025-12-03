@@ -52,14 +52,15 @@ const GaugesColorsSettings = () => {
     setShowModal(false);
   };
 
-  const handleAdd = () => {
-    if (!formData.value.trim()) {
+  const handleAdd = (valueToAdd = null) => {
+    const value = valueToAdd || formData.value;
+    if (!value.trim()) {
       alert('Please enter a value');
       return;
     }
 
     const currentValues = getSettingValue(getSettingKey());
-    const newValues = [...currentValues, formData.value.trim()];
+    const newValues = [...currentValues, value.trim()];
     
     updateSettingMutation.mutate({
       key: getSettingKey(),
@@ -67,8 +68,9 @@ const GaugesColorsSettings = () => {
     });
   };
 
-  const handleEdit = () => {
-    if (!formData.value.trim()) {
+  const handleEdit = (valueToEdit = null) => {
+    const value = valueToEdit || formData.value;
+    if (!value.trim()) {
       alert('Please enter a value');
       return;
     }
@@ -78,7 +80,7 @@ const GaugesColorsSettings = () => {
     if (index === -1) return;
 
     const newValues = [...currentValues];
-    newValues[index] = formData.value.trim();
+    newValues[index] = value.trim();
     
     updateSettingMutation.mutate({
       key: getSettingKey(),
@@ -132,8 +134,17 @@ const GaugesColorsSettings = () => {
         alert('Gauge must be a number between 0.1 and 1.0 mm');
         return;
       }
-      // Format as string with .1 precision
-      formData.value = parseFloat(formData.value).toFixed(1);
+      // Format as string with .1 precision - use setFormData to update state immutably
+      const formattedValue = parseFloat(formData.value).toFixed(1);
+      setFormData({ value: formattedValue });
+      
+      // Use the formatted value directly for the add/edit operations
+      if (editingValue) {
+        handleEdit(formattedValue);
+      } else {
+        handleAdd(formattedValue);
+      }
+      return;
     }
 
     if (editingValue) {

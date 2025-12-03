@@ -289,6 +289,8 @@ export const assignTypeToCategory = async (req, res, next) => {
  * DELETE /api/settings/batches/assignments
  * Remove a batch type from a category
  * Query params: category_id, batch_type_id
+ * Note: This will allow removal even if existing inventory batches use this combination.
+ * Existing batches will remain untouched, but new batches cannot be created with this combination.
  */
 export const removeTypeFromCategory = async (req, res, next) => {
   try {
@@ -314,16 +316,13 @@ export const removeTypeFromCategory = async (req, res, next) => {
       }
     });
 
-    if (batchesCount > 0) {
-      return res.status(400).json({
-        error: `Cannot remove assignment: ${batchesCount} inventory batch(es) are using this batch type for this category`
-      });
-    }
-
+    // Allow removal even if batches exist - existing batches will remain, but new ones cannot be created
     await assignment.destroy();
 
     res.json({
-      message: 'Batch type removed from category successfully'
+      message: batchesCount > 0
+        ? `Batch type removed from category successfully. ${batchesCount} existing inventory batch(es) remain unchanged, but new batches cannot use this combination.`
+        : 'Batch type removed from category successfully'
     });
   } catch (error) {
     next(error);

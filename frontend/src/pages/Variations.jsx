@@ -201,8 +201,27 @@ const Variations = () => {
       <DataControlBar
         importEndpoint="/api/variations/import"
         exportEndpoint="/api/variations/export"
-        entityName="Variations"
-        onImportSuccess={() => queryClient.invalidateQueries({ queryKey: ['variations'] })}
+        entityName="variations"
+        onImportSuccess={(data) => {
+          const results = data?.results || data || {};
+          const created = results.created || 0;
+          const updated = results.updated || 0;
+          const skipped = results.skipped || 0;
+          const errors = results.errors || [];
+          
+          if (created > 0 || updated > 0) {
+            queryClient.invalidateQueries({ queryKey: ['variations'] });
+            
+            let message = `Import completed! ${created} created, ${updated} updated`;
+            if (skipped > 0) {
+              message += `, ${skipped} skipped`;
+            }
+            if (errors.length > 0) {
+              message += `. ${errors.length} error(s) occurred.`;
+            }
+            alert(message);
+          }
+        }}
       />
 
       {/* List Toolbar */}

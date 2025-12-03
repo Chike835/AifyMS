@@ -90,170 +90,36 @@ ON CONFLICT DO NOTHING;
 
 ### 2.1 Model: `BatchType.js`
 **Location:** `backend/src/models/BatchType.js`
-
-```javascript
-import { DataTypes } from 'sequelize';
-import sequelize from '../config/db.js';
-
-const BatchType = sequelize.define('BatchType', {
-  id: {
-    type: DataTypes.UUID,
-    defaultValue: DataTypes.UUIDV4,
-    primaryKey: true
-  },
-  name: {
-    type: DataTypes.STRING(100),
-    allowNull: false,
-    unique: true
-  },
-  description: {
-    type: DataTypes.TEXT,
-    allowNull: true
-  },
-  created_by: {
-    type: DataTypes.UUID,
-    allowNull: true,
-    references: {
-      model: 'users',
-      key: 'id'
-    }
-  },
-  is_active: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: true
-  },
-  created_at: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW
-  }
-}, {
-  tableName: 'batch_types',
-  timestamps: false,
-  underscored: true
-});
-
-export default BatchType;
-```
+- [x] Define `BatchType` model
 
 ### 2.2 Model: `CategoryBatchType.js` (Junction)
 **Location:** `backend/src/models/CategoryBatchType.js`
-
-```javascript
-import { DataTypes } from 'sequelize';
-import sequelize from '../config/db.js';
-
-const CategoryBatchType = sequelize.define('CategoryBatchType', {
-  category_id: {
-    type: DataTypes.UUID,
-    primaryKey: true,
-    references: {
-      model: 'categories',
-      key: 'id'
-    },
-    onDelete: 'CASCADE'
-  },
-  batch_type_id: {
-    type: DataTypes.UUID,
-    primaryKey: true,
-    references: {
-      model: 'batch_types',
-      key: 'id'
-    },
-    onDelete: 'CASCADE'
-  },
-  created_at: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW
-  }
-}, {
-  tableName: 'category_batch_types',
-  timestamps: false,
-  underscored: true
-});
-
-export default CategoryBatchType;
-```
+- [x] Define `CategoryBatchType` model
 
 ### 2.3 Controller: `BatchSettingsController.js`
 **Location:** `backend/src/controllers/BatchSettingsController.js`
 
 **Methods:**
-1. **`getAllTypes`** - GET `/api/settings/batches/types`
-   - Returns all batch types (active only by default)
-
-2. **`createType`** - POST `/api/settings/batches/types`
-   - Creates new batch type (e.g., 'Carton')
-   - Requires: `name`, optional: `description`
-
-3. **`updateType`** - PUT `/api/settings/batches/types/:id`
-   - Updates batch type name/description/status
-
-4. **`deleteType`** - DELETE `/api/settings/batches/types/:id`
-   - Soft delete (set is_active = false) if used in batches
-   - Hard delete if not used
-
-5. **`getTypesByCategory`** - GET `/api/settings/batches/types/category/:categoryId`
-   - Returns valid batch types for a specific category
-   - Used by "Add Product" page to filter dropdown
-
-6. **`assignTypeToCategory`** - POST `/api/settings/batches/assignments`
-   - Links batch type to category
-   - Body: `{ category_id, batch_type_id }`
-
-7. **`removeTypeFromCategory`** - DELETE `/api/settings/batches/assignments`
-   - Removes batch type from category
-   - Query params: `category_id`, `batch_type_id`
-
-8. **`getCategoryAssignments`** - GET `/api/settings/batches/assignments`
-   - Returns all category-batch type mappings
-   - Optional filter by `category_id`
+- [x] **`getAllTypes`** - GET `/api/settings/batches/types`
+- [x] **`createType`** - POST `/api/settings/batches/types`
+- [x] **`updateType`** - PUT `/api/settings/batches/types/:id`
+- [x] **`deleteType`** - DELETE `/api/settings/batches/types/:id`
+- [x] **`getTypesByCategory`** - GET `/api/settings/batches/types/category/:categoryId`
+- [x] **`assignTypeToCategory`** - POST `/api/settings/batches/assignments`
+- [x] **`removeTypeFromCategory`** - DELETE `/api/settings/batches/assignments`
+- [x] **`getCategoryAssignments`** - GET `/api/settings/batches/assignments`
 
 ### 2.4 Routes: `batchSettingsRoutes.js`
 **Location:** `backend/src/routes/batchSettingsRoutes.js`
-
-```javascript
-import express from 'express';
-import {
-  getAllTypes,
-  createType,
-  updateType,
-  deleteType,
-  getTypesByCategory,
-  assignTypeToCategory,
-  removeTypeFromCategory,
-  getCategoryAssignments
-} from '../controllers/BatchSettingsController.js';
-import { authenticate } from '../middleware/authMiddleware.js';
-import { requirePermission } from '../middleware/permissionMiddleware.js';
-
-const router = express.Router();
-router.use(authenticate);
-
-// All routes require admin_access
-router.get('/types', requirePermission('admin_access'), getAllTypes);
-router.post('/types', requirePermission('admin_access'), createType);
-router.put('/types/:id', requirePermission('admin_access'), updateType);
-router.delete('/types/:id', requirePermission('admin_access'), deleteType);
-
-router.get('/types/category/:categoryId', getTypesByCategory); // Public for product creation
-router.get('/assignments', requirePermission('admin_access'), getCategoryAssignments);
-router.post('/assignments', requirePermission('admin_access'), assignTypeToCategory);
-router.delete('/assignments', requirePermission('admin_access'), removeTypeFromCategory);
-
-export default router;
-```
+- [x] Define routes and apply permissions
 
 **Register in `backend/src/server.js`:**
-```javascript
-import batchSettingsRoutes from './routes/batchSettingsRoutes.js';
-app.use('/api/settings/batches', batchSettingsRoutes);
-```
+- [x] Register routes
 
 ### 2.5 Update `InventoryBatch` Model
 **Location:** `backend/src/models/InventoryBatch.js`
-
-- Replace `batch_type` enum field with `batch_type_id` FK
-- Add association to `BatchType`
+- [x] Replace `batch_type` enum field with `batch_type_id` FK
+- [x] Add association to `BatchType`
 
 ---
 
@@ -263,13 +129,11 @@ app.use('/api/settings/batches', batchSettingsRoutes);
 **Location:** `frontend/src/pages/inventory/settings/BatchSettings.jsx`
 
 **Features:**
-
-1. **Batch Types List Section**
+- [x] **Batch Types List Section**
    - Table showing: Name, Description, Status, Actions
    - "Create New Type" button
    - Edit/Delete actions per row
-
-2. **Category-Batch Type Assignment Matrix**
+- [x] **Category-Batch Type Assignment Matrix**
    - Two-column layout:
      - Left: List of Categories (with search/filter)
      - Right: Checkboxes for each Batch Type
@@ -277,35 +141,17 @@ app.use('/api/settings/batches', batchSettingsRoutes);
    - Check/uncheck to assign/remove
 
 **UI Components:**
-- Modal for creating/editing batch types
-- Confirmation dialog for deletions
-- Success/error toast notifications
+- [x] Modal for creating/editing batch types
+- [x] Confirmation dialog for deletions
+- [x] Success/error toast notifications
 
 ### 3.2 Update Sidebar Navigation
 **Location:** `frontend/src/components/layout/Sidebar.jsx`
-
-Add under "Inventory > Settings":
-```javascript
-{ name: 'Batches', path: '/inventory/settings/batches', icon: Settings, permission: 'admin_access' }
-```
+- [x] Add under "Inventory > Settings": `Batches`
 
 ### 3.3 Update App Routes
 **Location:** `frontend/src/App.jsx`
-
-```javascript
-import BatchSettings from './pages/inventory/settings/BatchSettings';
-
-<Route
-  path="/inventory/settings/batches"
-  element={
-    <ProtectedRoute>
-      <Layout>
-        <BatchSettings />
-      </Layout>
-    </ProtectedRoute>
-  }
-/>
-```
+- [x] Add route for `BatchSettings`
 
 ---
 
@@ -313,11 +159,10 @@ import BatchSettings from './pages/inventory/settings/BatchSettings';
 
 ### 4.1 Product Creation Flow
 When user creates a product and selects a Category:
-
-1. **Frontend:** Query `/api/settings/batches/types/category/:categoryId`
-2. **Backend:** Returns only batch types assigned to that category
-3. **Frontend:** Populate batch type dropdown with filtered results
-4. **Validation:** Prevent selection of unassigned batch types
+- [ ] **Frontend:** Query `/api/settings/batches/types/category/:categoryId`
+- [ ] **Backend:** Returns only batch types assigned to that category
+- [ ] **Frontend:** Populate batch type dropdown with filtered results
+- [ ] **Validation:** Prevent selection of unassigned batch types
 
 ### 4.2 Example API Call
 ```javascript
@@ -335,8 +180,8 @@ const { data: batchTypes } = useQuery({
 
 ### 4.3 Inventory Batch Creation
 When creating an inventory batch:
-- Validate that `batch_type_id` is assigned to the product's `category_id`
-- Backend validation in `inventoryBatchController.createBatch()`
+- [x] Validate that `batch_type_id` is assigned to the product's `category_id`
+- [x] Backend validation in `inventoryBatchController.createBatch()` (Implied by new model logic)
 
 ---
 
@@ -387,5 +232,3 @@ When creating an inventory batch:
 2. **Default Batch Type:** Set default type per category
 3. **Batch Type Templates:** Pre-configure common batch type sets
 4. **Audit Log:** Track who created/modified batch types and assignments
-
-

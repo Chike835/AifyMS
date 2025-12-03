@@ -121,9 +121,9 @@ const BatchSettings = () => {
       );
       return response.data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['categoryBatchAssignments'] });
-      alert('Batch type removed from category successfully!');
+      alert(data?.message || 'Batch type removed from category successfully!');
     },
     onError: (error) => {
       alert(error.response?.data?.error || 'Failed to remove assignment');
@@ -159,9 +159,9 @@ const BatchSettings = () => {
     }
   };
 
-  const handleToggleAssignment = (categoryId, batchTypeId, isAssigned) => {
-    if (isAssigned) {
-      if (window.confirm('Remove this batch type from the category?')) {
+  const handleToggleAssignment = (categoryId, batchTypeId, isCurrentlyAssigned) => {
+    if (isCurrentlyAssigned) {
+      if (window.confirm('Remove this batch type from the category? Existing inventory batches will remain unchanged, but new batches cannot use this combination.')) {
         removeAssignmentMutation.mutate({ category_id: categoryId, batch_type_id: batchTypeId });
       }
     } else {
@@ -170,8 +170,14 @@ const BatchSettings = () => {
   };
 
   const isAssigned = (categoryId, batchTypeId) => {
-    const assignment = assignmentsData?.find(a => a.category.id === categoryId);
-    return assignment?.batch_types?.some(bt => bt.id === batchTypeId) || false;
+    if (!assignmentsData || assignmentsData.length === 0) {
+      return false;
+    }
+    const assignment = assignmentsData.find(a => a.category?.id === categoryId);
+    if (!assignment || !assignment.batch_types) {
+      return false;
+    }
+    return assignment.batch_types.some(bt => bt.id === batchTypeId);
   };
 
   const batchTypes = batchTypesData || [];
@@ -298,7 +304,7 @@ const BatchSettings = () => {
                           key={batchType.id}
                           className={`flex items-center space-x-2 p-2 rounded cursor-pointer transition-colors ${
                             assigned
-                              ? 'bg-blue-50 border border-blue-200'
+                              ? 'bg-blue-50 border-2 border-blue-300'
                               : 'bg-gray-50 border border-gray-200 hover:bg-gray-100'
                           }`}
                         >
@@ -307,9 +313,14 @@ const BatchSettings = () => {
                             checked={assigned}
                             onChange={() => handleToggleAssignment(category.id, batchType.id, assigned)}
                             disabled={!hasPermission('settings_manage')}
-                            className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                            className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 w-4 h-4"
                           />
-                          <span className="text-sm text-gray-700">{batchType.name}</span>
+                          {assigned && (
+                            <Check className="h-4 w-4 text-blue-600" />
+                          )}
+                          <span className={`text-sm ${assigned ? 'font-medium text-gray-900' : 'text-gray-700'}`}>
+                            {batchType.name}
+                          </span>
                         </label>
                       );
                     })}

@@ -394,7 +394,7 @@ export const updateProductionStatus = async (req, res, next) => {
     const { id } = req.params;
     const { production_status, worker_name } = req.body;
 
-    const validStatuses = ['queue', 'produced', 'delivered', 'na'];
+    const validStatuses = ['queue', 'processing', 'produced', 'delivered', 'na'];
     if (!validStatuses.includes(production_status)) {
       return res.status(400).json({ 
         error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` 
@@ -413,14 +413,28 @@ export const updateProductionStatus = async (req, res, next) => {
       });
     }
 
-    // Only allow status transitions: queue -> produced -> delivered
+    // Only allow status transitions: queue -> processing -> produced -> delivered
     if (order.production_status === 'na' && production_status !== 'queue') {
       return res.status(400).json({ 
         error: 'Cannot set production status. Order has no manufactured items.' 
       });
     }
 
+    // Prevent skipping 'processing' state: queue cannot go directly to 'produced' or 'delivered'
+    if (order.production_status === 'queue' && production_status === 'produced') {
+      return res.status(400).json({ 
+        error: 'Cannot skip "processing" status. Order must have materials assigned first.' 
+      });
+    }
+
     if (order.production_status === 'queue' && production_status === 'delivered') {
+      return res.status(400).json({ 
+        error: 'Cannot skip "produced" status. Order must be produced first.' 
+      });
+    }
+
+    // Prevent skipping 'produced' state: processing cannot go directly to 'delivered'
+    if (order.production_status === 'processing' && production_status === 'delivered') {
       return res.status(400).json({ 
         error: 'Cannot skip "produced" status. Order must be produced first.' 
       });
