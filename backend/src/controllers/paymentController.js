@@ -61,8 +61,8 @@ export const createPayment = async (req, res, next) => {
 
     // Validation
     if (!customer_id || amount === undefined || !method) {
-      return res.status(400).json({ 
-        error: 'Missing required fields: customer_id, amount, method' 
+      return res.status(400).json({
+        error: 'Missing required fields: customer_id, amount, method'
       });
     }
 
@@ -72,8 +72,8 @@ export const createPayment = async (req, res, next) => {
 
     const validMethods = ['cash', 'transfer', 'pos'];
     if (!validMethods.includes(method)) {
-      return res.status(400).json({ 
-        error: `Invalid method. Must be one of: ${validMethods.join(', ')}` 
+      return res.status(400).json({
+        error: `Invalid method. Must be one of: ${validMethods.join(', ')}`
       });
     }
 
@@ -137,7 +137,7 @@ export const createPayment = async (req, res, next) => {
  */
 export const confirmPayment = async (req, res, next) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const { id } = req.params;
     const { payment_account_id: overridePaymentAccountId } = req.body || {};
@@ -336,7 +336,7 @@ export const getPayments = async (req, res, next) => {
 
     const total = await Payment.count({ where });
 
-    res.json({ 
+    res.json({
       payments,
       total,
       limit: parseInt(limit),
@@ -457,8 +457,8 @@ export const addAdvance = async (req, res, next) => {
 
     // Validation
     if (!customer_id || amount === undefined || !method) {
-      return res.status(400).json({ 
-        error: 'Missing required fields: customer_id, amount, method' 
+      return res.status(400).json({
+        error: 'Missing required fields: customer_id, amount, method'
       });
     }
 
@@ -468,8 +468,8 @@ export const addAdvance = async (req, res, next) => {
 
     const validMethods = ['cash', 'transfer', 'pos'];
     if (!validMethods.includes(method)) {
-      return res.status(400).json({ 
-        error: `Invalid method. Must be one of: ${validMethods.join(', ')}` 
+      return res.status(400).json({
+        error: `Invalid method. Must be one of: ${validMethods.join(', ')}`
       });
     }
 
@@ -531,7 +531,7 @@ export const addAdvance = async (req, res, next) => {
  */
 export const confirmAdvancePayment = async (req, res, next) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const { id } = req.params;
     const { payment_account_id: overridePaymentAccountId } = req.body || {};
@@ -676,7 +676,7 @@ export const confirmAdvancePayment = async (req, res, next) => {
  */
 export const processRefund = async (req, res, next) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const {
       customer_id,
@@ -690,8 +690,8 @@ export const processRefund = async (req, res, next) => {
     // Validation
     if (!customer_id || refund_amount === undefined || !method) {
       await transaction.rollback();
-      return res.status(400).json({ 
-        error: 'Missing required fields: customer_id, refund_amount, method' 
+      return res.status(400).json({
+        error: 'Missing required fields: customer_id, refund_amount, method'
       });
     }
 
@@ -718,13 +718,13 @@ export const processRefund = async (req, res, next) => {
 
     // Check advance balance AFTER acquiring lock to prevent race conditions
     // Recalculate balance within transaction context to ensure accuracy
-    const advanceBalance = await calculateAdvanceBalance(customer_id);
+    const advanceBalance = await calculateAdvanceBalance(customer_id, transaction);
     const totalRefundAmount = parseFloat(refund_amount) + parseFloat(withdrawal_fee || 0);
 
     if (totalRefundAmount > advanceBalance) {
       await transaction.rollback();
-      return res.status(400).json({ 
-        error: `Insufficient advance balance. Available: ${formatCurrency(advanceBalance)}, Requested: ${formatCurrency(totalRefundAmount)}` 
+      return res.status(400).json({
+        error: `Insufficient advance balance. Available: ${formatCurrency(advanceBalance)}, Requested: ${formatCurrency(totalRefundAmount)}`
       });
     }
 

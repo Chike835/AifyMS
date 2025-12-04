@@ -17,14 +17,14 @@ const generateInvoiceNumber = async (transaction) => {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   const dateStr = `${year}${month}${day}`;
-  
+
   // Use advisory lock to prevent concurrent invoice number generation
   // PostgreSQL advisory locks are automatically released when transaction ends
   const lockKey = `invoice_${dateStr}`.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  
+
   // Acquire advisory lock (blocks until available)
   await sequelize.query(`SELECT pg_advisory_xact_lock(${lockKey})`, { transaction });
-  
+
   // Find the last invoice for today with lock
   const lastOrder = await SalesOrder.findOne({
     where: {
@@ -53,7 +53,7 @@ const generateInvoiceNumber = async (transaction) => {
  */
 export const createSale = async (req, res, next) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const {
       customer_id,
@@ -83,7 +83,7 @@ export const createSale = async (req, res, next) => {
     const invoiceNumber = await generateInvoiceNumber(transaction);
 
     // Calculate total amount using precision math
-    const itemSubtotals = items.map(item => 
+    const itemSubtotals = items.map(item =>
       multiply(item.quantity, item.unit_price)
     );
     const totalAmount = sum(itemSubtotals);
@@ -137,8 +137,8 @@ export const createSale = async (req, res, next) => {
       // Validate item
       if (!product_id || quantity === undefined || unit_price === undefined) {
         await transaction.rollback();
-        return res.status(400).json({ 
-          error: 'Each item must have product_id, quantity, and unit_price' 
+        return res.status(400).json({
+          error: 'Each item must have product_id, quantity, and unit_price'
         });
       }
 
@@ -170,7 +170,7 @@ export const createSale = async (req, res, next) => {
         // This allows creating invoices in 'queue' status without immediate deduction
         if (shouldDeductInventory && item_assignments && Array.isArray(item_assignments) && item_assignments.length > 0) {
           hasAssignments = true;
-          
+
           // Use centralized inventory service
           const result = await processManufacturedVirtualItem({
             product,
@@ -200,7 +200,7 @@ export const createSale = async (req, res, next) => {
     // Create agent commission if agent is assigned (only for actual invoices)
     if (agent && shouldDeductInventory && agent.commission_rate > 0) {
       const commissionAmount = percentage(totalAmount, agent.commission_rate);
-      
+
       await AgentCommission.create({
         agent_id: agent.id,
         sales_order_id: salesOrder.id,
@@ -239,8 +239,8 @@ export const createSale = async (req, res, next) => {
         { model: Customer, as: 'customer' },
         { model: Branch, as: 'branch' },
         { model: Agent, as: 'agent', attributes: ['id', 'name', 'commission_rate'] },
-        { 
-          model: SalesItem, 
+        {
+          model: SalesItem,
           as: 'items',
           include: [
             { model: Product, as: 'product' },
@@ -326,8 +326,8 @@ export const getSales = async (req, res, next) => {
         { model: Customer, as: 'customer' },
         { model: Branch, as: 'branch' },
         { model: User, as: 'creator', attributes: ['id', 'full_name', 'email'] },
-        { 
-          model: SalesItem, 
+        {
+          model: SalesItem,
           as: 'items',
           include: [{ model: Product, as: 'product' }]
         }
@@ -354,8 +354,8 @@ export const getSaleById = async (req, res, next) => {
       include: [
         { model: Customer, as: 'customer' },
         { model: Branch, as: 'branch' },
-        { 
-          model: SalesItem, 
+        {
+          model: SalesItem,
           as: 'items',
           include: [
             { model: Product, as: 'product' },
@@ -420,7 +420,7 @@ const validateProductionStatusTransition = (currentStatus, newStatus) => {
     if (currentStatus === newStatus) {
       return { valid: true };
     }
-    
+
     // Build error message
     if (currentStatus === 'delivered') {
       return {
@@ -428,14 +428,14 @@ const validateProductionStatusTransition = (currentStatus, newStatus) => {
         error: 'Cannot change status from "delivered". Order is already completed.'
       };
     }
-    
+
     if (allowedTransitions && allowedTransitions.length > 0) {
       return {
         valid: false,
         error: `Invalid transition from "${currentStatus}" to "${newStatus}". Allowed transitions: ${allowedTransitions.join(', ')}`
       };
     }
-    
+
     return {
       valid: false,
       error: `Invalid transition from "${currentStatus}" to "${newStatus}"`
@@ -492,15 +492,15 @@ export const updateProductionStatus = async (req, res, next) => {
     if (production_status === 'produced' && previousStatus !== 'produced') {
       if (!worker_name || worker_name.trim() === '') {
         await transaction.rollback();
-        return res.status(400).json({ 
-          error: 'worker_name is required when setting status to "produced"' 
+        return res.status(400).json({
+          error: 'worker_name is required when setting status to "produced"'
         });
       }
     }
 
     // Update production status
     order.production_status = production_status;
-    
+
     // Store worker name when transitioning to 'produced'
     // Use dispatcher_name field temporarily (will be overwritten when order is delivered)
     if (production_status === 'produced' && previousStatus !== 'produced' && worker_name) {
@@ -518,8 +518,8 @@ export const updateProductionStatus = async (req, res, next) => {
       include: [
         { model: Customer, as: 'customer' },
         { model: Branch, as: 'branch' },
-        { 
-          model: SalesItem, 
+        {
+          model: SalesItem,
           as: 'items',
           include: [{ model: Product, as: 'product' }]
         }
@@ -556,8 +556,8 @@ export const getProductionQueue = async (req, res, next) => {
       include: [
         { model: Customer, as: 'customer' },
         { model: Branch, as: 'branch' },
-        { 
-          model: SalesItem, 
+        {
+          model: SalesItem,
           as: 'items',
           include: [
             { model: Product, as: 'product' },
@@ -604,8 +604,8 @@ export const getShipments = async (req, res, next) => {
       include: [
         { model: Customer, as: 'customer' },
         { model: Branch, as: 'branch' },
-        { 
-          model: SalesItem, 
+        {
+          model: SalesItem,
           as: 'items',
           include: [{ model: Product, as: 'product' }]
         }
@@ -622,26 +622,37 @@ export const getShipments = async (req, res, next) => {
 /**
  * PUT /api/sales/:id/deliver
  * Mark order as delivered (with dispatcher info)
+ * Uses transaction with row locking to prevent race conditions
  */
 export const markAsDelivered = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+
   try {
     const { id } = req.params;
     const { dispatcher_name, vehicle_plate, delivery_signature } = req.body;
 
     if (!dispatcher_name || dispatcher_name.trim() === '') {
-      return res.status(400).json({ 
-        error: 'dispatcher_name is required' 
+      await transaction.rollback();
+      return res.status(400).json({
+        error: 'dispatcher_name is required'
       });
     }
 
-    const order = await SalesOrder.findByPk(id);
+    // Get order with row-level lock to prevent race conditions
+    const order = await SalesOrder.findByPk(id, {
+      lock: transaction.LOCK.UPDATE,
+      transaction
+    });
+
     if (!order) {
+      await transaction.rollback();
       return res.status(404).json({ error: 'Sales order not found' });
     }
 
     if (order.production_status !== 'produced') {
-      return res.status(400).json({ 
-        error: 'Order must be in "produced" status before it can be delivered' 
+      await transaction.rollback();
+      return res.status(400).json({
+        error: 'Order must be in "produced" status before it can be delivered'
       });
     }
 
@@ -650,15 +661,18 @@ export const markAsDelivered = async (req, res, next) => {
     order.vehicle_plate = vehicle_plate ? vehicle_plate.trim() : null;
     order.delivery_signature = delivery_signature || null;
 
-    await order.save();
+    await order.save({ transaction });
 
-    // Fetch complete order
+    // Commit transaction
+    await transaction.commit();
+
+    // Fetch complete order (outside transaction for better performance)
     const completeOrder = await SalesOrder.findByPk(order.id, {
       include: [
         { model: Customer, as: 'customer' },
         { model: Branch, as: 'branch' },
-        { 
-          model: SalesItem, 
+        {
+          model: SalesItem,
           as: 'items',
           include: [{ model: Product, as: 'product' }]
         }
@@ -670,6 +684,7 @@ export const markAsDelivered = async (req, res, next) => {
       order: completeOrder
     });
   } catch (error) {
+    await transaction.rollback();
     next(error);
   }
 };
@@ -700,8 +715,8 @@ export const getDrafts = async (req, res, next) => {
       include: [
         { model: Customer, as: 'customer' },
         { model: Branch, as: 'branch' },
-        { 
-          model: SalesItem, 
+        {
+          model: SalesItem,
           as: 'items',
           include: [{ model: Product, as: 'product' }]
         }
@@ -728,7 +743,7 @@ export const updateDraft = async (req, res, next) => {
 
     // Find the draft
     const draft = await SalesOrder.findByPk(id, { transaction });
-    
+
     if (!draft) {
       await transaction.rollback();
       return res.status(404).json({ error: 'Draft not found' });
@@ -746,7 +761,7 @@ export const updateDraft = async (req, res, next) => {
     });
 
     // Calculate new total using precision math
-    const itemSubtotals = items.map(item => 
+    const itemSubtotals = items.map(item =>
       multiply(item.quantity, item.unit_price)
     );
     const totalAmount = sum(itemSubtotals);
@@ -802,8 +817,8 @@ export const updateDraft = async (req, res, next) => {
       include: [
         { model: Customer, as: 'customer' },
         { model: Branch, as: 'branch' },
-        { 
-          model: SalesItem, 
+        {
+          model: SalesItem,
           as: 'items',
           include: [{ model: Product, as: 'product' }]
         }
@@ -834,8 +849,8 @@ export const convertDraftToInvoice = async (req, res, next) => {
     // Find the draft with items
     const draft = await SalesOrder.findByPk(id, {
       include: [
-        { 
-          model: SalesItem, 
+        {
+          model: SalesItem,
           as: 'items',
           include: [{ model: Product, as: 'product' }]
         }
@@ -855,14 +870,14 @@ export const convertDraftToInvoice = async (req, res, next) => {
 
     // Check for manufactured products and process inventory
     let hasManufacturedItems = false;
-    
+
     for (const item of draft.items) {
       if (item.product?.type === 'manufactured_virtual') {
         hasManufacturedItems = true;
-        
+
         // Find assignments for this item
         const itemAssignments = item_assignments?.[item.id];
-        
+
         // Use centralized inventory service
         const result = await processManufacturedVirtualItemForConversion({
           salesItem: item,
@@ -886,6 +901,34 @@ export const convertDraftToInvoice = async (req, res, next) => {
     }
     await draft.save({ transaction });
 
+    // Create ledger entry if customer exists (within transaction for ACID compliance)
+    if (draft.customer_id) {
+      // Get customer with lock to ensure balance consistency
+      const customer = await Customer.findByPk(draft.customer_id, {
+        lock: transaction.LOCK.UPDATE,
+        transaction
+      });
+
+      if (customer) {
+        // Create ledger entry (handles balance update automatically)
+        await createLedgerEntry(
+          draft.customer_id,
+          'customer',
+          {
+            transaction_date: new Date(),
+            transaction_type: 'INVOICE',
+            transaction_id: draft.id,
+            description: `Invoice ${draft.invoice_number}`,
+            debit_amount: parseFloat(draft.total_amount),
+            credit_amount: 0,
+            branch_id: draft.branch_id,
+            created_by: req.user.id
+          },
+          transaction
+        );
+      }
+    }
+
     await transaction.commit();
 
     // Fetch converted order
@@ -893,8 +936,8 @@ export const convertDraftToInvoice = async (req, res, next) => {
       include: [
         { model: Customer, as: 'customer' },
         { model: Branch, as: 'branch' },
-        { 
-          model: SalesItem, 
+        {
+          model: SalesItem,
           as: 'items',
           include: [
             { model: Product, as: 'product' },
@@ -938,7 +981,7 @@ export const deleteDraft = async (req, res, next) => {
 
     // Delete items first (cascade should handle this, but being explicit)
     await SalesItem.destroy({ where: { order_id: id } });
-    
+
     // Delete draft
     await draft.destroy();
 
@@ -962,7 +1005,7 @@ export const getQuotations = async (req, res, next) => {
     // Filter by expiry status
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     if (status === 'active') {
       where.valid_until = {
         [Op.gte]: today
@@ -989,8 +1032,8 @@ export const getQuotations = async (req, res, next) => {
       include: [
         { model: Customer, as: 'customer' },
         { model: Branch, as: 'branch' },
-        { 
-          model: SalesItem, 
+        {
+          model: SalesItem,
           as: 'items',
           include: [{ model: Product, as: 'product' }]
         }
@@ -1026,8 +1069,8 @@ export const convertQuotationToInvoice = async (req, res, next) => {
     // Find the quotation with items
     const quotation = await SalesOrder.findByPk(id, {
       include: [
-        { 
-          model: SalesItem, 
+        {
+          model: SalesItem,
           as: 'items',
           include: [{ model: Product, as: 'product' }]
         }
@@ -1055,13 +1098,13 @@ export const convertQuotationToInvoice = async (req, res, next) => {
 
     // Process manufactured products
     let hasManufacturedItems = false;
-    
+
     for (const item of quotation.items) {
       if (item.product?.type === 'manufactured_virtual') {
         hasManufacturedItems = true;
-        
+
         const itemAssignments = item_assignments?.[item.id];
-        
+
         // Use centralized inventory service
         const result = await processManufacturedVirtualItemForConversion({
           salesItem: item,
@@ -1087,6 +1130,34 @@ export const convertQuotationToInvoice = async (req, res, next) => {
     }
     await quotation.save({ transaction });
 
+    // Create ledger entry if customer exists (within transaction for ACID compliance)
+    if (quotation.customer_id) {
+      // Get customer with lock to ensure balance consistency
+      const customer = await Customer.findByPk(quotation.customer_id, {
+        lock: transaction.LOCK.UPDATE,
+        transaction
+      });
+
+      if (customer) {
+        // Create ledger entry (handles balance update automatically)
+        await createLedgerEntry(
+          quotation.customer_id,
+          'customer',
+          {
+            transaction_date: new Date(),
+            transaction_type: 'INVOICE',
+            transaction_id: quotation.id,
+            description: `Invoice ${quotation.invoice_number}`,
+            debit_amount: parseFloat(quotation.total_amount),
+            credit_amount: 0,
+            branch_id: quotation.branch_id,
+            created_by: req.user.id
+          },
+          transaction
+        );
+      }
+    }
+
     await transaction.commit();
 
     // Fetch converted order
@@ -1094,8 +1165,8 @@ export const convertQuotationToInvoice = async (req, res, next) => {
       include: [
         { model: Customer, as: 'customer' },
         { model: Branch, as: 'branch' },
-        { 
-          model: SalesItem, 
+        {
+          model: SalesItem,
           as: 'items',
           include: [
             { model: Product, as: 'product' },
@@ -1139,7 +1210,7 @@ export const deleteQuotation = async (req, res, next) => {
 
     // Delete items first
     await SalesItem.destroy({ where: { order_id: id } });
-    
+
     // Delete quotation
     await quotation.destroy();
 
@@ -1184,13 +1255,13 @@ export const cancelSale = async (req, res, next) => {
 
   try {
     const { id } = req.params;
-    
+
     // Get order with row-level lock to prevent race conditions
     const order = await SalesOrder.findByPk(id, {
       include: [
         { model: Customer, as: 'customer' },
-        { 
-          model: SalesItem, 
+        {
+          model: SalesItem,
           as: 'items',
           include: [
             { model: Product, as: 'product' },
@@ -1222,6 +1293,34 @@ export const cancelSale = async (req, res, next) => {
       return res.status(400).json({ error: 'Cannot cancel a paid order' });
     }
 
+    // Reverse ledger entry if this was an invoice with a customer
+    if (order.order_type === 'invoice' && order.customer_id) {
+      // Get customer with lock to ensure balance consistency
+      const customer = await Customer.findByPk(order.customer_id, {
+        lock: transaction.LOCK.UPDATE,
+        transaction
+      });
+
+      if (customer) {
+        // Create reversing ledger entry for audit trail (handles balance update automatically)
+        await createLedgerEntry(
+          order.customer_id,
+          'customer',
+          {
+            transaction_date: new Date(),
+            transaction_type: 'ADJUSTMENT',
+            transaction_id: order.id,
+            description: `Cancelled Invoice ${order.invoice_number}`,
+            debit_amount: 0,
+            credit_amount: parseFloat(order.total_amount),
+            branch_id: order.branch_id,
+            created_by: req.user.id
+          },
+          transaction
+        );
+      }
+    }
+
     // Reverse ItemAssignments and restore inventory for invoices with assignments
     if (order.order_type === 'invoice' && order.items) {
       for (const item of order.items) {
@@ -1230,27 +1329,27 @@ export const cancelSale = async (req, res, next) => {
             // Get inventory batch with row-level lock
             const batch = await InventoryBatch.findByPk(
               assignment.inventory_batch_id,
-              { 
+              {
                 lock: transaction.LOCK.UPDATE,
-                transaction 
+                transaction
               }
             );
-            
+
             if (batch) {
               // Reverse the inventory deduction using precision math
               batch.remaining_quantity = add(
-                parseFloat(batch.remaining_quantity || 0), 
+                parseFloat(batch.remaining_quantity || 0),
                 parseFloat(assignment.quantity_deducted || 0)
               );
-              
+
               // Restore status if batch was depleted
               if (batch.status === 'depleted' && greaterThan(batch.remaining_quantity, 0)) {
                 batch.status = 'in_stock';
               }
-              
+
               await batch.save({ transaction });
             }
-            
+
             // Delete ItemAssignment record (explicit deletion for clarity)
             // Note: This will also be deleted via CASCADE when SalesItem is destroyed,
             // but explicit deletion ensures proper transaction handling

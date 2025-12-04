@@ -10,7 +10,7 @@ export const authenticate = async (req, res, next) => {
   try {
     // Get token from header
     const authHeader = req.headers.authorization;
-    
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'No token provided' });
     }
@@ -43,9 +43,13 @@ export const authenticate = async (req, res, next) => {
       return res.status(401).json({ error: 'User not found or inactive' });
     }
 
-    // Use permissions from JWT payload (faster, but may be stale if permissions changed)
-    // If permissions need to be fresh, we can add a lightweight permission check here
-    const permissions = decoded.permissions || [];
+    // SECURITY FIX: Fetch fresh permissions from DB to prevent stale JWT permissions
+    // This ensures revoked permissions take effect immediately
+    const currentPermissions = await user.role.getPermissions({
+      attributes: ['slug'],
+      raw: true
+    });
+    const permissionSlugs = currentPermissions.map(p => p.slug);
 
     // Attach user data to request
     req.user = {
@@ -56,7 +60,7 @@ export const authenticate = async (req, res, next) => {
       role_name: user.role?.name || decoded.role_name, // Prefer DB role name
       branch_id: user.branch_id, // Prefer DB branch_id
       branch: user.branch,
-      permissions: permissions
+      permissions: permissionSlugs // Use fresh permissions from DB
     };
 
     next();
@@ -79,7 +83,7 @@ export const authenticate = async (req, res, next) => {
 export const optionalAuth = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-    
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       req.user = null;
       return next();
@@ -107,7 +111,13 @@ export const optionalAuth = async (req, res, next) => {
     });
 
     if (user && user.is_active) {
-      const permissions = decoded.permissions || [];
+      // SECURITY FIX: Fetch fresh permissions from DB to prevent stale JWT permissions
+      const currentPermissions = await user.role.getPermissions({
+        attributes: ['slug'],
+        raw: true
+      });
+      const permissionSlugs = currentPermissions.map(p => p.slug);
+
       req.user = {
         id: user.id,
         email: user.email,
@@ -116,7 +126,7 @@ export const optionalAuth = async (req, res, next) => {
         role_name: user.role?.name || decoded.role_name,
         branch_id: user.branch_id,
         branch: user.branch,
-        permissions: permissions
+        permissions: permissionSlugs // Use fresh permissions from DB
       };
     } else {
       req.user = null;

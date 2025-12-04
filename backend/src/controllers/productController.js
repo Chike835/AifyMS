@@ -1,6 +1,7 @@
-import { Product, PriceHistory, User, InventoryBatch, Branch, Category, Unit, TaxRate, ProductBrand, ProductBusinessLocation, BatchType } from '../models/index.js';
+import { Product, PriceHistory, User, InventoryBatch, Branch, Category, Unit, TaxRate, ProductBrand, ProductBusinessLocation, BatchType, ProductStockSummary } from '../models/index.js';
 import { Op } from 'sequelize';
 import sequelize from '../config/db.js';
+import { VALID_PRODUCT_TYPES } from '../utils/constants.js';
 
 const isSuperAdmin = (req) => req.user?.role_name === 'Super Admin';
 
@@ -67,17 +68,16 @@ export const createProduct = async (req, res, next) => {
     // Validation
     if (!sku || !name || !type || !base_unit || sale_price === undefined) {
       await transaction.rollback();
-      return res.status(400).json({ 
-        error: 'Missing required fields: sku, name, type, base_unit, sale_price' 
+      return res.status(400).json({
+        error: 'Missing required fields: sku, name, type, base_unit, sale_price'
       });
     }
 
-    // Validate product type
-    const validTypes = ['standard', 'compound', 'raw_tracked', 'manufactured_virtual'];
-    if (!validTypes.includes(type)) {
+    // Validate product type using shared constants
+    if (!VALID_PRODUCT_TYPES.includes(type)) {
       await transaction.rollback();
-      return res.status(400).json({ 
-        error: `Invalid product type. Must be one of: ${validTypes.join(', ')}` 
+      return res.status(400).json({
+        error: `Invalid product type. Must be one of: ${VALID_PRODUCT_TYPES.join(', ')}`
       });
     }
 
@@ -112,23 +112,23 @@ export const createProduct = async (req, res, next) => {
       if (categoryRecord.attribute_schema && Array.isArray(categoryRecord.attribute_schema)) {
         const schema = categoryRecord.attribute_schema;
         const providedAttributes = req.body.attribute_default_values || {};
-        
+
         // Validate each attribute in schema
         for (const attr of schema) {
           if (attr.required && providedAttributes[attr.name] === undefined) {
             await transaction.rollback();
-            return res.status(400).json({ 
-              error: `Required attribute "${attr.name}" is missing` 
+            return res.status(400).json({
+              error: `Required attribute "${attr.name}" is missing`
             });
           }
-          
+
           // Validate attribute type and values
           if (providedAttributes[attr.name] !== undefined) {
             if (attr.type === 'select' && attr.options) {
               if (!attr.options.includes(providedAttributes[attr.name])) {
                 await transaction.rollback();
-                return res.status(400).json({ 
-                  error: `Invalid value for attribute "${attr.name}". Must be one of: ${attr.options.join(', ')}` 
+                return res.status(400).json({
+                  error: `Invalid value for attribute "${attr.name}". Must be one of: ${attr.options.join(', ')}`
                 });
               }
             }
@@ -207,9 +207,9 @@ export const createProduct = async (req, res, next) => {
  */
 export const getProducts = async (req, res, next) => {
   try {
-    const { 
-      type, 
-      search, 
+    const {
+      type,
+      search,
       category_id,
       unit_id,
       tax_rate_id,
@@ -305,18 +305,16 @@ export const getProducts = async (req, res, next) => {
       distinct: true
     });
 
-    // Calculate stock for each product from inventory_batches
+    // Get stock from summary table (O(1) instead of O(n) aggregation)
     const productIds = products.map(p => p.id);
-    
-    // Get stock aggregation
-    const stockData = await InventoryBatch.findAll({
+
+    const stockData = await ProductStockSummary.findAll({
       where: {
-        product_id: { [Op.in]: productIds },
-        status: 'in_stock'
+        product_id: { [Op.in]: productIds }
       },
       attributes: [
         'product_id',
-        [sequelize.fn('SUM', sequelize.col('remaining_quantity')), 'total_stock']
+        [sequelize.fn('SUM', sequelize.col('total_stock')), 'total_stock']
       ],
       group: ['product_id'],
       raw: true
@@ -347,7 +345,7 @@ export const getProducts = async (req, res, next) => {
       total_selling_price: productsData.reduce((sum, p) => sum + (parseFloat(p.sale_price) || 0), 0)
     };
 
-    res.json({ 
+    res.json({
       products: productsData,
       totals,
       pagination: {
@@ -392,17 +390,13 @@ export const getProductById = async (req, res, next) => {
     }
 
     // Get current stock
-    const stockData = await InventoryBatch.findOne({
+    const totalStock = await InventoryBatch.sum('remaining_quantity', {
       where: {
         product_id: id,
         status: 'in_stock'
-      },
-      attributes: [
-        [sequelize.fn('SUM', sequelize.col('remaining_quantity')), 'total_stock']
-      ],
-      raw: true
+      }
     });
-    productData.current_stock = parseFloat(stockData?.total_stock) || 0;
+    productData.current_stock = parseFloat(totalStock) || 0;
 
     res.json({ product: productData });
   } catch (error) {
@@ -513,21 +507,21 @@ export const updateProduct = async (req, res, next) => {
       if (categoryRecord.attribute_schema && Array.isArray(categoryRecord.attribute_schema)) {
         const schema = categoryRecord.attribute_schema;
         const providedAttributes = effectiveAttributeDefaults || {};
-        
+
         for (const attr of schema) {
           if (attr.required && providedAttributes[attr.name] === undefined) {
             await transaction.rollback();
-            return res.status(400).json({ 
-              error: `Required attribute "${attr.name}" is missing` 
+            return res.status(400).json({
+              error: `Required attribute "${attr.name}" is missing`
             });
           }
-          
+
           if (providedAttributes[attr.name] !== undefined) {
             if (attr.type === 'select' && attr.options) {
               if (!attr.options.includes(providedAttributes[attr.name])) {
                 await transaction.rollback();
-                return res.status(400).json({ 
-                  error: `Invalid value for attribute "${attr.name}". Must be one of: ${attr.options.join(', ')}` 
+                return res.status(400).json({
+                  error: `Invalid value for attribute "${attr.name}". Must be one of: ${attr.options.join(', ')}`
                 });
               }
             }
@@ -549,7 +543,7 @@ export const updateProduct = async (req, res, next) => {
         where: { product_id: id },
         transaction
       });
-      
+
       // Add new
       if (Array.isArray(business_location_ids) && business_location_ids.length > 0) {
         const locationRecords = business_location_ids.map(branchId => ({
@@ -606,8 +600,8 @@ export const deleteProduct = async (req, res, next) => {
 
     if (batchCount > 0) {
       await transaction.rollback();
-      return res.status(400).json({ 
-        error: 'Cannot delete product with existing inventory batches. Deactivate it instead.' 
+      return res.status(400).json({
+        error: 'Cannot delete product with existing inventory batches. Deactivate it instead.'
       });
     }
 
@@ -644,7 +638,7 @@ export const getProductBatches = async (req, res, next) => {
     }
 
     const where = { product_id: id };
-    
+
     if (status) {
       where.status = status;
     }
@@ -716,16 +710,16 @@ export const addProductBatch = async (req, res, next) => {
 
     if (product.type !== 'raw_tracked') {
       await transaction.rollback();
-      return res.status(400).json({ 
-        error: 'Only raw_tracked products can have inventory batches' 
+      return res.status(400).json({
+        error: 'Only raw_tracked products can have inventory batches'
       });
     }
 
     // Validation
     if (!branch_id || initial_quantity === undefined) {
       await transaction.rollback();
-      return res.status(400).json({ 
-        error: 'Missing required fields: branch_id, initial_quantity' 
+      return res.status(400).json({
+        error: 'Missing required fields: branch_id, initial_quantity'
       });
     }
 
@@ -737,8 +731,8 @@ export const addProductBatch = async (req, res, next) => {
     // If grouped, instance_code is required
     if (grouped && !instance_code) {
       await transaction.rollback();
-      return res.status(400).json({ 
-        error: 'instance_code is required when grouped is true' 
+      return res.status(400).json({
+        error: 'instance_code is required when grouped is true'
       });
     }
 
@@ -763,7 +757,7 @@ export const addProductBatch = async (req, res, next) => {
 
     // Check if instance_code already exists (if grouped)
     if (grouped && instance_code) {
-      const existingBatch = await InventoryBatch.findOne({ 
+      const existingBatch = await InventoryBatch.findOne({
         where: { instance_code },
         transaction
       });
@@ -816,7 +810,7 @@ export const addProductBatch = async (req, res, next) => {
  */
 export const updateProductPrice = async (req, res, next) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const { id } = req.params;
     const { sale_price, cost_price, reason } = req.body;
@@ -903,7 +897,7 @@ export const getProductPriceHistory = async (req, res, next) => {
       limit: 50
     });
 
-    res.json({ 
+    res.json({
       product: {
         id: product.id,
         name: product.name,
@@ -911,7 +905,7 @@ export const getProductPriceHistory = async (req, res, next) => {
         current_sale_price: product.sale_price,
         current_cost_price: product.cost_price
       },
-      history 
+      history
     });
   } catch (error) {
     next(error);
@@ -1008,36 +1002,54 @@ export const getProductStock = async (req, res, next) => {
     if (product.type !== 'raw_tracked') {
       return res.status(400).json({ error: 'Stock tracking is only available for raw_tracked products' });
     }
-    
+
     const where = { product_id: id };
     if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
       where.branch_id = req.user.branch_id;
     }
 
+    // Get aggregated totals by branch using SQL
+    const branchAggregates = await InventoryBatch.findAll({
+      where,
+      attributes: [
+        'branch_id',
+        [sequelize.fn('SUM', sequelize.col('remaining_quantity')), 'total_quantity'],
+        [sequelize.fn('COUNT', sequelize.col('id')), 'batch_count']
+      ],
+      include: [
+        { model: Branch, as: 'branch', attributes: ['id', 'name', 'code'] }
+      ],
+      group: ['branch_id', 'branch.id', 'branch.name', 'branch.code'],
+      raw: false
+    });
+
+    // Calculate grand total using SQL aggregation
+    const grandTotalResult = await InventoryBatch.findOne({
+      where,
+      attributes: [
+        [sequelize.fn('SUM', sequelize.col('remaining_quantity')), 'grand_total']
+      ],
+      raw: true
+    });
+
+    const grandTotal = parseFloat(grandTotalResult?.grand_total || 0);
+
+    // Format branch totals
+    const branchTotals = branchAggregates.map(agg => ({
+      branch: agg.branch,
+      total_quantity: parseFloat(agg.get('total_quantity') || 0),
+      batch_count: parseInt(agg.get('batch_count') || 0)
+    }));
+
+    // Only fetch full batch details if explicitly requested or for small datasets
+    // This prevents overwhelming the response with thousands of rows
     const batches = await InventoryBatch.findAll({
       where,
       include: [
         { model: Branch, as: 'branch', attributes: ['id', 'name', 'code'] }
       ],
-      order: [['branch_id', 'ASC'], ['instance_code', 'ASC']]
-    });
-
-    // Calculate totals by branch
-    const branchTotals = {};
-    let grandTotal = 0;
-
-    batches.forEach(batch => {
-      const branchId = batch.branch_id;
-      if (!branchTotals[branchId]) {
-        branchTotals[branchId] = {
-          branch: batch.branch,
-          total_quantity: 0,
-          batches: []
-        };
-      }
-      branchTotals[branchId].total_quantity += parseFloat(batch.remaining_quantity);
-      branchTotals[branchId].batches.push(batch);
-      grandTotal += parseFloat(batch.remaining_quantity);
+      order: [['branch_id', 'ASC'], ['instance_code', 'ASC']],
+      limit: 100 // Limit to prevent memory issues
     });
 
     res.json({
@@ -1047,9 +1059,10 @@ export const getProductStock = async (req, res, next) => {
         sku: product.sku,
         type: product.type
       },
-      branch_totals: Object.values(branchTotals),
+      branch_totals: branchTotals,
       grand_total: grandTotal,
-      batches
+      batches,
+      _note: batches.length === 100 ? 'Batch list limited to 100 items. Use /products/:id/batches for full list.' : null
     });
   } catch (error) {
     next(error);
@@ -1073,7 +1086,7 @@ export const getProductSales = async (req, res, next) => {
     const { SalesItem, SalesOrder, Customer } = await import('../models/index.js');
 
     const where = { product_id: id };
-    
+
     // Date filtering
     if (start_date || end_date) {
       where['$order.created_at$'] = {};

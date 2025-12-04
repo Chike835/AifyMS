@@ -6,6 +6,7 @@ import Customer from './Customer.js';
 import Supplier from './Supplier.js';
 import Product from './Product.js';
 import ProductBrand from './ProductBrand.js';
+import ProductStockSummary from './ProductStockSummary.js';
 import InventoryBatch from './InventoryBatch.js';
 import StockTransfer from './StockTransfer.js';
 import StockAdjustment from './StockAdjustment.js';
@@ -978,6 +979,7 @@ export {
   Product,
   ProductBrand,
   ProductBusinessLocation,
+  ProductStockSummary,
   InventoryBatch,
   StockTransfer,
   StockAdjustment,

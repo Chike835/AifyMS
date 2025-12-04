@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
+import { formatCurrency, formatDateTime } from '../config/locale';
 import { FileText, Calendar, Download, ArrowLeft } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 
@@ -12,7 +13,7 @@ const PaymentAccountReport = () => {
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
 
   // Payment Account Report
-  const { data: reportData, isLoading } = useQuery({
+  const { data: reportData, isLoading, error } = useQuery({
     queryKey: ['paymentAccountReport', accountId, startDate, endDate],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -21,26 +22,9 @@ const PaymentAccountReport = () => {
       const response = await api.get(`/payment-accounts/${accountId}/report?${params.toString()}`);
       return response.data;
     },
-    enabled: !!accountId && hasPermission('payment_account_view')
+    enabled: !!accountId && hasPermission('payment_account_view'),
+    retry: false // Don't retry on 404 errors
   });
-
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-NG', {
-      style: 'currency',
-      currency: 'NGN'
-    }).format(amount || 0);
-  };
-
-  const formatDate = (dateString) => {
-    if (!dateString) return '—';
-    return new Date(dateString).toLocaleDateString('en-NG', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
 
   if (!hasPermission('payment_account_view')) {
     return (
@@ -103,6 +87,25 @@ const PaymentAccountReport = () => {
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+        </div>
+      ) : error ? (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-12 text-center">
+          <FileText className="h-12 w-12 text-red-400 mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-red-900 mb-2">
+            {error.response?.status === 404 ? 'Account Not Found' : 'Error Loading Report'}
+          </h3>
+          <p className="text-red-700 mb-6">
+            {error.response?.status === 404
+              ? 'The payment account you are trying to view does not exist or you do not have access to it.'
+              : error.response?.data?.error || 'An unexpected error occurred while loading the report.'}
+          </p>
+          <Link
+            to="/accounts/payment-accounts"
+            className="inline-flex items-center space-x-2 px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+          >
+            <ArrowLeft className="h-5 w-5" />
+            <span>Back to Payment Accounts</span>
+          </Link>
         </div>
       ) : reportData ? (
         <div className="space-y-6">
@@ -185,18 +188,17 @@ const PaymentAccountReport = () => {
                     {reportData.transactions.map((transaction) => (
                       <tr key={transaction.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {formatDate(transaction.created_at)}
+                          {formatDateTime(transaction.created_at)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800 capitalize">
                             {transaction.transaction_type.replace('_', ' ')}
                           </span>
                         </td>
-                        <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${
-                          transaction.transaction_type === 'deposit' || transaction.transaction_type === 'payment_received'
-                            ? 'text-green-600'
-                            : 'text-red-600'
-                        }`}>
+                        <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${transaction.transaction_type === 'deposit' || transaction.transaction_type === 'payment_received'
+                          ? 'text-green-600'
+                          : 'text-red-600'
+                          }`}>
                           {transaction.transaction_type === 'deposit' || transaction.transaction_type === 'payment_received' ? '+' : '-'}
                           {formatCurrency(Math.abs(transaction.amount))}
                         </td>
@@ -225,6 +227,8 @@ const PaymentAccountReport = () => {
 };
 
 export default PaymentAccountReport;
+
+
 
 
 

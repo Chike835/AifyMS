@@ -1,11 +1,11 @@
 import sequelize from '../config/db.js';
-import { 
-  Purchase, 
-  PurchaseItem, 
-  Product, 
-  Supplier, 
-  Branch, 
-  User, 
+import {
+  Purchase,
+  PurchaseItem,
+  Product,
+  Supplier,
+  Branch,
+  User,
   InventoryBatch,
   Unit
 } from '../models/index.js';
@@ -17,7 +17,7 @@ import { Op } from 'sequelize';
 const generatePurchaseNumber = async () => {
   const today = new Date();
   const datePrefix = `PO-${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
-  
+
   // Find the latest purchase number for today
   const latestPurchase = await Purchase.findOne({
     where: {
@@ -217,8 +217,8 @@ export const createPurchase = async (req, res) => {
       const product = productMap.get(item.product_id);
       if (!product) {
         await transaction.rollback();
-        return res.status(400).json({ 
-          error: `Product not found: ${item.product_id}` 
+        return res.status(400).json({
+          error: `Product not found: ${item.product_id}`
         });
       }
 
@@ -233,8 +233,8 @@ export const createPurchase = async (req, res) => {
         const purchaseUnit = await Unit.findByPk(item.purchase_unit_id, { transaction });
         if (!purchaseUnit) {
           await transaction.rollback();
-          return res.status(400).json({ 
-            error: `Purchase unit not found: ${item.purchase_unit_id}` 
+          return res.status(400).json({
+            error: `Purchase unit not found: ${item.purchase_unit_id}`
           });
         }
 
@@ -246,8 +246,8 @@ export const createPurchase = async (req, res) => {
 
         if (!baseUnit) {
           await transaction.rollback();
-          return res.status(400).json({ 
-            error: `Product base unit not found for product: ${product.name}` 
+          return res.status(400).json({
+            error: `Product base unit not found for product: ${product.name}`
           });
         }
 
@@ -298,15 +298,15 @@ export const createPurchase = async (req, res) => {
 
       if (!baseQuantity || baseQuantity <= 0) {
         await transaction.rollback();
-        return res.status(400).json({ 
-          error: `Invalid quantity for product ${product.name}` 
+        return res.status(400).json({
+          error: `Invalid quantity for product ${product.name}`
         });
       }
 
       if (item.unit_cost === undefined || item.unit_cost < 0) {
         await transaction.rollback();
-        return res.status(400).json({ 
-          error: `Invalid unit cost for product ${product.name}` 
+        return res.status(400).json({
+          error: `Invalid unit cost for product ${product.name}`
         });
       }
 
@@ -314,8 +314,8 @@ export const createPurchase = async (req, res) => {
       if (product.type === 'raw_tracked') {
         if (!item.instance_code || item.instance_code.trim() === '') {
           await transaction.rollback();
-          return res.status(400).json({ 
-            error: `Instance code is required for raw_tracked product: ${product.name}` 
+          return res.status(400).json({
+            error: `Instance code is required for raw_tracked product: ${product.name}`
           });
         }
 
@@ -327,8 +327,8 @@ export const createPurchase = async (req, res) => {
 
         if (existingBatch) {
           await transaction.rollback();
-          return res.status(400).json({ 
-            error: `Instance code "${item.instance_code}" already exists. Each coil/pallet must have a unique code.` 
+          return res.status(400).json({
+            error: `Instance code "${item.instance_code}" already exists. Each coil/pallet must have a unique code.`
           });
         }
       }
@@ -406,32 +406,29 @@ export const createPurchase = async (req, res) => {
       createdItems.push(purchaseItem);
     }
 
+    // Create ledger entry for confirmed purchases with supplier BEFORE committing
+    // This ensures ACID compliance - if ledger entry fails, entire purchase is rolled back
+    if (purchase.status === 'confirmed' && supplier_id && total_amount > 0) {
+      const { createLedgerEntry } = await import('../services/ledgerService.js');
+      await createLedgerEntry(
+        supplier_id,
+        'supplier',
+        {
+          transaction_date: purchase.created_at || new Date(),
+          transaction_type: 'INVOICE',
+          transaction_id: purchase.id,
+          description: `Purchase ${purchase_number}`,
+          debit_amount: 0,
+          credit_amount: total_amount,
+          branch_id: purchaseBranchId,
+          created_by: req.user.id
+        },
+        transaction
+      );
+    }
+
     // Commit transaction - all operations succeeded
     await transaction.commit();
-
-    // Create ledger entry for confirmed purchases with supplier
-    if (purchase.status === 'confirmed' && supplier_id && total_amount > 0) {
-      try {
-        const { createLedgerEntry } = await import('../services/ledgerService.js');
-        await createLedgerEntry(
-          supplier_id,
-          'supplier',
-          {
-            transaction_date: purchase.created_at || new Date(),
-            transaction_type: 'INVOICE',
-            transaction_id: purchase.id,
-            description: `Purchase ${purchase_number}`,
-            debit_amount: 0,
-            credit_amount: total_amount,
-            branch_id: purchaseBranchId,
-            created_by: req.user.id
-          }
-        );
-      } catch (ledgerError) {
-        console.error('Error creating ledger entry for purchase:', ledgerError);
-        // Don't fail the purchase if ledger entry fails
-      }
-    }
 
     // Fetch the complete purchase with all relations
     const completePurchase = await Purchase.findByPk(purchase.id, {
@@ -485,18 +482,18 @@ export const createPurchase = async (req, res) => {
     // Rollback transaction on any error
     await transaction.rollback();
     console.error('Error creating purchase:', error);
-    
+
     if (error.name === 'SequelizeValidationError') {
-      return res.status(400).json({ 
-        error: error.errors?.[0]?.message || 'Validation error' 
+      return res.status(400).json({
+        error: error.errors?.[0]?.message || 'Validation error'
       });
     }
     if (error.name === 'SequelizeUniqueConstraintError') {
-      return res.status(400).json({ 
-        error: 'Duplicate entry detected. Please check instance codes.' 
+      return res.status(400).json({
+        error: 'Duplicate entry detected. Please check instance codes.'
       });
     }
-    
+
     return res.status(500).json({ error: 'Failed to create purchase' });
   }
 };
@@ -560,7 +557,7 @@ export const deletePurchase = async (req, res) => {
       whereClause.branch_id = req.user.branch_id;
     }
 
-    const purchase = await Purchase.findOne({ 
+    const purchase = await Purchase.findOne({
       where: whereClause,
       include: [
         {
@@ -579,8 +576,8 @@ export const deletePurchase = async (req, res) => {
     // Only allow deletion of draft or cancelled purchases
     if (!['draft', 'cancelled'].includes(purchase.status)) {
       await transaction.rollback();
-      return res.status(400).json({ 
-        error: 'Only draft or cancelled purchases can be deleted' 
+      return res.status(400).json({
+        error: 'Only draft or cancelled purchases can be deleted'
       });
     }
 
@@ -590,8 +587,8 @@ export const deletePurchase = async (req, res) => {
         const batch = await InventoryBatch.findByPk(item.inventory_batch_id, { transaction });
         if (batch && batch.remaining_quantity < batch.initial_quantity) {
           await transaction.rollback();
-          return res.status(400).json({ 
-            error: `Cannot delete: Inventory batch ${batch.instance_code || batch.batch_identifier} has been partially used` 
+          return res.status(400).json({
+            error: `Cannot delete: Inventory batch ${batch.instance_code || batch.batch_identifier} has been partially used`
           });
         }
         // Delete the inventory batch

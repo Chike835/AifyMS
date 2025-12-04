@@ -96,10 +96,39 @@ const SlittingModal = ({ isOpen, onClose, sourceBatch }) => {
 
   const available = parseFloat(sourceBatch.remaining_quantity || 0);
   const batchType = sourceBatch.batch_type?.name || 'Unknown';
+  const canSlit = sourceBatch.batch_type?.can_slit || false;
 
-  // Only show for Loose batches
-  if (batchType !== 'Loose') {
-    return null;
+  // Show error message if slitting is not enabled for this batch type
+  if (!canSlit) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-gray-900">Slitting Not Available</h2>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="mb-6">
+            <p className="text-gray-700 mb-4">
+              Slitting is not available for batch type <strong>"{batchType}"</strong>.
+            </p>
+            <p className="text-sm text-gray-600">
+              Only "Loose" type batches can be converted to Coils through slitting. Please check your batch type configuration in Settings.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-full px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -147,9 +176,8 @@ const SlittingModal = ({ isOpen, onClose, sourceBatch }) => {
               value={formData.new_instance_code}
               onChange={(e) => setFormData({ ...formData, new_instance_code: e.target.value })}
               placeholder="e.g., COIL-001"
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm ${
-                errors.new_instance_code ? 'border-red-300' : 'border-gray-300'
-              }`}
+              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm ${errors.new_instance_code ? 'border-red-300' : 'border-gray-300'
+                }`}
             />
             {errors.new_instance_code && (
               <p className="text-xs text-red-600 mt-1">{errors.new_instance_code}</p>
@@ -170,9 +198,8 @@ const SlittingModal = ({ isOpen, onClose, sourceBatch }) => {
               value={formData.weight}
               onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
               placeholder={`Max: ${available.toFixed(3)}`}
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm ${
-                errors.weight ? 'border-red-300' : 'border-gray-300'
-              }`}
+              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm ${errors.weight ? 'border-red-300' : 'border-gray-300'
+                }`}
             />
             {errors.weight && (
               <p className="text-xs text-red-600 mt-1">{errors.weight}</p>

@@ -105,7 +105,7 @@ export const normalizeCSVHeaders = (rows, aliasMap = PRODUCT_HEADER_ALIASES) => 
       const n = normalizeHeader(String(k));
       return aliasMap[n] || n;
     });
-    
+
     // Check for critical fields
     const hasSku = normalizedKeys.includes('sku');
     const hasName = normalizedKeys.includes('name');
@@ -124,7 +124,7 @@ export const normalizeCSVHeaders = (rows, aliasMap = PRODUCT_HEADER_ALIASES) => 
   } else {
     // Scan first 20 rows for headers
     console.log('[HeaderNormalization] First row keys do not look like headers. Scanning content...');
-    
+
     for (let i = 0; i < Math.min(rows.length, 20); i++) {
       const rowValues = Object.values(rows[i]);
       if (hasRequiredHeaders(rowValues)) {
@@ -138,22 +138,22 @@ export const normalizeCSVHeaders = (rows, aliasMap = PRODUCT_HEADER_ALIASES) => 
 
   // If we found headers in the body (headerRowIndex >= 0), we need to realign the data
   let processedRows = rows;
-  
+
   if (headerRowIndex >= 0) {
     // Slice data starting after the header row
     const dataRows = rows.slice(headerRowIndex + 1);
-    
+
     // Map rows to new objects using the found headers
     processedRows = dataRows.map(row => {
       const newRow = {};
       const values = Object.values(row);
-      
+
       headers.forEach((header, index) => {
         if (index < values.length) {
           newRow[header] = values[index];
         }
       });
-      
+
       return newRow;
     });
   }
@@ -173,7 +173,7 @@ export const normalizeCSVHeaders = (rows, aliasMap = PRODUCT_HEADER_ALIASES) => 
   // Apply mapping to all rows
   const normalizedRows = processedRows.map((row, index) => {
     const normalizedRow = {};
-    
+
     Object.keys(row).forEach(rawKey => {
       const normalizedKey = headerMap[rawKey];
       if (normalizedKey) {
@@ -202,7 +202,7 @@ export const normalizeCSVHeaders = (rows, aliasMap = PRODUCT_HEADER_ALIASES) => 
 const parseCurrency = (value) => {
   if (value === undefined || value === null || value === '') return NaN;
   if (typeof value === 'number') return value;
-  
+
   // Remove all non-numeric characters except dot and minus
   // Also handles cases where currency symbol is at start or end
   const cleanValue = String(value).replace(/[^0-9.-]+/g, '');
@@ -237,7 +237,7 @@ export const importProducts = async (data, errors = []) => {
       if (i === 0) {
         console.log(`[ImportProducts] First row keys:`, Object.keys(row));
       }
-      
+
       // Validate required fields with detailed error reporting
       // Only sku, name, and sale_price are strictly required
       // type and base_unit will use defaults if not provided
@@ -262,12 +262,12 @@ export const importProducts = async (data, errors = []) => {
       }
 
       // Apply defaults for optional fields
-      const productType = (row.type && typeof row.type === 'string' && row.type.trim() !== '') 
-        ? row.type.trim().toLowerCase() 
+      const productType = (row.type && typeof row.type === 'string' && row.type.trim() !== '')
+        ? row.type.trim().toLowerCase()
         : 'standard'; // Default to 'standard' if not provided
-      
-      const baseUnit = (row.base_unit && typeof row.base_unit === 'string' && row.base_unit.trim() !== '') 
-        ? row.base_unit.trim() 
+
+      const baseUnit = (row.base_unit && typeof row.base_unit === 'string' && row.base_unit.trim() !== '')
+        ? row.base_unit.trim()
         : 'pc'; // Default to 'pc' (piece) if not provided
 
       // Validate product type
@@ -282,11 +282,11 @@ export const importProducts = async (data, errors = []) => {
 
       // Parse numeric values with defensive checks
       const salePrice = parseCurrency(row.sale_price);
-      const costPrice = (row.cost_price !== undefined && row.cost_price !== null && row.cost_price !== '') 
-        ? parseCurrency(row.cost_price) 
+      const costPrice = (row.cost_price !== undefined && row.cost_price !== null && row.cost_price !== '')
+        ? parseCurrency(row.cost_price)
         : null;
-      const taxRate = (row.tax_rate !== undefined && row.tax_rate !== null && row.tax_rate !== '') 
-        ? parseCurrency(row.tax_rate) 
+      const taxRate = (row.tax_rate !== undefined && row.tax_rate !== null && row.tax_rate !== '')
+        ? parseCurrency(row.tax_rate)
         : 0;
 
       if (isNaN(salePrice) || salePrice < 0) {
@@ -377,7 +377,7 @@ export const importProducts = async (data, errors = []) => {
     // Use bulkCreate with updateOnDuplicate for both creates and updates
     // This handles both new products and updates in a single operation
     const allProducts = [...toCreate, ...toUpdate];
-    
+
     if (allProducts.length > 0) {
       console.log(`[ImportProducts] Bulk creating/updating ${allProducts.length} products`);
       await Product.bulkCreate(allProducts, {
@@ -393,7 +393,7 @@ export const importProducts = async (data, errors = []) => {
     console.error('[ImportProducts] Bulk operation error:', error);
     // Fallback: try individual operations for better error reporting
     console.log('[ImportProducts] Falling back to individual operations for error reporting');
-    
+
     for (const productData of validRows) {
       const rowNum = rowNumMap.get(productData.sku);
       try {
@@ -562,7 +562,7 @@ export const importCustomers = async (data, user, errors = []) => {
       let existingCustomer = null;
       if (row.email) {
         existingCustomer = await Customer.findOne({
-          where: { 
+          where: {
             email: row.email.trim(),
             branch_id: branchId
           }
@@ -571,7 +571,7 @@ export const importCustomers = async (data, user, errors = []) => {
 
       if (!existingCustomer) {
         existingCustomer = await Customer.findOne({
-          where: { 
+          where: {
             name: row.name.trim(),
             branch_id: branchId
           }
@@ -640,7 +640,7 @@ export const importSuppliers = async (data, user, errors = []) => {
       let existingSupplier = null;
       if (row.email) {
         existingSupplier = await Supplier.findOne({
-          where: { 
+          where: {
             email: row.email.trim(),
             branch_id: branchId
           }
@@ -649,7 +649,7 @@ export const importSuppliers = async (data, user, errors = []) => {
 
       if (!existingSupplier) {
         existingSupplier = await Supplier.findOne({
-          where: { 
+          where: {
             name: row.name.trim(),
             branch_id: branchId
           }
@@ -740,7 +740,7 @@ export const importCategories = async (data, user, errors = []) => {
         name: row.name.trim(),
         parent_id: parentId,
         description: row.description ? row.description.trim() : null,
-        is_active: row.is_active !== undefined 
+        is_active: row.is_active !== undefined
           ? (String(row.is_active).toLowerCase() === 'true' || row.is_active === '1' || row.is_active === 1)
           : true
       };
@@ -908,7 +908,7 @@ export const importPurchases = async (data, user, errors = []) => {
 
   // Group rows by purchase_number
   const purchaseMap = new Map();
-  
+
   for (let i = 0; i < data.length; i++) {
     const row = data[i];
     const rowNum = i + 2;
@@ -925,7 +925,7 @@ export const importPurchases = async (data, user, errors = []) => {
       }
 
       const purchaseNumber = row.purchase_number.trim();
-      
+
       if (!purchaseMap.has(purchaseNumber)) {
         purchaseMap.set(purchaseNumber, {
           purchaseData: {
@@ -964,7 +964,7 @@ export const importPurchases = async (data, user, errors = []) => {
   // Process each purchase
   for (const [purchaseNumber, purchaseInfo] of purchaseMap.entries()) {
     const transaction = await sequelize.transaction();
-    
+
     try {
       // Find or create branch
       let branch = null;
@@ -974,24 +974,18 @@ export const importPurchases = async (data, user, errors = []) => {
           transaction
         });
       }
-      
+
       // Use user's branch if branch_code not found
       const branchId = branch?.id || user?.branch_id;
       if (!branchId) {
-        await transaction.rollback();
-        results.errors.push({
-          row: `Purchase ${purchaseNumber}`,
-          error: 'Branch not found and user has no branch assigned'
-        });
-        results.skipped++;
-        continue;
+        throw new Error('Branch not found and user has no branch assigned');
       }
 
       // Find supplier if provided
       let supplierId = null;
       if (purchaseInfo.purchaseData.supplier_name) {
         const supplier = await Supplier.findOne({
-          where: { 
+          where: {
             name: purchaseInfo.purchaseData.supplier_name,
             branch_id: branchId
           },
@@ -1048,13 +1042,7 @@ export const importPurchases = async (data, user, errors = []) => {
         });
 
         if (!product) {
-          await transaction.rollback();
-          results.errors.push({
-            row: `Purchase ${purchaseNumber}`,
-            error: `Product with SKU "${itemData.product_sku}" not found`
-          });
-          results.skipped++;
-          continue;
+          throw new Error(`Product with SKU "${itemData.product_sku}" not found`);
         }
 
         // Find purchase unit if provided

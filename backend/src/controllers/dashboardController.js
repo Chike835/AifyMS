@@ -360,7 +360,7 @@ export const getLowStockAlerts = async (req, res, next) => {
     const lowStockItems = batches
       .filter(batch => {
         const remaining = parseFloat(batch.remaining_quantity);
-        const initial = parseFloat(instance.initial_quantity);
+        const initial = parseFloat(batch.initial_quantity);
         return remaining > 0 && (remaining / initial) < 0.1;
       })
       .map(instance => ({

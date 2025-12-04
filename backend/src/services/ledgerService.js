@@ -1,12 +1,12 @@
 import sequelize from '../config/db.js';
-import { 
-  LedgerEntry, 
-  Customer, 
-  Supplier, 
-  SalesOrder, 
-  Purchase, 
-  Payment, 
-  SalesReturn, 
+import {
+  LedgerEntry,
+  Customer,
+  Supplier,
+  SalesOrder,
+  Purchase,
+  Payment,
+  SalesReturn,
   PurchaseReturn,
   Branch,
   User
@@ -206,14 +206,15 @@ export const getLedger = async (contactId, contactType, startDate = null, endDat
  * @param {string} customerId - Customer ID
  * @returns {Promise<number>} Advance balance amount
  */
-export const calculateAdvanceBalance = async (customerId) => {
+export const calculateAdvanceBalance = async (customerId, transaction = null) => {
   // Sum of all ADVANCE_PAYMENT credits
   const advancePayments = await LedgerEntry.sum('credit_amount', {
     where: {
       contact_id: customerId,
       contact_type: 'customer',
       transaction_type: 'ADVANCE_PAYMENT'
-    }
+    },
+    transaction
   }) || 0;
 
   // Sum of all REFUND credits (refunds reduce advance balance by decreasing credits)
@@ -223,7 +224,8 @@ export const calculateAdvanceBalance = async (customerId) => {
       contact_id: customerId,
       contact_type: 'customer',
       transaction_type: 'REFUND'
-    }
+    },
+    transaction
   }) || 0;
 
   const advanceBalance = parseFloat(advancePayments) - parseFloat(refunds);

@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { ClipboardList, Plus, Trash2, AlertCircle, CheckCircle, ArrowLeft, Package } from 'lucide-react';
 import CoilSelectorModal from '../components/pos/CoilSelectorModal';
+import Decimal from 'decimal.js';
 
 const AddSale = () => {
   const navigate = useNavigate();
@@ -18,7 +19,7 @@ const AddSale = () => {
   const [items, setItems] = useState([
     { product_id: '', quantity: '', unit_price: '', item_assignments: [] }
   ]);
-  
+
   // Coil selection modal state
   const [showCoilModal, setShowCoilModal] = useState(false);
   const [currentItemIndex, setCurrentItemIndex] = useState(null);
@@ -52,15 +53,6 @@ const AddSale = () => {
     }
   });
 
-  // Fetch inventory instances for coil selection
-  const { data: instancesData } = useQuery({
-    queryKey: ['inventory-instances'],
-    queryFn: async () => {
-      const response = await api.get('/inventory/instances?status=in_stock');
-      return response.data.instances || [];
-    }
-  });
-
   // Create sale mutation
   const createMutation = useMutation({
     mutationFn: async (data) => {
@@ -83,7 +75,6 @@ const AddSale = () => {
   const customers = customersData || [];
   const products = productsData || [];
   const recipes = recipesData || [];
-  const instances = instancesData || [];
 
   // Get product by ID
   const getProduct = (productId) => {
@@ -101,22 +92,11 @@ const AddSale = () => {
     return product?.type === 'manufactured_virtual';
   };
 
-  // Get available coils for a recipe's raw product
-  const getAvailableCoils = (productId) => {
-    const recipe = getRecipe(productId);
-    if (!recipe) return [];
-    return instances.filter(i => 
-      i.product_id === recipe.raw_product_id && 
-      i.status === 'in_stock' &&
-      parseFloat(i.remaining_quantity) > 0
-    );
-  };
-
   // Calculate required raw material for a manufactured product
   const calculateRequiredRawMaterial = (productId, quantity) => {
     const recipe = getRecipe(productId);
     if (!recipe) return 0;
-    return parseFloat(quantity) * parseFloat(recipe.conversion_factor);
+    return new Decimal(quantity || 0).times(new Decimal(recipe.conversion_factor || 0)).toNumber();
   };
 
   // Add new item row
@@ -161,7 +141,7 @@ const AddSale = () => {
       setFormError('Please enter quantity first');
       return;
     }
-    
+
     const product = getProduct(item.product_id);
     setCurrentItemIndex(index);
     setCurrentProduct(product);
@@ -172,7 +152,7 @@ const AddSale = () => {
   // Handle coil selection from modal
   const handleCoilSelection = (assignments) => {
     if (currentItemIndex === null) return;
-    
+
     const newItems = [...items];
     newItems[currentItemIndex].item_assignments = assignments;
     setItems(newItems);
@@ -182,25 +162,27 @@ const AddSale = () => {
 
   // Calculate item subtotal
   const calculateSubtotal = (item) => {
-    const qty = parseFloat(item.quantity) || 0;
-    const price = parseFloat(item.unit_price) || 0;
-    return (qty * price).toFixed(2);
+    const qty = new Decimal(item.quantity || 0);
+    const price = new Decimal(item.unit_price || 0);
+    return qty.times(price).toFixed(2);
   };
 
   // Calculate total amount
   const calculateTotal = () => {
     return items.reduce((sum, item) => {
-      return sum + parseFloat(calculateSubtotal(item));
-    }, 0).toFixed(2);
+      return sum.plus(new Decimal(calculateSubtotal(item)));
+    }, new Decimal(0)).toFixed(2);
   };
 
   // Check if all manufactured items have assignments
   const allManufacturedItemsHaveAssignments = () => {
     for (const item of items) {
       if (item.product_id && isManufactured(item.product_id) && item.quantity) {
-        const required = calculateRequiredRawMaterial(item.product_id, item.quantity);
-        const assigned = item.item_assignments.reduce((sum, a) => sum + parseFloat(a.quantity_deducted || 0), 0);
-        if (Math.abs(assigned - required) > 0.001) {
+        const required = new Decimal(calculateRequiredRawMaterial(item.product_id, item.quantity));
+        const assigned = item.item_assignments.reduce((sum, a) =>
+          sum.plus(new Decimal(a.quantity_deducted || 0)), new Decimal(0)
+        );
+        if (assigned.minus(required).abs().greaterThan(0.001)) {
           return false;
         }
       }
@@ -242,8 +224,8 @@ const AddSale = () => {
       payment_status: orderType === 'draft' ? 'unpaid' : 'unpaid',
       items: validItems.map(item => ({
         product_id: item.product_id,
-        quantity: parseFloat(item.quantity),
-        unit_price: parseFloat(item.unit_price),
+        quantity: new Decimal(item.quantity).toNumber(),
+        unit_price: new Decimal(item.unit_price).toNumber(),
         item_assignments: isManufactured(item.product_id) ? item.item_assignments : undefined
       }))
     };
@@ -449,11 +431,10 @@ const AddSale = () => {
                         <button
                           type="button"
                           onClick={() => openCoilSelector(index)}
-                          className={`w-full px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                            hasValidAssignments
-                              ? 'bg-green-100 text-green-700 border border-green-300'
-                              : 'bg-orange-100 text-orange-700 border border-orange-300 hover:bg-orange-200'
-                          }`}
+                          className={`w-full px-3 py-2 rounded-lg text-sm font-medium transition-colors ${hasValidAssignments
+                            ? 'bg-green-100 text-green-700 border border-green-300'
+                            : 'bg-orange-100 text-orange-700 border border-orange-300 hover:bg-orange-200'
+                            }`}
                         >
                           {hasValidAssignments ? (
                             <span className="flex items-center justify-center space-x-1">
@@ -500,13 +481,12 @@ const AddSale = () => {
                   {/* Product Info & Requirements */}
                   {product && (
                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <span className={`px-2 py-0.5 text-xs rounded-full ${
-                        product.type === 'raw_tracked'
-                          ? 'bg-orange-100 text-orange-700'
-                          : product.type === 'manufactured_virtual'
+                      <span className={`px-2 py-0.5 text-xs rounded-full ${product.type === 'raw_tracked'
+                        ? 'bg-orange-100 text-orange-700'
+                        : product.type === 'manufactured_virtual'
                           ? 'bg-purple-100 text-purple-700'
                           : 'bg-gray-100 text-gray-700'
-                      }`}>
+                        }`}>
                         {product.type}
                       </span>
                       {isManuf && recipe && item.quantity && (
@@ -587,8 +567,8 @@ const AddSale = () => {
               <>
                 <ClipboardList className="h-4 w-4" />
                 <span>
-                  {orderType === 'invoice' ? 'Create Invoice' : 
-                   orderType === 'quotation' ? 'Create Quotation' : 'Save Draft'}
+                  {orderType === 'invoice' ? 'Create Invoice' :
+                    orderType === 'quotation' ? 'Create Quotation' : 'Save Draft'}
                 </span>
               </>
             )}

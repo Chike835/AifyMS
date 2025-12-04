@@ -117,10 +117,10 @@ const Categories = () => {
 
   const openCreateModal = () => {
     setSelectedCategory(null);
-    setFormData({ 
-      name: '', 
-      parent_id: '', 
-      description: '', 
+    setFormData({
+      name: '',
+      parent_id: '',
+      description: '',
       is_active: true,
       branch_id: isSuperAdmin ? (selectedBranchId || '') : ''
     });
@@ -144,10 +144,10 @@ const Categories = () => {
   const closeModal = () => {
     setShowModal(false);
     setSelectedCategory(null);
-    setFormData({ 
-      name: '', 
-      parent_id: '', 
-      description: '', 
+    setFormData({
+      name: '',
+      parent_id: '',
+      description: '',
       is_active: true,
       branch_id: isSuperAdmin ? (selectedBranchId || '') : ''
     });
@@ -202,26 +202,7 @@ const Categories = () => {
       <div className="flex items-center justify-center py-12">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
       </div>
-      {isSuperAdmin && (
-        <div className="mb-6 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-4 sm:flex-row sm:items-center sm:gap-4">
-          <div className="flex flex-col">
-            <span className="text-sm font-medium text-gray-700">Branch Scope</span>
-            <span className="text-xs text-gray-500">Select a branch to view its categories (global categories are always included).</span>
-          </div>
-          <select
-            value={selectedBranchId}
-            onChange={(e) => setSelectedBranchId(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 sm:max-w-xs"
-          >
-            <option value="">Global Categories Only</option>
-            {branches.map((branch) => (
-              <option key={branch.id} value={branch.id}>
-                {branch.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
+
     );
   }
 
@@ -269,6 +250,27 @@ const Categories = () => {
         </div>
       </div>
 
+      {isSuperAdmin && (
+        <div className="mb-6 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-4 sm:flex-row sm:items-center sm:gap-4">
+          <div className="flex flex-col">
+            <span className="text-sm font-medium text-gray-700">Branch Scope</span>
+            <span className="text-xs text-gray-500">Select a branch to view its categories (global categories are always included).</span>
+          </div>
+          <select
+            value={selectedBranchId}
+            onChange={(e) => setSelectedBranchId(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 sm:max-w-xs"
+          >
+            <option value="">Global Categories Only</option>
+            {branches.map((branch) => (
+              <option key={branch.id} value={branch.id}>
+                {branch.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* Toolbar */}
       <ListToolbar
         limit={limit}
@@ -305,11 +307,11 @@ const Categories = () => {
             const updated = results.updated || 0;
             const skipped = results.skipped || 0;
             const errors = results.errors || [];
-            
+
             // Only refresh if records were actually created/updated
             if (created > 0 || updated > 0) {
               queryClient.invalidateQueries({ queryKey: categoryQueryKey });
-              
+
               let message = `Import completed! ${created} created, ${updated} updated`;
               if (skipped > 0) {
                 message += `, ${skipped} skipped`;
@@ -372,9 +374,8 @@ const Categories = () => {
                     <div className="text-sm text-gray-500">{category.description || '-'}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                      category.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                    }`}>
+                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${category.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                      }`}>
                       {category.is_active ? 'Active' : 'Inactive'}
                     </span>
                   </td>

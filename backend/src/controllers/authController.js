@@ -1,7 +1,6 @@
 import jwt from 'jsonwebtoken';
 import config from '../config/env.js';
 import { User, Role, Branch, Permission } from '../models/index.js';
-import { logActivitySync } from '../middleware/activityLogger.js';
 
 /**
  * POST /api/auth/login
@@ -15,7 +14,10 @@ export const login = async (req, res, next) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
+    console.log('Login request received for:', email);
+
     // Find user with role and branch
+    console.log('Executing User.findOne...');
     const user = await User.findOne({
       where: { email: email.toLowerCase() },
       include: [
@@ -37,24 +39,22 @@ export const login = async (req, res, next) => {
         }
       ]
     });
+    console.log('User found:', user ? user.id : 'null');
 
     if (!user) {
+      console.log('User not found');
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     if (!user.is_active) {
+      console.log('User inactive');
       return res.status(401).json({ error: 'Account is inactive' });
     }
 
-    // Check password with error handling
-    let isValidPassword = false;
-    try {
-      isValidPassword = await user.checkPassword(password);
-    } catch (passwordError) {
-      console.error('Password verification error:', passwordError.message);
-      return res.status(500).json({ error: 'Authentication service error' });
-    }
-
+    // Check password
+    console.log('Checking password...');
+    const isValidPassword = await user.checkPassword(password);
+    console.log('Password valid:', isValidPassword);
     if (!isValidPassword) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
@@ -62,38 +62,11 @@ export const login = async (req, res, next) => {
     // Extract permissions
     const permissions = user.role?.permissions?.map(p => p.slug) || [];
 
-    // Generate JWT token with essential user data to reduce DB queries
+    // Generate JWT token
     const token = jwt.sign(
-      { 
-        userId: user.id, 
-        email: user.email,
-        role_id: user.role_id,
-        role_name: user.role?.name,
-        branch_id: user.branch_id,
-        permissions: permissions
-      },
+      { userId: user.id, email: user.email },
       config.jwtSecret,
       { expiresIn: config.jwtExpiresIn }
-    );
-
-    // Log login activity
-    // Create a mock req object for logging
-    const mockReq = {
-      user: {
-        id: user.id,
-        branch_id: user.branch_id
-      },
-      ip: req.ip || req.headers['x-forwarded-for']?.split(',')[0] || req.headers['x-real-ip'] || req.connection?.remoteAddress,
-      headers: req.headers
-    };
-
-    await logActivitySync(
-      'LOGIN',
-      'auth',
-      `User ${user.full_name} logged in`,
-      mockReq,
-      'user',
-      user.id
     );
 
     // Return user data with token
@@ -129,3 +102,4 @@ export const getMe = async (req, res, next) => {
     next(error);
   }
 };
+

@@ -97,13 +97,13 @@ const InventoryBatch = sequelize.define('InventoryBatch', {
       }
     },
     beforeSave: async (instance, options) => {
-      // Validate attribute_data based on product type
+      // Validate attribute_data based on category attribute_schema
       if (instance.product_id && instance.attribute_data) {
         // Use sequelize.models to avoid circular dependency
         const Product = sequelize.models.Product;
         const Category = sequelize.models.Category;
         const BusinessSetting = sequelize.models.BusinessSetting;
-        
+
         if (Product && Category) {
           const queryOptions = {
             include: [{
@@ -112,20 +112,78 @@ const InventoryBatch = sequelize.define('InventoryBatch', {
               required: false
             }]
           };
-          
+
           // Include transaction if provided to maintain transaction isolation
           if (options?.transaction) {
             queryOptions.transaction = options.transaction;
           }
-          
+
           const product = await Product.findByPk(instance.product_id, queryOptions);
 
-          if (product) {
+          if (product && product.categoryRef) {
             const category = product.categoryRef;
-            const categoryName = category?.name || '';
+            const attributeSchema = category.attribute_schema;
             const attributeData = instance.attribute_data || {};
 
-            // Normalize category name for comparison (lowercase, spaces to underscores)
+            // Validate based on dynamic attribute_schema if present
+            if (attributeSchema && Array.isArray(attributeSchema) && attributeSchema.length > 0) {
+              for (const schemaField of attributeSchema) {
+                const fieldName = schemaField.name;
+                const fieldType = schemaField.type;
+                const fieldRequired = schemaField.required;
+                const fieldOptions = schemaField.options;
+                const fieldValue = attributeData[fieldName];
+
+                // Check required fields
+                if (fieldRequired && (fieldValue === undefined || fieldValue === null || fieldValue === '')) {
+                  throw new Error(`Attribute "${fieldName}" is required for category "${category.name}"`);
+                }
+
+                // Validate field type if value is present
+                if (fieldValue !== undefined && fieldValue !== null && fieldValue !== '') {
+                  switch (fieldType) {
+                    case 'text':
+                    case 'select':
+                      if (typeof fieldValue !== 'string') {
+                        throw new Error(`Attribute "${fieldName}" must be a string for category "${category.name}"`);
+                      }
+                      // Validate select options
+                      if (fieldType === 'select' && fieldOptions && Array.isArray(fieldOptions)) {
+                        if (!fieldOptions.includes(fieldValue)) {
+                          throw new Error(`Attribute "${fieldName}" must be one of: ${fieldOptions.join(', ')} for category "${category.name}"`);
+                        }
+                      }
+                      break;
+
+                    case 'number':
+                      if (typeof fieldValue !== 'number') {
+                        throw new Error(`Attribute "${fieldName}" must be a number for category "${category.name}"`);
+                      }
+                      // Apply min/max validation if specified in schema
+                      if (schemaField.min !== undefined && fieldValue < schemaField.min) {
+                        throw new Error(`Attribute "${fieldName}" must be at least ${schemaField.min} for category "${category.name}"`);
+                      }
+                      if (schemaField.max !== undefined && fieldValue > schemaField.max) {
+                        throw new Error(`Attribute "${fieldName}" must be at most ${schemaField.max} for category "${category.name}"`);
+                      }
+                      break;
+
+                    case 'boolean':
+                      if (typeof fieldValue !== 'boolean') {
+                        throw new Error(`Attribute "${fieldName}" must be a boolean for category "${category.name}"`);
+                      }
+                      break;
+
+                    default:
+                      // Unknown type, skip validation
+                      break;
+                  }
+                }
+              }
+            }
+
+            // Special handling for gauge_mm if enabled for this category
+            const categoryName = category.name || '';
             const normalizeCategoryName = (name) => {
               return name.toLowerCase().replace(/\s+/g, '_');
             };
@@ -137,11 +195,11 @@ const InventoryBatch = sequelize.define('InventoryBatch', {
                 where: { setting_key: 'gauge_enabled_categories' },
                 ...(options?.transaction ? { transaction: options.transaction } : {})
               });
-              
+
               if (gaugeSetting && gaugeSetting.setting_type === 'json') {
                 try {
-                  const parsedValue = typeof gaugeSetting.setting_value === 'string' 
-                    ? JSON.parse(gaugeSetting.setting_value) 
+                  const parsedValue = typeof gaugeSetting.setting_value === 'string'
+                    ? JSON.parse(gaugeSetting.setting_value)
                     : gaugeSetting.setting_value;
                   gaugeEnabledCategories = Array.isArray(parsedValue) ? parsedValue : [];
                 } catch (e) {
@@ -154,70 +212,40 @@ const InventoryBatch = sequelize.define('InventoryBatch', {
             const normalizedCategoryName = normalizeCategoryName(categoryName);
             const isGaugeEnabled = gaugeEnabledCategories.includes(normalizedCategoryName);
 
-            // Validate gauge_mm if category is enabled for gauge input
+            // Validate and normalize gauge_mm if category is enabled for gauge input
             if (isGaugeEnabled && attributeData.gauge_mm !== undefined && attributeData.gauge_mm !== null) {
               if (typeof attributeData.gauge_mm !== 'number') {
                 throw new Error(`Gauge (gauge_mm) must be a number for category "${categoryName}"`);
               }
-              if (attributeData.gauge_mm < 0.10 || attributeData.gauge_mm > 1.00) {
-                throw new Error(`Gauge (gauge_mm) must be between 0.10 and 1.00 mm for category "${categoryName}"`);
+
+              // Fetch gauge min/max from business settings
+              let gaugeMin = 0.10; // Default fallback
+              let gaugeMax = 1.00; // Default fallback
+
+              if (BusinessSetting) {
+                const gaugeMinSetting = await BusinessSetting.findOne({
+                  where: { setting_key: 'gauge_min_value' },
+                  ...(options?.transaction ? { transaction: options.transaction } : {})
+                });
+                const gaugeMaxSetting = await BusinessSetting.findOne({
+                  where: { setting_key: 'gauge_max_value' },
+                  ...(options?.transaction ? { transaction: options.transaction } : {})
+                });
+
+                if (gaugeMinSetting && gaugeMinSetting.setting_value) {
+                  gaugeMin = parseFloat(gaugeMinSetting.setting_value);
+                }
+                if (gaugeMaxSetting && gaugeMaxSetting.setting_value) {
+                  gaugeMax = parseFloat(gaugeMaxSetting.setting_value);
+                }
+              }
+
+              // Validate against configured range
+              if (attributeData.gauge_mm < gaugeMin || attributeData.gauge_mm > gaugeMax) {
+                throw new Error(`Gauge (gauge_mm) must be between ${gaugeMin} and ${gaugeMax} mm for category "${categoryName}"`);
               }
               // Round to 2 decimal places
               attributeData.gauge_mm = Math.round(attributeData.gauge_mm * 100) / 100;
-            }
-
-            // Validate based on product category/material type
-            if (categoryName.toLowerCase().includes('aluminium') || categoryName.toLowerCase().includes('aluminum')) {
-              // Aluminium type validation
-              if (!attributeData.weight_kg || typeof attributeData.weight_kg !== 'number' || attributeData.weight_kg <= 0) {
-                throw new Error('Aluminium batch must have valid weight_kg (positive number)');
-              }
-              // Gauge validation is now handled above based on enabled categories
-              if (isGaugeEnabled) {
-                if (!attributeData.gauge_mm || typeof attributeData.gauge_mm !== 'number') {
-                  throw new Error('Aluminium batch must have gauge_mm');
-                }
-              }
-              if (!attributeData.embossment || typeof attributeData.embossment !== 'string') {
-                throw new Error('Aluminium batch must have embossment');
-              }
-              if (!attributeData.color_code || typeof attributeData.color_code !== 'string') {
-                throw new Error('Aluminium batch must have color_code');
-              }
-              if (!attributeData.coil_number || typeof attributeData.coil_number !== 'string') {
-                throw new Error('Aluminium batch must have coil_number');
-              }
-            } else if (categoryName.toLowerCase().includes('stone') || categoryName.toLowerCase().includes('tile')) {
-              // Stone Tiles type validation
-              if (!attributeData.design_pattern || typeof attributeData.design_pattern !== 'string') {
-                throw new Error('Stone Tiles batch must have design_pattern (e.g., Shingle)');
-              }
-              if (!attributeData.pcs_per_pallet || typeof attributeData.pcs_per_pallet !== 'number' || attributeData.pcs_per_pallet <= 0) {
-                throw new Error('Stone Tiles batch must have valid pcs_per_pallet (positive number)');
-              }
-              if (!attributeData.sqm_coverage || typeof attributeData.sqm_coverage !== 'number' || attributeData.sqm_coverage <= 0) {
-                throw new Error('Stone Tiles batch must have valid sqm_coverage (positive number)');
-              }
-              if (!attributeData.pallet_number || typeof attributeData.pallet_number !== 'string') {
-                throw new Error('Stone Tiles batch must have pallet_number');
-              }
-              // Gauge validation is now handled above based on enabled categories
-              if (isGaugeEnabled) {
-                if (!attributeData.gauge_mm || typeof attributeData.gauge_mm !== 'number') {
-                  throw new Error('Stone Tiles batch must have gauge_mm');
-                }
-              }
-            } else if (categoryName.toLowerCase().includes('accessor')) {
-              // Accessories type validation
-              if (!attributeData.packet_size && !attributeData.pcs_count) {
-                throw new Error('Accessories batch must have either packet_size or pcs_count');
-              }
-              if (attributeData.packet_size && (typeof attributeData.packet_size !== 'number' || attributeData.packet_size <= 0)) {
-                throw new Error('Accessories packet_size must be a positive number if provided');
-              }
-              if (attributeData.pcs_count && (typeof attributeData.pcs_count !== 'number' || attributeData.pcs_count <= 0)) {
-                throw new Error('Accessories pcs_count must be a positive number if provided');
-              }
             }
           }
         }
