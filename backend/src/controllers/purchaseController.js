@@ -480,7 +480,11 @@ export const createPurchase = async (req, res) => {
 
   } catch (error) {
     // Rollback transaction on any error
-    await transaction.rollback();
+    try {
+      await transaction.rollback();
+    } catch (rbError) {
+      // Ignore rollback errors if transaction is already finished
+    }
     console.error('Error creating purchase:', error);
 
     if (error.name === 'SequelizeValidationError') {

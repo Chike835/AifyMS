@@ -188,7 +188,8 @@ CREATE TABLE batch_types (
     description TEXT,
     created_by UUID REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    is_active BOOLEAN DEFAULT true
+    is_active BOOLEAN DEFAULT true,
+    can_slit BOOLEAN DEFAULT false
 );
 CREATE INDEX idx_batch_types_name ON batch_types(name);
 CREATE INDEX idx_batch_types_active ON batch_types(is_active);
@@ -300,6 +301,7 @@ CREATE TABLE payments (
     amount DECIMAL(15, 2) NOT NULL,
     method payment_method NOT NULL,
     status payment_status DEFAULT 'pending_confirmation',
+    payment_account_id UUID REFERENCES payment_accounts(id),
     created_by UUID NOT NULL REFERENCES users(id),
     confirmed_by UUID REFERENCES users(id),
     confirmed_at TIMESTAMP,

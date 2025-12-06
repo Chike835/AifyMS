@@ -17,13 +17,8 @@ const ensureCategoryAccess = async (req, categoryId, transaction) => {
     throw error;
   }
 
-  if (category.branch_id && !isSuperAdmin(req)) {
-    if (!req.user?.branch_id || req.user.branch_id !== category.branch_id) {
-      const error = new Error('You do not have access to this category');
-      error.statusCode = 403;
-      throw error;
-    }
-  }
+  // Branch check removed as branch_id is no longer in categories table
+  // Categories are now global or managed differently
 
   return category;
 };
@@ -308,10 +303,20 @@ export const getProducts = async (req, res, next) => {
     // Get stock from summary table (O(1) instead of O(n) aggregation)
     const productIds = products.map(p => p.id);
 
+    // Get stock from summary table
+    // Fix Bug 6: Use branch filter if present to avoid incorrect aggregation
+    const stockWhere = {
+      product_id: { [Op.in]: productIds }
+    };
+
+    // Check if we are filtering by branch in the main query
+    const branchFilter = includes.find(inc => inc.model === Branch && inc.where);
+    if (branchFilter) {
+      stockWhere.branch_id = branchFilter.where.id;
+    }
+
     const stockData = await ProductStockSummary.findAll({
-      where: {
-        product_id: { [Op.in]: productIds }
-      },
+      where: stockWhere,
       attributes: [
         'product_id',
         [sequelize.fn('SUM', sequelize.col('total_stock')), 'total_stock']

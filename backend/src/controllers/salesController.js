@@ -265,7 +265,11 @@ export const createSale = async (req, res, next) => {
       order: completeOrder
     });
   } catch (error) {
-    await transaction.rollback();
+    try {
+      await transaction.rollback();
+    } catch (rbError) {
+      // Ignore
+    }
     next(error);
   }
 };
@@ -531,7 +535,11 @@ export const updateProductionStatus = async (req, res, next) => {
       order: completeOrder
     });
   } catch (error) {
-    await transaction.rollback();
+    try {
+      await transaction.rollback();
+    } catch (rbError) {
+      // Ignore
+    }
     next(error);
   }
 };
@@ -684,7 +692,11 @@ export const markAsDelivered = async (req, res, next) => {
       order: completeOrder
     });
   } catch (error) {
-    await transaction.rollback();
+    try {
+      await transaction.rollback();
+    } catch (rbError) {
+      // Ignore
+    }
     next(error);
   }
 };
@@ -830,7 +842,9 @@ export const updateDraft = async (req, res, next) => {
       draft: updatedDraft
     });
   } catch (error) {
-    await transaction.rollback();
+    if (!transaction.finished) {
+      await transaction.rollback();
+    }
     next(error);
   }
 };
@@ -956,7 +970,9 @@ export const convertDraftToInvoice = async (req, res, next) => {
       order: convertedOrder
     });
   } catch (error) {
-    await transaction.rollback();
+    if (!transaction.finished) {
+      await transaction.rollback();
+    }
     next(error);
   }
 };

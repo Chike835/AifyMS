@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { logActivitySync } from '../middleware/activityLogger.js';
 import config from '../config/env.js';
 import { User, Role, Branch, Permission } from '../models/index.js';
 
@@ -14,10 +15,10 @@ export const login = async (req, res, next) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    console.log('Login request received for:', email);
+
 
     // Find user with role and branch
-    console.log('Executing User.findOne...');
+
     const user = await User.findOne({
       where: { email: email.toLowerCase() },
       include: [
@@ -39,22 +40,27 @@ export const login = async (req, res, next) => {
         }
       ]
     });
-    console.log('User found:', user ? user.id : 'null');
+
 
     if (!user) {
-      console.log('User not found');
+
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     if (!user.is_active) {
-      console.log('User inactive');
+
       return res.status(401).json({ error: 'Account is inactive' });
     }
 
     // Check password
-    console.log('Checking password...');
-    const isValidPassword = await user.checkPassword(password);
-    console.log('Password valid:', isValidPassword);
+    let isValidPassword = false;
+    try {
+      isValidPassword = await user.checkPassword(password);
+    } catch (error) {
+      console.error('Password verification error:', error);
+      return res.status(500).json({ error: 'Authentication service error' });
+    }
+
     if (!isValidPassword) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
@@ -67,6 +73,16 @@ export const login = async (req, res, next) => {
       { userId: user.id, email: user.email },
       config.jwtSecret,
       { expiresIn: config.jwtExpiresIn }
+    );
+
+    // Log successful login
+    await logActivitySync(
+      'LOGIN',
+      'auth',
+      `User ${user.email} logged in`,
+      req,
+      'user',
+      user.id
     );
 
     // Return user data with token

@@ -96,7 +96,7 @@ const SlittingModal = ({ isOpen, onClose, sourceBatch }) => {
 
   const available = parseFloat(sourceBatch.remaining_quantity || 0);
   const batchType = sourceBatch.batch_type?.name || 'Unknown';
-  const canSlit = sourceBatch.batch_type?.can_slit || false;
+  const canSlit = batchType === 'Loose';
 
   // Show error message if slitting is not enabled for this batch type
   if (!canSlit) {

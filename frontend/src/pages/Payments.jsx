@@ -61,46 +61,6 @@ const Payments = () => {
 
   const paymentAccounts = paymentAccountsData || [];
   const noAccountsAvailable = !accountsLoading && paymentAccounts.length === 0;
-  const isCreateDisabled = createPaymentMutation.isPending || noAccountsAvailable;
-  const recentPayments = recentPaymentsData || [];
-  const pendingPayments = pendingPaymentsData || [];
-
-  useEffect(() => {
-    if (paymentAccounts.length === 0) {
-      return;
-    }
-    setFormData((prev) => {
-      if (prev.payment_account_id) {
-        return prev;
-      }
-      return { ...prev, payment_account_id: paymentAccounts[0].id };
-    });
-  }, [paymentAccounts]);
-
-  useEffect(() => {
-    setPendingAccountSelections((prev) => {
-      const next = { ...prev };
-      let changed = false;
-      const pendingIds = new Set(pendingPayments.map((payment) => payment.id));
-      Object.keys(next).forEach((id) => {
-        if (!pendingIds.has(id)) {
-          delete next[id];
-          changed = true;
-        }
-      });
-      pendingPayments.forEach((payment) => {
-        if (payment.payment_account?.id && next[payment.id] !== payment.payment_account.id) {
-          next[payment.id] = payment.payment_account.id;
-          changed = true;
-        } else if (!payment.payment_account?.id && !next[payment.id] && paymentAccounts.length > 0) {
-          next[payment.id] = paymentAccounts[0].id;
-          changed = true;
-        }
-      });
-      return changed ? next : prev;
-    });
-  }, [pendingPayments, paymentAccounts]);
-
   // Create payment mutation
   const createPaymentMutation = useMutation({
     mutationFn: async (data) => {
@@ -147,6 +107,48 @@ const Payments = () => {
       alert(error.response?.data?.error || 'Failed to confirm payment');
     },
   });
+
+  const isCreateDisabled = createPaymentMutation.isPending || noAccountsAvailable;
+  const recentPayments = recentPaymentsData || [];
+  const pendingPayments = pendingPaymentsData || [];
+
+  useEffect(() => {
+    if (paymentAccounts.length === 0) {
+      return;
+    }
+    setFormData((prev) => {
+      if (prev.payment_account_id) {
+        return prev;
+      }
+      return { ...prev, payment_account_id: paymentAccounts[0].id };
+    });
+  }, [paymentAccounts]);
+
+  useEffect(() => {
+    setPendingAccountSelections((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      const pendingIds = new Set(pendingPayments.map((payment) => payment.id));
+      Object.keys(next).forEach((id) => {
+        if (!pendingIds.has(id)) {
+          delete next[id];
+          changed = true;
+        }
+      });
+      pendingPayments.forEach((payment) => {
+        if (payment.payment_account?.id && next[payment.id] !== payment.payment_account.id) {
+          next[payment.id] = payment.payment_account.id;
+          changed = true;
+        } else if (!payment.payment_account?.id && !next[payment.id] && paymentAccounts.length > 0) {
+          next[payment.id] = paymentAccounts[0].id;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [pendingPayments, paymentAccounts]);
+
+
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -227,11 +229,10 @@ const Payments = () => {
           {hasPermission('payment_receive') && (
             <button
               onClick={() => setActiveTab('form')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'form'
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'form'
                   ? 'border-primary-500 text-primary-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
+                }`}
             >
               <Plus className="h-4 w-4 inline mr-2" />
               Add Payment
@@ -240,11 +241,10 @@ const Payments = () => {
           {hasPermission('payment_view') && (
             <button
               onClick={() => setActiveTab('recent')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'recent'
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'recent'
                   ? 'border-primary-500 text-primary-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
+                }`}
             >
               <DollarSign className="h-4 w-4 inline mr-2" />
               Recent Payments
@@ -253,11 +253,10 @@ const Payments = () => {
           {hasPermission('payment_confirm') && (
             <button
               onClick={() => setActiveTab('pending')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'pending'
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'pending'
                   ? 'border-primary-500 text-primary-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
+                }`}
             >
               <Clock className="h-4 w-4 inline mr-2" />
               Pending Approval ({pendingPayments.length})
@@ -307,9 +306,8 @@ const Payments = () => {
                           setFormData({ ...formData, customer_id: customer.id });
                           setCustomerSearch(customer.name);
                         }}
-                        className={`w-full text-left px-4 py-2 hover:bg-gray-50 ${
-                          formData.customer_id === customer.id ? 'bg-primary-50' : ''
-                        }`}
+                        className={`w-full text-left px-4 py-2 hover:bg-gray-50 ${formData.customer_id === customer.id ? 'bg-primary-50' : ''
+                          }`}
                       >
                         <div className="font-medium text-gray-900">{customer.name}</div>
                         {customer.phone && (
@@ -485,13 +483,12 @@ const Payments = () => {
                         {payment.payment_account?.name || '—'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          payment.status === 'confirmed'
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${payment.status === 'confirmed'
                             ? 'bg-green-100 text-green-800'
                             : payment.status === 'voided'
-                            ? 'bg-red-100 text-red-800'
-                            : 'bg-yellow-100 text-yellow-800'
-                        }`}>
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-yellow-100 text-yellow-800'
+                          }`}>
                           {payment.status === 'pending_confirmation' ? 'Pending' : payment.status}
                         </span>
                       </td>
@@ -566,65 +563,65 @@ const Payments = () => {
                     const confirmDisabled = confirmPaymentMutation.isPending || !resolvedAccountId || paymentAccounts.length === 0;
                     return (
                       <tr key={payment.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">
-                          {payment.customer?.name || 'N/A'}
-                        </div>
-                        {payment.customer?.phone && (
-                          <div className="text-sm text-gray-500">{payment.customer.phone}</div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">
-                          {formatCurrency(payment.amount)}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
-                          {payment.method.toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {payment.payment_account ? (
-                          <span className="text-sm text-gray-900">{payment.payment_account.name}</span>
-                        ) : paymentAccounts.length > 0 ? (
-                          <select
-                            value={pendingAccountSelections[payment.id] || ''}
-                            onChange={(e) => handlePendingAccountChange(payment.id, e.target.value)}
-                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">
+                            {payment.customer?.name || 'N/A'}
+                          </div>
+                          {payment.customer?.phone && (
+                            <div className="text-sm text-gray-500">{payment.customer.phone}</div>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">
+                            {formatCurrency(payment.amount)}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                            {payment.method.toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {payment.payment_account ? (
+                            <span className="text-sm text-gray-900">{payment.payment_account.name}</span>
+                          ) : paymentAccounts.length > 0 ? (
+                            <select
+                              value={pendingAccountSelections[payment.id] || ''}
+                              onChange={(e) => handlePendingAccountChange(payment.id, e.target.value)}
+                              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                            >
+                              {paymentAccounts.map((account) => (
+                                <option key={account.id} value={account.id}>
+                                  {account.name}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="text-sm text-red-600">No accounts</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {payment.creator?.full_name || 'N/A'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {formatDate(payment.created_at)}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-500">
+                          {payment.reference_note || '—'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <button
+                            onClick={() => handleConfirm(payment)}
+                            disabled={confirmDisabled}
+                            className="inline-flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                           >
-                            {paymentAccounts.map((account) => (
-                              <option key={account.id} value={account.id}>
-                                {account.name}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span className="text-sm text-red-600">No accounts</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {payment.creator?.full_name || 'N/A'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {formatDate(payment.created_at)}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-500">
-                        {payment.reference_note || '—'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button
-                          onClick={() => handleConfirm(payment)}
-                          disabled={confirmDisabled}
-                          className="inline-flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                          <Check className="h-4 w-4" />
-                          <span>Confirm</span>
-                        </button>
-                      </td>
+                            <Check className="h-4 w-4" />
+                            <span>Confirm</span>
+                          </button>
+                        </td>
                       </tr>
-                  );
-                })}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
