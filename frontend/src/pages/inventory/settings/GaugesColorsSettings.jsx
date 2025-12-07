@@ -10,7 +10,8 @@ const GaugesColorsSettings = () => {
   const [activeTab, setActiveTab] = useState('gauges');
   const [showModal, setShowModal] = useState(false);
   const [editingValue, setEditingValue] = useState(null);
-  const [formData, setFormData] = useState({ value: '' });
+  // formData for colors/design: { name: '', category_ids: [] }
+  const [formData, setFormData] = useState({ name: '', category_ids: [] });
   const branchScope = user?.branch_id || null;
   const canManageSettings = hasPermission('settings_manage');
   const manufacturingSettingsKey = ['manufacturingSettings', branchScope || 'global'];
@@ -30,7 +31,7 @@ const GaugesColorsSettings = () => {
     enabled: canManageSettings
   });
 
-  // Fetch categories for gauge enabled categories
+  // Fetch categories - enabled for all tabs now as we need them for assignment
   const { data: categories, isLoading: categoriesLoading } = useQuery({
     queryKey: ['categories', branchScope || 'global'],
     queryFn: async () => {
@@ -42,7 +43,7 @@ const GaugesColorsSettings = () => {
       });
       return response.data.categories || [];
     },
-    enabled: canManageSettings && activeTab === 'gauges'
+    enabled: canManageSettings
   });
 
   // Update setting mutation
@@ -66,8 +67,10 @@ const GaugesColorsSettings = () => {
     return settingsData?.[key]?.value || [];
   };
 
-  // Get enabled categories for gauge
-  const getEnabledCategories = () => {
+  // --- Gauges Tab Logic ---
+
+  // Get enabled categories for gauge setting
+  const getEnabledCategoriesForGauges = () => {
     const enabledCategories = getSettingValue('gauge_enabled_categories') || [];
     return Array.isArray(enabledCategories) ? enabledCategories : [];
   };
@@ -78,92 +81,33 @@ const GaugesColorsSettings = () => {
   };
 
   // Check if a category is enabled for gauge input
-  const isCategoryEnabled = (categoryName) => {
+  const isCategoryEnabledForGauges = (categoryName) => {
     const normalizedName = normalizeCategoryName(categoryName);
-    return getEnabledCategories().includes(normalizedName);
+    return getEnabledCategoriesForGauges().includes(normalizedName);
   };
 
   // Handle category toggle for gauge enabled categories
-  const handleCategoryToggle = (categoryName) => {
+  const handleGaugeCategoryToggle = (categoryName) => {
     if (!hasPermission('settings_manage')) return;
-    
+
     const normalizedName = normalizeCategoryName(categoryName);
-    const enabledCategories = getEnabledCategories();
+    const enabledCategories = getEnabledCategoriesForGauges();
     const newEnabledCategories = enabledCategories.includes(normalizedName)
       ? enabledCategories.filter(cat => cat !== normalizedName)
       : [...enabledCategories, normalizedName];
-    
+
     updateSettingMutation.mutate({
       key: 'gauge_enabled_categories',
       value: newEnabledCategories
     });
   };
 
-  const openModal = (value = null, isEdit = false) => {
-    setEditingValue(isEdit ? value : null);
-    setFormData({ value: isEdit ? value : '' });
-    setShowModal(true);
-  };
-
-  const closeModal = () => {
-    setEditingValue(null);
-    setFormData({ value: '' });
-    setShowModal(false);
-  };
-
-  const handleAdd = (valueToAdd = null) => {
-    const value = valueToAdd || formData.value;
-    if (!value.trim()) {
-      alert('Please enter a value');
-      return;
-    }
-
-    const currentValues = getSettingValue(getSettingKey());
-    const newValues = [...currentValues, value.trim()];
-    
-    updateSettingMutation.mutate({
-      key: getSettingKey(),
-      value: newValues
-    });
-  };
-
-  const handleEdit = (valueToEdit = null) => {
-    const value = valueToEdit || formData.value;
-    if (!value.trim()) {
-      alert('Please enter a value');
-      return;
-    }
-
-    const currentValues = getSettingValue(getSettingKey());
-    const index = currentValues.indexOf(editingValue);
-    if (index === -1) return;
-
-    const newValues = [...currentValues];
-    newValues[index] = value.trim();
-    
-    updateSettingMutation.mutate({
-      key: getSettingKey(),
-      value: newValues
-    });
-  };
-
-  const handleDelete = (value) => {
-    if (!window.confirm(`Delete "${value}"?`)) return;
-
-    const currentValues = getSettingValue(getSettingKey());
-    const newValues = currentValues.filter(v => v !== value);
-    
-    updateSettingMutation.mutate({
-      key: getSettingKey(),
-      value: newValues
-    });
-  };
+  // --- Colors & Design Tab Logic ---
 
   const getSettingKey = () => {
     const keyMap = {
-      'aluminium_colors': 'manufacturing_aluminium_colors',
-      'stone_tile_colors': 'manufacturing_stone_tile_colors',
-      'stone_tile_design': 'manufacturing_stone_tile_design'
+      'colors': 'manufacturing_colors',
+      'design': 'manufacturing_design'
     };
     return keyMap[activeTab] || null;
   };
@@ -171,26 +115,125 @@ const GaugesColorsSettings = () => {
   const getTabLabel = () => {
     const labels = {
       'gauges': 'Gauges',
-      'aluminium_colors': 'Aluminium Colors',
-      'stone_tile_colors': 'Stone Tile Colors',
-      'stone_tile_design': 'Stone Tile Design'
+      'colors': 'Colors',
+      'design': 'Design'
     };
     return labels[activeTab] || 'Gauges';
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    
-    if (activeTab === 'gauges') {
-      // This should not be called for gauges tab anymore, but keeping for safety
+  const openModal = (item = null, isEdit = false) => {
+    setEditingValue(isEdit ? item : null);
+    if (isEdit && item) {
+      // item structure: { name: "Red", category_ids: ["id1", "id2"] }
+      // Ensure category_ids is an array
+      setFormData({
+        name: item.name || '',
+        category_ids: Array.isArray(item.category_ids) ? item.category_ids : []
+      });
+    } else {
+      setFormData({ name: '', category_ids: [] });
+    }
+    setShowModal(true);
+  };
+
+  const closeModal = () => {
+    setEditingValue(null);
+    setFormData({ name: '', category_ids: [] });
+    setShowModal(false);
+  };
+
+  const handleModalCategoryToggle = (categoryId) => {
+    setFormData(prev => {
+      const currentIds = prev.category_ids || [];
+      const newIds = currentIds.includes(categoryId)
+        ? currentIds.filter(id => id !== categoryId)
+        : [...currentIds, categoryId];
+      return { ...prev, category_ids: newIds };
+    });
+  };
+
+  const handleAdd = () => {
+    const { name, category_ids } = formData;
+    if (!name.trim()) {
+      alert('Please enter a name');
       return;
     }
 
+    const currentValues = getSettingValue(getSettingKey());
+    // New structure: Object with name and category_ids
+    const newItem = { name: name.trim(), category_ids };
+
+    // Check for duplicates
+    if (currentValues.some(item => item.name.toLowerCase() === newItem.name.toLowerCase())) {
+      alert('This name already exists');
+      return;
+    }
+
+    const newValues = [...currentValues, newItem];
+
+    updateSettingMutation.mutate({
+      key: getSettingKey(),
+      value: newValues
+    });
+  };
+
+  const handleEdit = () => {
+    const { name, category_ids } = formData;
+    if (!name.trim()) {
+      alert('Please enter a name');
+      return;
+    }
+
+    const currentValues = getSettingValue(getSettingKey());
+    // Find index by original object ref if possible, or by some ID? 
+    // Since we don't have IDs, we have to rely on the index in the array or the original value.
+    // simplistic approach: find index of editingValue
+    const index = currentValues.findIndex(v => v === editingValue || (v.name === editingValue.name && JSON.stringify(v.category_ids) === JSON.stringify(editingValue.category_ids)));
+
+    if (index === -1) return;
+
+    // Check for duplicates (excluding self)
+    if (currentValues.some((item, idx) => idx !== index && item.name.toLowerCase() === name.trim().toLowerCase())) {
+      alert('This name already exists');
+      return;
+    }
+
+    const newValues = [...currentValues];
+    newValues[index] = { name: name.trim(), category_ids };
+
+    updateSettingMutation.mutate({
+      key: getSettingKey(),
+      value: newValues
+    });
+  };
+
+  const handleDelete = (item) => {
+    if (!window.confirm(`Delete "${item.name}"?`)) return;
+
+    const currentValues = getSettingValue(getSettingKey());
+    const newValues = currentValues.filter(v => v !== item);
+
+    updateSettingMutation.mutate({
+      key: getSettingKey(),
+      value: newValues
+    });
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
     if (editingValue) {
       handleEdit();
     } else {
       handleAdd();
     }
+  };
+
+  // Helper to get category names for display
+  const getCategoryNames = (ids) => {
+    if (!ids || !categories) return [];
+    return ids
+      .map(id => categories.find(c => c.id === id)?.name)
+      .filter(Boolean);
   };
 
   // Only compute currentValues for non-gauges tabs
@@ -206,7 +249,7 @@ const GaugesColorsSettings = () => {
     );
   }
 
-  if (settingsLoading || (activeTab === 'gauges' && categoriesLoading)) {
+  if (settingsLoading || categoriesLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
@@ -226,47 +269,33 @@ const GaugesColorsSettings = () => {
         <nav className="-mb-px flex space-x-8">
           <button
             onClick={() => setActiveTab('gauges')}
-            className={`py-4 px-1 text-sm font-medium border-b-2 ${
-              activeTab === 'gauges'
+            className={`py-4 px-1 text-sm font-medium border-b-2 ${activeTab === 'gauges'
                 ? 'border-primary-500 text-primary-600'
                 : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-            }`}
+              }`}
           >
             <Gauge className="inline h-4 w-4 mr-2" />
             Gauges (mm)
           </button>
           <button
-            onClick={() => setActiveTab('aluminium_colors')}
-            className={`py-4 px-1 text-sm font-medium border-b-2 ${
-              activeTab === 'aluminium_colors'
+            onClick={() => setActiveTab('colors')}
+            className={`py-4 px-1 text-sm font-medium border-b-2 ${activeTab === 'colors'
                 ? 'border-primary-500 text-primary-600'
                 : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-            }`}
+              }`}
           >
             <Palette className="inline h-4 w-4 mr-2" />
-            Aluminium Colors
+            Colors
           </button>
           <button
-            onClick={() => setActiveTab('stone_tile_colors')}
-            className={`py-4 px-1 text-sm font-medium border-b-2 ${
-              activeTab === 'stone_tile_colors'
+            onClick={() => setActiveTab('design')}
+            className={`py-4 px-1 text-sm font-medium border-b-2 ${activeTab === 'design'
                 ? 'border-primary-500 text-primary-600'
                 : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-            }`}
-          >
-            <Palette className="inline h-4 w-4 mr-2" />
-            Stone Tile Colors
-          </button>
-          <button
-            onClick={() => setActiveTab('stone_tile_design')}
-            className={`py-4 px-1 text-sm font-medium border-b-2 ${
-              activeTab === 'stone_tile_design'
-                ? 'border-primary-500 text-primary-600'
-                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-            }`}
+              }`}
           >
             <Settings className="inline h-4 w-4 mr-2" />
-            Stone Tile Design
+            Design
           </button>
         </nav>
       </div>
@@ -284,20 +313,19 @@ const GaugesColorsSettings = () => {
             <div className="space-y-3">
               {categories && categories.length > 0 ? (
                 categories.map((category) => {
-                  const isEnabled = isCategoryEnabled(category.name);
+                  const isEnabled = isCategoryEnabledForGauges(category.name);
                   return (
                     <label
                       key={category.id}
-                      className={`flex items-center p-4 border rounded-lg cursor-pointer transition-colors ${
-                        isEnabled
+                      className={`flex items-center p-4 border rounded-lg cursor-pointer transition-colors ${isEnabled
                           ? 'border-primary-500 bg-primary-50'
                           : 'border-gray-200 hover:bg-gray-50'
-                      } ${!hasPermission('settings_manage') ? 'cursor-not-allowed opacity-50' : ''}`}
+                        } ${!hasPermission('settings_manage') ? 'cursor-not-allowed opacity-50' : ''}`}
                     >
                       <input
                         type="checkbox"
                         checked={isEnabled}
-                        onChange={() => handleCategoryToggle(category.name)}
+                        onChange={() => handleGaugeCategoryToggle(category.name)}
                         disabled={!hasPermission('settings_manage') || updateSettingMutation.isPending}
                         className="h-5 w-5 text-primary-600 focus:ring-primary-500 border-gray-300 rounded cursor-pointer"
                       />
@@ -331,7 +359,7 @@ const GaugesColorsSettings = () => {
                   className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
                 >
                   <Plus className="h-5 w-5" />
-                  <span>Add {getTabLabel().slice(0, -1)}</span>
+                  <span>Add {getTabLabel()}</span>
                 </button>
               )}
             </div>
@@ -340,32 +368,48 @@ const GaugesColorsSettings = () => {
               {currentValues.length === 0 ? (
                 <p className="text-gray-500 text-center py-8">No {getTabLabel().toLowerCase()} found</p>
               ) : (
-                currentValues.map((value, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
-                  >
-                    <span className="text-gray-900">{value}</span>
-                    {hasPermission('settings_manage') && (
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => openModal(value, true)}
-                          className="text-blue-600 hover:text-blue-900"
-                          title="Edit"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(value)}
-                          className="text-red-600 hover:text-red-900"
-                          title="Delete"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                currentValues.map((item, index) => {
+                  const assignedNames = getCategoryNames(item.category_ids);
+                  return (
+                    <div
+                      key={index}
+                      className="flex flex-col sm:flex-row sm:items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50 gap-4"
+                    >
+                      <div className="flex-1">
+                        <span className="text-gray-900 font-medium">{item.name}</span>
+                        <div className="mt-1 flex flex-wrap gap-2">
+                          {assignedNames.length > 0 ? (
+                            assignedNames.map((catName, i) => (
+                              <span key={i} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                                {catName}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-xs text-gray-500 italic">No categories assigned</span>
+                          )}
+                        </div>
                       </div>
-                    )}
-                  </div>
-                ))
+                      {hasPermission('settings_manage') && (
+                        <div className="flex space-x-2 self-start sm:self-center">
+                          <button
+                            onClick={() => openModal(item, true)}
+                            className="text-blue-600 hover:text-blue-900"
+                            title="Edit"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(item)}
+                            className="text-red-600 hover:text-red-900"
+                            title="Delete"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
               )}
             </div>
           </>
@@ -375,10 +419,10 @@ const GaugesColorsSettings = () => {
       {/* Add/Edit Modal - Only for non-gauges tabs */}
       {showModal && activeTab !== 'gauges' && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold text-gray-900">
-                {editingValue ? 'Edit' : 'Add'} {getTabLabel().slice(0, -1)}
+                {editingValue ? 'Edit' : 'Add'} {getTabLabel()}
               </h2>
               <button
                 onClick={closeModal}
@@ -387,20 +431,47 @@ const GaugesColorsSettings = () => {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Value *
+                  Name *
                 </label>
                 <input
                   type="text"
                   required
-                  value={formData.value}
-                  onChange={(e) => setFormData({ value: e.target.value })}
-                  placeholder={`Enter ${getTabLabel().slice(0, -1).toLowerCase()}`}
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder={`Enter ${getTabLabel().toLowerCase()} name`}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Assign to Categories
+                </label>
+                <div className="border border-gray-200 rounded-lg max-h-60 overflow-y-auto divide-y divide-gray-100">
+                  {categories && categories.length > 0 ? (
+                    categories.map((cat) => (
+                      <label key={cat.id} className="flex items-center px-4 py-3 hover:bg-gray-50 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formData.category_ids.includes(cat.id)}
+                          onChange={() => handleModalCategoryToggle(cat.id)}
+                          className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                        />
+                        <span className="ml-3 text-sm text-gray-900">{cat.name}</span>
+                      </label>
+                    ))
+                  ) : (
+                    <div className="p-4 text-center text-gray-500 text-sm">No categories available</div>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Select categories where this {getTabLabel().toLowerCase()} should be available.
+                </p>
+              </div>
+
               <div className="flex space-x-4 pt-4">
                 <button
                   type="button"
