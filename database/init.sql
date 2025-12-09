@@ -189,10 +189,12 @@ CREATE TABLE batch_types (
     created_by UUID REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     is_active BOOLEAN DEFAULT true,
-    can_slit BOOLEAN DEFAULT false
+    can_slit BOOLEAN DEFAULT false,
+    is_default BOOLEAN DEFAULT false
 );
 CREATE INDEX idx_batch_types_name ON batch_types(name);
 CREATE INDEX idx_batch_types_active ON batch_types(is_active);
+CREATE INDEX idx_batch_types_is_default ON batch_types(is_default);
 
 -- Category-Batch Types junction table (Many-to-Many relationship)
 CREATE TABLE category_batch_types (
@@ -293,6 +295,24 @@ CREATE TABLE item_assignments (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CHECK (quantity_deducted > 0)
 );
+
+
+-- Payment Accounts table (bank accounts, cash registers, mobile money, POS terminals)
+CREATE TABLE payment_accounts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(200) NOT NULL,
+    account_type VARCHAR(50) NOT NULL CHECK (account_type IN ('cash', 'bank', 'mobile_money', 'pos_terminal')),
+    account_number VARCHAR(100),
+    bank_name VARCHAR(200),
+    opening_balance DECIMAL(15, 2) DEFAULT 0,
+    current_balance DECIMAL(15, 2) DEFAULT 0,
+    is_active BOOLEAN DEFAULT true,
+    branch_id UUID REFERENCES branches(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_payment_accounts_branch_id ON payment_accounts(branch_id);
+CREATE INDEX idx_payment_accounts_type ON payment_accounts(account_type);
 
 -- Payments table
 CREATE TABLE payments (
@@ -420,22 +440,6 @@ CREATE TABLE payroll_records (
     CHECK (net_pay >= 0)
 );
 
--- Payment Accounts table (bank accounts, cash registers, mobile money, POS terminals)
-CREATE TABLE payment_accounts (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(200) NOT NULL,
-    account_type VARCHAR(50) NOT NULL CHECK (account_type IN ('cash', 'bank', 'mobile_money', 'pos_terminal')),
-    account_number VARCHAR(100),
-    bank_name VARCHAR(200),
-    opening_balance DECIMAL(15, 2) DEFAULT 0,
-    current_balance DECIMAL(15, 2) DEFAULT 0,
-    is_active BOOLEAN DEFAULT true,
-    branch_id UUID REFERENCES branches(id),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_payment_accounts_branch_id ON payment_accounts(branch_id);
-CREATE INDEX idx_payment_accounts_type ON payment_accounts(account_type);
 
 -- Account Transactions table (tracks all movements in payment accounts)
 CREATE TABLE account_transactions (
@@ -912,6 +916,12 @@ INSERT INTO permissions (slug, group_name) VALUES
 INSERT INTO permissions (slug, group_name) VALUES
     ('settings_manage', 'settings');
 
+-- Branch Access Permissions (1) - For permission-based global access control
+-- This permission replaces hardcoded 'Super Admin' role checks
+INSERT INTO permissions (slug, group_name) VALUES
+    ('branch_access_all', 'settings')
+ON CONFLICT (slug) DO NOTHING;
+
 -- Payment Account Permissions (2)
 INSERT INTO permissions (slug, group_name) VALUES
     ('payment_account_view', 'payments'),
@@ -1026,20 +1036,26 @@ INSERT INTO business_settings (setting_key, setting_value, setting_type, categor
     ('barcode_show_text', 'true', 'boolean', 'barcode'),
     ('barcode_text_position', 'bottom', 'string', 'barcode'),
     ('manufacturing_gauges', '["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1.0"]', 'json', 'manufacturing'),
-    ('manufacturing_aluminium_colors', '["Charcoal", "Terracotta", "Blue", "Green", "Red", "Brown", "Grey", "White"]', 'json', 'manufacturing'),
-    ('manufacturing_stone_tile_colors', '["Natural", "Grey", "Brown", "Charcoal", "Terracotta"]', 'json', 'manufacturing'),
-    ('manufacturing_stone_tile_design', '["Shingle", "Tile", "Slate", "Roman"]', 'json', 'manufacturing');
+    ('manufacturing_colors', '[{"name":"Charcoal","category_ids":[]},{"name":"Terracotta","category_ids":[]},{"name":"Blue","category_ids":[]},{"name":"Green","category_ids":[]},{"name":"Red","category_ids":[]},{"name":"Brown","category_ids":[]},{"name":"Grey","category_ids":[]},{"name":"White","category_ids":[]},{"name":"Natural","category_ids":[]}]', 'json', 'manufacturing'),
+    ('manufacturing_design', '[{"name":"Shingle","category_ids":[]},{"name":"Tile","category_ids":[]},{"name":"Slate","category_ids":[]},{"name":"Roman","category_ids":[]}]', 'json', 'manufacturing'),
+    ('gauge_enabled_categories', '[]', 'json', 'manufacturing'),
+    ('gauge_min', '0.1', 'number', 'manufacturing'),
+    ('gauge_max', '1.0', 'number', 'manufacturing')
+ON CONFLICT (setting_key) DO UPDATE SET
+    setting_value = EXCLUDED.setting_value,
+    setting_type = EXCLUDED.setting_type,
+    category = EXCLUDED.category;
 
 -- ============================================
 -- SEED DATA: BATCH TYPES
 -- ============================================
 
-INSERT INTO batch_types (id, name, description) VALUES
-    (uuid_generate_v4(), 'Coil', 'Rolled materials (e.g., Aluminium coils)'),
-    (uuid_generate_v4(), 'Pallet', 'Stacked materials on pallets'),
-    (uuid_generate_v4(), 'Carton', 'Boxed materials'),
-    (uuid_generate_v4(), 'Loose', 'Untracked bulk materials')
-ON CONFLICT (name) DO NOTHING;
+INSERT INTO batch_types (id, name, description, is_default) VALUES
+    (uuid_generate_v4(), 'Coil', 'Rolled materials (e.g., Aluminium coils)', false),
+    (uuid_generate_v4(), 'Pallet', 'Stacked materials on pallets', false),
+    (uuid_generate_v4(), 'Carton', 'Boxed materials', false),
+    (uuid_generate_v4(), 'Loose', 'Untracked bulk materials', true)
+ON CONFLICT (name) DO UPDATE SET is_default = EXCLUDED.is_default WHERE batch_types.is_default IS NULL OR batch_types.is_default = false;
 
 -- ============================================
 -- SEED DATA: TAX RATES

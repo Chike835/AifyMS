@@ -2,59 +2,6 @@ import { BusinessSetting, Branch } from '../models/index.js';
 import { Op } from 'sequelize';
 import sequelize from '../config/db.js';
 
-const isSuperAdmin = (req) => req.user?.role_name === 'Super Admin';
-
-const shouldIncludeGlobalSettings = (value) => value !== 'false';
-
-const buildSettingsWhere = (req) => {
-  const { category } = req.query;
-  const includeGlobal = shouldIncludeGlobalSettings(req.query?.include_global ?? 'true');
-  const requestedBranchId = req.query?.branch_id;
-  const targetBranchId = isSuperAdmin(req)
-    ? (requestedBranchId && requestedBranchId !== 'null' ? requestedBranchId : null)
-    : (req.user?.branch_id || null);
-
-  const where = {};
-  if (category) {
-    where.category = category;
-  }
-
-  if (targetBranchId) {
-    where[Op.or] = includeGlobal
-      ? [{ branch_id: targetBranchId }, { branch_id: null }]
-      : [{ branch_id: targetBranchId }];
-  } else if (!isSuperAdmin(req) || !includeGlobal) {
-    where.branch_id = null;
-  } else {
-    where.branch_id = null;
-  }
-
-  return { where, targetBranchId };
-};
-
-const resolveSettingBranchTarget = async (req, requestedBranchId) => {
-  if (isSuperAdmin(req)) {
-    if (!requestedBranchId || requestedBranchId === 'null') {
-      return { branchId: null };
-    }
-    const branch = await Branch.findByPk(requestedBranchId);
-    if (!branch) {
-      return { error: 'Branch not found' };
-    }
-    return { branchId: requestedBranchId };
-  }
-
-  if (!req.user?.branch_id) {
-    return { error: 'Branch ID is required for this user' };
-  }
-
-  if (requestedBranchId && requestedBranchId !== req.user.branch_id) {
-    return { error: 'You cannot modify settings for another branch' };
-  }
-
-  return { branchId: req.user.branch_id };
-};
-
 const parseSettingRecord = (setting) => {
   let value = setting.setting_value;
   if (setting.setting_type === 'number') {
@@ -73,47 +20,30 @@ const parseSettingRecord = (setting) => {
     key: setting.setting_key,
     value,
     type: setting.setting_type,
-    category: setting.category,
-    branch_id: setting.branch_id
+    category: setting.category
   };
 };
 
-const fetchSettingWithFallback = async (key, branchId) => {
-  if (branchId) {
-    const branchSetting = await BusinessSetting.findOne({
-      where: { setting_key: key, branch_id: branchId }
-    });
-    if (branchSetting) {
-      return branchSetting;
-    }
-  }
-
-  return BusinessSetting.findOne({
-    where: { setting_key: key, branch_id: null }
-  });
-};
-
-/**
- * Validate critical settings
- * @param {object} settings - Object with setting keys and values
- * @returns {object} - { valid: boolean, errors: array }
- */
 const validateSettings = (settings) => {
   const errors = [];
   const criticalSettings = {
-    currency: { required: true, type: 'string', validate: (val) => {
-      // Basic ISO currency code validation (3 uppercase letters)
-      return typeof val === 'string' && val.length === 3 && /^[A-Z]{3}$/.test(val);
-    }},
-    tax_rate: { required: true, type: 'number', validate: (val) => {
-      const num = parseFloat(val);
-      return !isNaN(num) && num >= 0 && num <= 100;
-    }}
+    currency: {
+      required: true, type: 'string', validate: (val) => {
+        // Basic ISO currency code validation (3 uppercase letters)
+        return typeof val === 'string' && val.length === 3 && /^[A-Z]{3}$/.test(val);
+      }
+    },
+    tax_rate: {
+      required: true, type: 'number', validate: (val) => {
+        const num = parseFloat(val);
+        return !isNaN(num) && num >= 0 && num <= 100;
+      }
+    }
   };
 
   for (const [key, config] of Object.entries(criticalSettings)) {
     const value = settings[key];
-    
+
     if (config.required && (value === null || value === undefined || value === '')) {
       errors.push(`${key} is required and cannot be null`);
       continue;
@@ -149,29 +79,27 @@ const validateSettings = (settings) => {
  */
 export const getSettings = async (req, res, next) => {
   try {
-    const { where, targetBranchId } = buildSettingsWhere(req);
+    const { category } = req.query;
+    const where = {};
+
+    if (category) {
+      where.category = category;
+    }
 
     const settings = await BusinessSetting.findAll({
       where,
-      order: [['setting_key', 'ASC'], ['branch_id', 'ASC']]
+      order: [['setting_key', 'ASC']]
     });
 
+    // Transform array to object { key: { value, type, category } }
     const settingsObj = {};
     settings.forEach(setting => {
       const parsed = parseSettingRecord(setting);
-      const existing = settingsObj[parsed.key];
-      const shouldOverride = parsed.branch_id && targetBranchId
-        ? parsed.branch_id === targetBranchId
-        : !existing;
-
-      if (!existing || shouldOverride) {
-        settingsObj[parsed.key] = {
-          value: parsed.value,
-          type: parsed.type,
-          category: parsed.category,
-          branch_id: parsed.branch_id
-        };
-      }
+      settingsObj[parsed.key] = {
+        value: parsed.value,
+        type: parsed.type,
+        category: parsed.category
+      };
     });
 
     res.json({ settings: settingsObj });
@@ -188,45 +116,22 @@ export const updateSetting = async (req, res, next) => {
   const transaction = await sequelize.transaction();
   try {
     const { key } = req.params;
-    const { value, branch_id } = req.body;
+    const { value } = req.body;
 
     if (value === undefined) {
       await transaction.rollback();
       return res.status(400).json({ error: 'Value is required' });
     }
 
-    const { branchId: targetBranchId, error: branchError } = await resolveSettingBranchTarget(req, branch_id);
-    if (branchError) {
-      await transaction.rollback();
-      return res.status(400).json({ error: branchError });
-    }
-
     let setting = await BusinessSetting.findOne({
-      where: { setting_key: key, branch_id: targetBranchId || null },
+      where: { setting_key: key },
       transaction
     });
 
-    if (!setting && targetBranchId) {
-      const globalSetting = await BusinessSetting.findOne({
-        where: { setting_key: key, branch_id: null },
-        transaction
-      });
-
-      if (!globalSetting) {
-        await transaction.rollback();
-        return res.status(404).json({ error: 'Setting not found' });
-      }
-
-      setting = await BusinessSetting.create({
-        setting_key: key,
-        setting_type: globalSetting.setting_type,
-        category: globalSetting.category,
-        branch_id: targetBranchId,
-        setting_value: globalSetting.setting_value
-      }, { transaction });
-    }
-
     if (!setting) {
+      // If setting doesn't exist, we can't create it here because we don't know the type/category
+      // unless it's a known system setting or we allow creating arbitrary settings via API.
+      // For now, assuming we only update existing settings or settings defined in seed.
       await transaction.rollback();
       return res.status(404).json({ error: 'Setting not found' });
     }
@@ -236,9 +141,9 @@ export const updateSetting = async (req, res, next) => {
       const validation = validateSettings({ [key]: value });
       if (!validation.valid) {
         await transaction.rollback();
-        return res.status(400).json({ 
-          error: 'Validation failed', 
-          errors: validation.errors 
+        return res.status(400).json({
+          error: 'Validation failed',
+          errors: validation.errors
         });
       }
     }
@@ -265,8 +170,7 @@ export const updateSetting = async (req, res, next) => {
         key: parsed.key,
         value: parsed.value,
         type: parsed.type,
-        category: parsed.category,
-        branch_id: parsed.branch_id
+        category: parsed.category
       }
     });
   } catch (error) {
@@ -282,17 +186,11 @@ export const updateSetting = async (req, res, next) => {
 export const bulkUpdateSettings = async (req, res, next) => {
   const transaction = await sequelize.transaction();
   try {
-    const { settings, branch_id } = req.body;
+    const { settings } = req.body;
 
     if (!settings || typeof settings !== 'object') {
       await transaction.rollback();
       return res.status(400).json({ error: 'Settings object is required' });
-    }
-
-    const { branchId: targetBranchId, error: branchError } = await resolveSettingBranchTarget(req, branch_id);
-    if (branchError) {
-      await transaction.rollback();
-      return res.status(400).json({ error: branchError });
     }
 
     const updates = [];
@@ -310,37 +208,19 @@ export const bulkUpdateSettings = async (req, res, next) => {
       const validation = validateSettings(criticalSettingsToValidate);
       if (!validation.valid) {
         await transaction.rollback();
-        return res.status(400).json({ 
-          error: 'Validation failed', 
-          errors: validation.errors 
+        return res.status(400).json({
+          error: 'Validation failed',
+          errors: validation.errors
         });
       }
     }
 
     for (const [key, value] of Object.entries(settings)) {
       try {
-        let setting = await BusinessSetting.findOne({
-          where: { setting_key: key, branch_id: targetBranchId || null },
+        const setting = await BusinessSetting.findOne({
+          where: { setting_key: key },
           transaction
         });
-
-        if (!setting && targetBranchId) {
-          const globalSetting = await BusinessSetting.findOne({
-            where: { setting_key: key, branch_id: null },
-            transaction
-          });
-          if (!globalSetting) {
-            errors.push({ key, error: 'Setting not found' });
-            continue;
-          }
-          setting = await BusinessSetting.create({
-            setting_key: key,
-            setting_type: globalSetting.setting_type,
-            category: globalSetting.category,
-            branch_id: targetBranchId,
-            setting_value: globalSetting.setting_value
-          }, { transaction });
-        }
 
         if (!setting) {
           errors.push({ key, error: 'Setting not found' });
@@ -386,14 +266,13 @@ export const bulkUpdateSettings = async (req, res, next) => {
 export const testPrint = async (req, res, next) => {
   try {
     // Get receipt printer configuration from settings
-    const branchScopeId = req.query?.branch_id && req.query.branch_id !== 'null'
-      ? req.query.branch_id
-      : (req.user?.branch_id || null);
-    const printerSetting = await fetchSettingWithFallback('receipt_printer_connection', branchScopeId);
+    const printerSetting = await BusinessSetting.findOne({
+      where: { setting_key: 'receipt_printer_connection' }
+    });
 
     if (!printerSetting || !printerSetting.setting_value) {
-      return res.status(400).json({ 
-        error: 'Receipt printer not configured. Please set receipt_printer_connection in settings.' 
+      return res.status(400).json({
+        error: 'Receipt printer not configured. Please set receipt_printer_connection in settings.'
       });
     }
 
@@ -428,7 +307,6 @@ export const testPrint = async (req, res, next) => {
     res.json({
       message: 'Test print generated successfully',
       printer_connection: printerSetting.setting_value,
-      branch_id: printerSetting.branch_id,
       receipt_html: receiptHTML,
       note: 'In production, this would be sent directly to the configured printer'
     });

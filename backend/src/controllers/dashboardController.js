@@ -161,8 +161,8 @@ export const getTopProducts = async (req, res, next) => {
     const topProducts = await SalesItem.findAll({
       attributes: [
         'product_id',
-        [fn('SUM', col('quantity')), 'total_quantity'],
-        [fn('SUM', col('subtotal')), 'total_revenue']
+        [fn('SUM', col('SalesItem.quantity')), 'total_quantity'],
+        [fn('SUM', col('SalesItem.subtotal')), 'total_revenue']
       ],
       include: [
         {
@@ -213,7 +213,7 @@ export const getTopCustomers = async (req, res, next) => {
       attributes: [
         'customer_id',
         [fn('SUM', col('total_amount')), 'total_revenue'],
-        [fn('COUNT', col('id')), 'order_count']
+        [fn('COUNT', col('SalesOrder.id')), 'order_count']
       ],
       include: [
         {
@@ -294,7 +294,7 @@ export const getRecentActivity = async (req, res, next) => {
       where: purchaseWhere,
       include: [
         { model: Branch, as: 'branch', attributes: ['id', 'name'] },
-        { model: User, as: 'user', attributes: ['id', 'full_name'] }
+        { model: User, as: 'creator', attributes: ['id', 'full_name'] }
       ],
       order: [['created_at', 'DESC']],
       limit: Math.ceil(parseInt(limit) / 3)

@@ -387,7 +387,87 @@ export const getCategoryAssignments = async (req, res, next) => {
   }
 };
 
+/**
+ * PUT /api/settings/batches/types/:id/set-default
+ * Set a batch type as the global default
+ * Only one batch type can be default at a time
+ */
+export const setDefaultBatchType = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { id } = req.params;
 
+    // Verify batch type exists and is active
+    const batchType = await BatchType.findByPk(id, { transaction });
+    if (!batchType) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Batch type not found' });
+    }
+
+    if (!batchType.is_active) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Cannot set inactive batch type as default' });
+    }
+
+    // Clear is_default on all other batch types
+    await BatchType.update(
+      { is_default: false },
+      { where: { is_default: true }, transaction }
+    );
+
+    // Set this batch type as default
+    batchType.is_default = true;
+    await batchType.save({ transaction });
+
+    await transaction.commit();
+
+    // Reload with creator
+    const updatedBatchType = await BatchType.findByPk(id, {
+      include: [
+        {
+          model: User,
+          as: 'creator',
+          attributes: ['id', 'full_name']
+        }
+      ]
+    });
+
+    res.json({
+      message: `"${batchType.name}" is now the default batch type`,
+      batch_type: updatedBatchType
+    });
+  } catch (error) {
+    await transaction.rollback();
+    next(error);
+  }
+};
+
+/**
+ * GET /api/settings/batches/types/default
+ * Get the current default batch type
+ */
+export const getDefaultBatchType = async (req, res, next) => {
+  try {
+    const defaultBatchType = await BatchType.findOne({
+      where: { is_default: true, is_active: true },
+      include: [
+        {
+          model: User,
+          as: 'creator',
+          attributes: ['id', 'full_name']
+        }
+      ]
+    });
+
+    if (!defaultBatchType) {
+      return res.status(404).json({ error: 'No default batch type configured' });
+    }
+
+    res.json({ batch_type: defaultBatchType });
+  } catch (error) {
+    next(error);
+  }
+};
 
 
 

@@ -304,14 +304,7 @@ export const associateModels = () => {
     foreignKey: 'sub_category_id',
     as: 'subCategory'
   });
-  Category.belongsTo(Branch, {
-    foreignKey: 'branch_id',
-    as: 'branch'
-  });
-  Branch.hasMany(Category, {
-    foreignKey: 'branch_id',
-    as: 'categories'
-  });
+
 
   // InventoryBatch - StockTransfer (One-to-Many)
   InventoryBatch.hasMany(StockTransfer, {
@@ -372,14 +365,8 @@ export const associateModels = () => {
     foreignKey: 'user_id',
     as: 'user'
   });
-  BusinessSetting.belongsTo(Branch, {
-    foreignKey: 'branch_id',
-    as: 'branch'
-  });
-  Branch.hasMany(BusinessSetting, {
-    foreignKey: 'branch_id',
-    as: 'business_settings'
-  });
+  // NOTE: BusinessSetting does NOT have branch_id - settings are global
+  // Removed BusinessSetting-Branch associations that were causing query errors
 
   // InventoryBatch - Wastage (One-to-Many)
   InventoryBatch.hasMany(Wastage, {
@@ -867,6 +854,16 @@ export const associateModels = () => {
     as: 'categories'
   });
 
+  // CategoryBatchType Associations (for direct querying of the join table)
+  CategoryBatchType.belongsTo(Category, {
+    foreignKey: 'category_id',
+    as: 'category'
+  });
+  CategoryBatchType.belongsTo(BatchType, {
+    foreignKey: 'batch_type_id',
+    as: 'batch_type'
+  });
+
   // User - BatchType (One-to-Many: Creator)
   User.hasMany(BatchType, {
     foreignKey: 'created_by',
@@ -891,9 +888,6 @@ export const associateModels = () => {
   LedgerEntry.belongsTo(Customer, {
     foreignKey: 'contact_id',
     constraints: false,
-    scope: {
-      contact_type: 'customer'
-    },
     as: 'customer'
   });
 
@@ -901,9 +895,6 @@ export const associateModels = () => {
   LedgerEntry.belongsTo(Supplier, {
     foreignKey: 'contact_id',
     constraints: false,
-    scope: {
-      contact_type: 'supplier'
-    },
     as: 'supplier'
   });
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronUp, ChevronDown, Plus, ImageIcon, X } from 'lucide-react';
 import api from '../utils/api';
@@ -17,14 +17,12 @@ const Toggle = ({ checked, onChange, label }) => (
         onChange={(e) => onChange(e.target.checked)}
       />
       <div
-        className={`w-11 h-6 rounded-full transition-colors ${
-          checked ? 'bg-primary-600' : 'bg-gray-300'
-        }`}
+        className={`w-11 h-6 rounded-full transition-colors ${checked ? 'bg-primary-600' : 'bg-gray-300'
+          }`}
       />
       <div
-        className={`absolute left-0.5 top-0.5 bg-white w-5 h-5 rounded-full transition-transform shadow ${
-          checked ? 'translate-x-5' : 'translate-x-0'
-        }`}
+        className={`absolute left-0.5 top-0.5 bg-white w-5 h-5 rounded-full transition-transform shadow ${checked ? 'translate-x-5' : 'translate-x-0'
+          }`}
       />
     </div>
     {label && <span className="ml-2 text-sm text-gray-700">{label}</span>}
@@ -165,6 +163,9 @@ const sellingPriceTaxTypes = [
 
 const AddProduct = () => {
   const navigate = useNavigate();
+  const { id } = useParams();
+  const location = useLocation();
+  const isEditMode = !!id;
   const queryClient = useQueryClient();
   const { user } = useAuth();
 
@@ -266,6 +267,44 @@ const AddProduct = () => {
     }
   });
 
+  // Fetch manufacturing settings (colors, designs, gauge config)
+  const { data: manufacturingSettings } = useQuery({
+    queryKey: ['manufacturingSettings'],
+    queryFn: async () => {
+      const res = await api.get('/settings', { params: { category: 'manufacturing' } });
+      return res.data.settings || {};
+    }
+  });
+
+  // Get colors/designs filtered by selected category
+  // Only show items that explicitly have this category in their category_ids array
+  const getColorsForCategory = () => {
+    const allColors = manufacturingSettings?.manufacturing_colors?.value || [];
+    if (!categoryId || !Array.isArray(allColors)) return [];
+    return allColors.filter(c =>
+      Array.isArray(c.category_ids) && c.category_ids.includes(categoryId)
+    );
+  };
+
+  const getDesignsForCategory = () => {
+    const allDesigns = manufacturingSettings?.manufacturing_design?.value || [];
+    if (!categoryId || !Array.isArray(allDesigns)) return [];
+    return allDesigns.filter(d =>
+      Array.isArray(d.category_ids) && d.category_ids.includes(categoryId)
+    );
+  };
+
+  // Check if gauge is enabled for selected category
+  const isGaugeEnabledForCategory = () => {
+    const enabledCategories = manufacturingSettings?.gauge_enabled_categories?.value || [];
+    if (!selectedCategory?.name || !Array.isArray(enabledCategories)) return false;
+    const normalizedName = selectedCategory.name.toLowerCase().replace(/\s+/g, '_');
+    return enabledCategories.includes(normalizedName);
+  };
+
+  const gaugeMin = parseFloat(manufacturingSettings?.gauge_min?.value) || 0.1;
+  const gaugeMax = parseFloat(manufacturingSettings?.gauge_max?.value) || 1.0;
+
   // Transform data to options format
   const units = (unitsData || []).map((u) => ({
     value: u.id,
@@ -321,6 +360,62 @@ const AddProduct = () => {
       setPurchasePriceIncTax(purchasePriceExcTax);
     }
   }, [purchasePriceExcTax, taxRateId, isTaxable, taxRatesData]);
+
+  // Load product data if in edit mode
+  useEffect(() => {
+    const loadProduct = async () => {
+      if (!isEditMode) return;
+
+      let product = location.state?.editProduct;
+
+      if (!product) {
+        try {
+          const res = await api.get(`/products/${id}`);
+          product = res.data.product || res.data;
+        } catch (err) {
+          console.error('Failed to fetch product', err);
+          setSubmitError('Failed to load product details');
+          return;
+        }
+      }
+
+      if (product) {
+        setProductName(product.name || '');
+        setSku(product.sku || '');
+        setProductType(product.type || 'standard');
+        setUnitId(product.unit_id || product.unit?.id || '');
+        setBrandId(product.brand_id || product.brandAttribute?.id || '');
+        setCategoryId(product.category_id || product.categoryRef?.id || '');
+        setSubCategoryId(product.sub_category_id || '');
+        setBusinessLocationIds(product.business_location_ids || product.business_locations?.map(bl => bl.id) || []);
+        setWeight(product.weight || '');
+        setReorderQuantity(product.reorder_quantity || '');
+        setManageStock(!!product.manage_stock);
+        setNotForSelling(!!product.not_for_selling);
+
+        // Pricing
+        setIsTaxable(!!product.is_taxable);
+        setTaxRateId(product.tax_rate_id || '');
+        setSellingPriceTaxType(product.selling_price_tax_type || 'exclusive');
+        setPurchasePriceExcTax(product.cost_price || '');
+        setPurchasePriceIncTax(product.cost_price_inc_tax || '');
+        setProfitMargin(product.profit_margin || '25.00');
+        setSellingPriceExcTax(product.sale_price || '');
+
+        // Attributes
+        if (product.attribute_values) {
+          setAttributeValues(product.attribute_values);
+        }
+
+        // Image
+        if (product.image_url) {
+          setImagePreview(product.image_url);
+        }
+      }
+    };
+
+    loadProduct();
+  }, [id, isEditMode, location.state]);
 
   // Handle image selection
   const handleImageChange = (e) => {
@@ -410,18 +505,23 @@ const AddProduct = () => {
         attribute_default_values: Object.keys(attributeValues).length > 0 ? attributeValues : undefined
       };
 
-      const response = await api.post('/products', payload);
+      let response;
+      if (isEditMode) {
+        response = await api.put(`/products/${id}`, payload);
+      } else {
+        response = await api.post('/products', payload);
+      }
 
       queryClient.invalidateQueries({ queryKey: ['products'] });
 
       if (addStock) {
         // Navigate to stock management or inventory page
-        navigate('/inventory', { state: { productId: response.data.product?.id } });
+        navigate('/inventory', { state: { productId: response.data.product?.id || id } });
       } else {
         navigate('/products');
       }
     } catch (error) {
-      setSubmitError(error.response?.data?.error || error.message || 'Failed to create product');
+      setSubmitError(error.response?.data?.error || error.message || `Failed to ${isEditMode ? 'update' : 'create'} product`);
     } finally {
       setIsSubmitting(false);
     }
@@ -432,7 +532,7 @@ const AddProduct = () => {
       {/* Header */}
       <div className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Add new product</h1>
+          <h1 className="text-2xl font-bold text-gray-900">{isEditMode ? 'Edit Product' : 'Add new product'}</h1>
           <p className="text-sm text-primary-600">Manage your products</p>
         </div>
         <div className="flex items-center gap-6">
@@ -546,10 +646,60 @@ const AddProduct = () => {
             />
           </div>
 
-          {/* Dynamic Attributes Section */}
-          {selectedCategory?.attribute_schema && selectedCategory.attribute_schema.length > 0 && (
+          {/* Category-Specific Attribute Dropdowns */}
+          {categoryId && (
             <div className="mt-6 pt-6 border-t border-gray-200">
               <h4 className="text-sm font-semibold text-gray-900 mb-4">Product Attributes</h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Gauge Dropdown */}
+                {isGaugeEnabledForCategory() && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Gauge (mm)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min={gaugeMin}
+                      max={gaugeMax}
+                      placeholder={`${gaugeMin} - ${gaugeMax}`}
+                      value={attributeValues.gauge_mm || ''}
+                      onChange={(e) => setAttributeValues({ ...attributeValues, gauge_mm: e.target.value ? parseFloat(e.target.value) : undefined })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Value between {gaugeMin} and {gaugeMax} mm</p>
+                  </div>
+                )}
+
+                {/* Color Dropdown */}
+                {getColorsForCategory().length > 0 && (
+                  <FormSelect
+                    label="Color"
+                    options={getColorsForCategory().map(c => ({ value: c.name, label: c.name }))}
+                    value={attributeValues.color || ''}
+                    onChange={(val) => setAttributeValues({ ...attributeValues, color: val || undefined })}
+                    placeholder="Select Color"
+                  />
+                )}
+
+                {/* Design Dropdown */}
+                {getDesignsForCategory().length > 0 && (
+                  <FormSelect
+                    label="Design"
+                    options={getDesignsForCategory().map(d => ({ value: d.name, label: d.name }))}
+                    value={attributeValues.design || ''}
+                    onChange={(val) => setAttributeValues({ ...attributeValues, design: val || undefined })}
+                    placeholder="Select Design"
+                  />
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Dynamic Attributes Section (from attribute_schema) */}
+          {selectedCategory?.attribute_schema && selectedCategory.attribute_schema.length > 0 && (
+            <div className="mt-6 pt-6 border-t border-gray-200">
+              <h4 className="text-sm font-semibold text-gray-900 mb-4">Additional Attributes</h4>
               <AttributeRenderer
                 schema={selectedCategory.attribute_schema}
                 values={attributeValues}
@@ -737,11 +887,11 @@ const AddProduct = () => {
             disabled={isSubmitting}
             className="px-8 py-2.5 bg-yellow-400 text-gray-900 rounded-md font-medium hover:bg-yellow-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isSubmitting ? 'Saving...' : 'Save'}
+            {isSubmitting ? 'Saving...' : (isEditMode ? 'Update' : 'Save')}
           </button>
         </div>
-      </form>
-    </div>
+      </form >
+    </div >
   );
 };
 

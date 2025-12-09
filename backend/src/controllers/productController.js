@@ -300,13 +300,14 @@ export const getProducts = async (req, res, next) => {
       distinct: true
     });
 
-    // Get stock from summary table (O(1) instead of O(n) aggregation)
+    // CONSISTENCY FIX: Use InventoryBatch (source of truth) instead of potentially stale ProductStockSummary
+    // This matches the logic in getProductById for consistency
     const productIds = products.map(p => p.id);
 
-    // Get stock from summary table
-    // Fix Bug 6: Use branch filter if present to avoid incorrect aggregation
+    // Build stock query with branch filter if applicable
     const stockWhere = {
-      product_id: { [Op.in]: productIds }
+      product_id: { [Op.in]: productIds },
+      status: 'in_stock'
     };
 
     // Check if we are filtering by branch in the main query
@@ -315,11 +316,11 @@ export const getProducts = async (req, res, next) => {
       stockWhere.branch_id = branchFilter.where.id;
     }
 
-    const stockData = await ProductStockSummary.findAll({
+    const stockData = await InventoryBatch.findAll({
       where: stockWhere,
       attributes: [
         'product_id',
-        [sequelize.fn('SUM', sequelize.col('total_stock')), 'total_stock']
+        [sequelize.fn('SUM', sequelize.col('remaining_quantity')), 'total_stock']
       ],
       group: ['product_id'],
       raw: true

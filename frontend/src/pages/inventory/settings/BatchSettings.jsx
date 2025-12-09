@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../../context/AuthContext';
 import api from '../../../utils/api';
-import { Package, Plus, Edit, Trash2, X, Check, Search } from 'lucide-react';
+import { Package, Plus, Edit, Trash2, X, Check, Search, Star } from 'lucide-react';
 
 const BatchSettings = () => {
   const { hasPermission, user } = useAuth();
@@ -109,6 +109,21 @@ const BatchSettings = () => {
     },
     onError: (error) => {
       alert(error.response?.data?.error || 'Failed to delete batch type');
+    },
+  });
+
+  // Set default batch type mutation
+  const setDefaultMutation = useMutation({
+    mutationFn: async (id) => {
+      const response = await api.put(`/settings/batches/types/${id}/set-default`);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['batchTypes'] });
+      alert(data.message || 'Default batch type updated!');
+    },
+    onError: (error) => {
+      alert(error.response?.data?.error || 'Failed to set default batch type');
     },
   });
 
@@ -260,17 +275,24 @@ const BatchSettings = () => {
                   className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
                 >
                   <div className="flex-1">
-                    <div className="font-medium text-gray-900">{type.name}</div>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-medium text-gray-900">{type.name}</span>
+                      {type.is_default && (
+                        <span className="px-2 py-0.5 text-xs rounded-full bg-yellow-100 text-yellow-800 flex items-center space-x-1">
+                          <Star className="h-3 w-3 fill-yellow-500" />
+                          <span>Default</span>
+                        </span>
+                      )}
+                    </div>
                     {type.description && (
                       <div className="text-sm text-gray-500 mt-1">{type.description}</div>
                     )}
                     <div className="flex items-center space-x-2 mt-1">
                       <span
-                        className={`px-2 py-0.5 text-xs rounded-full ${
-                          type.is_active
+                        className={`px-2 py-0.5 text-xs rounded-full ${type.is_active
                             ? 'bg-green-100 text-green-800'
                             : 'bg-gray-100 text-gray-800'
-                        }`}
+                          }`}
                       >
                         {type.is_active ? 'Active' : 'Inactive'}
                       </span>
@@ -284,6 +306,16 @@ const BatchSettings = () => {
                   </div>
                   {hasPermission('settings_manage') && (
                     <div className="flex space-x-2 ml-4">
+                      {!type.is_default && type.is_active && (
+                        <button
+                          onClick={() => setDefaultMutation.mutate(type.id)}
+                          disabled={setDefaultMutation.isPending}
+                          className="text-yellow-600 hover:text-yellow-900 disabled:opacity-50"
+                          title="Make Default"
+                        >
+                          <Star className="h-4 w-4" />
+                        </button>
+                      )}
                       <button
                         onClick={() => handleEdit(type)}
                         className="text-blue-600 hover:text-blue-900"
@@ -309,7 +341,7 @@ const BatchSettings = () => {
         {/* Category-Batch Type Assignment Matrix */}
         <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Category Assignments</h2>
-          
+
           {/* Search */}
           <div className="relative mb-4">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
@@ -336,11 +368,10 @@ const BatchSettings = () => {
                       return (
                         <label
                           key={batchType.id}
-                          className={`flex items-center space-x-2 p-2 rounded cursor-pointer transition-colors ${
-                            assigned
+                          className={`flex items-center space-x-2 p-2 rounded cursor-pointer transition-colors ${assigned
                               ? 'bg-blue-50 border-2 border-blue-300'
                               : 'bg-gray-50 border border-gray-200 hover:bg-gray-100'
-                          }`}
+                            }`}
                         >
                           <input
                             type="checkbox"

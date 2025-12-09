@@ -7,7 +7,9 @@ import {
   getTypesByCategory,
   assignTypeToCategory,
   removeTypeFromCategory,
-  getCategoryAssignments
+  getCategoryAssignments,
+  setDefaultBatchType,
+  getDefaultBatchType
 } from '../controllers/BatchSettingsController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { requirePermission } from '../middleware/permissionMiddleware.js';
@@ -16,6 +18,10 @@ const router = express.Router();
 
 // All routes require authentication
 router.use(authenticate);
+
+// Default batch type (must be before :id route to avoid conflict)
+router.get('/types/default', requirePermission('product_view'), getDefaultBatchType);
+router.put('/types/:id/set-default', requirePermission('settings_manage'), setDefaultBatchType);
 
 // Batch Type CRUD (requires settings_manage)
 router.get('/types', requirePermission('settings_manage'), getAllTypes);

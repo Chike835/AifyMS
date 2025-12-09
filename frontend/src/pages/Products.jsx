@@ -295,11 +295,10 @@ const Products = () => {
           )}
           <button
             onClick={() => setShowFilters(!showFilters)}
-            className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium shadow-sm ${
-              showFilters
+            className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium shadow-sm ${showFilters
                 ? 'border-primary-500 bg-primary-50 text-primary-700'
                 : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
-            }`}
+              }`}
           >
             <Filter className="h-4 w-4" />
           </button>
@@ -580,7 +579,7 @@ const Products = () => {
                             {canEdit && (
                               <button
                                 onClick={() => {
-                                  navigate(`/products/add`, { state: { editProduct: product } });
+                                  navigate(`/products/${product.id}/edit`, { state: { editProduct: product } });
                                   setOpenActionMenu(null);
                                 }}
                                 className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
@@ -751,11 +750,10 @@ const Products = () => {
                 <button
                   key={pageNum}
                   onClick={() => setPage(pageNum)}
-                  className={`rounded px-3 py-1.5 text-sm font-medium ${
-                    pageNum === page
+                  className={`rounded px-3 py-1.5 text-sm font-medium ${pageNum === page
                       ? 'bg-primary-600 text-white'
                       : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
-                  }`}
+                    }`}
                 >
                   {pageNum}
                 </button>
@@ -783,11 +781,11 @@ const Products = () => {
             const updated = results.updated || 0;
             const skipped = results.skipped || 0;
             const errors = results.errors || [];
-            
+
             // Only refresh if records were actually created/updated
             if (created > 0 || updated > 0) {
               handleImportSuccess();
-              
+
               let message = `Import completed! ${created} created, ${updated} updated`;
               if (skipped > 0) {
                 message += `, ${skipped} skipped`;
@@ -1232,13 +1230,12 @@ const ProductBatchListModal = ({ product, onClose }) => {
                     </td>
                     <td className="px-4 py-3 text-sm">
                       <span
-                        className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${
-                          batch.status === 'in_stock'
+                        className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${batch.status === 'in_stock'
                             ? 'bg-green-100 text-green-700'
                             : batch.status === 'depleted'
-                            ? 'bg-gray-100 text-gray-700'
-                            : 'bg-red-100 text-red-700'
-                        }`}
+                              ? 'bg-gray-100 text-gray-700'
+                              : 'bg-red-100 text-red-700'
+                          }`}
                       >
                         {batch.status}
                       </span>

@@ -18,12 +18,10 @@ const Categories = () => {
     name: '',
     parent_id: '',
     description: '',
-    is_active: true,
-    branch_id: ''
+    is_active: true
   });
   const [formError, setFormError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedBranchId, setSelectedBranchId] = useState(isSuperAdmin ? '' : (user?.branch_id || ''));
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -52,20 +50,14 @@ const Categories = () => {
   });
   const branches = branchesData || [];
 
-  const branchFilter = isSuperAdmin ? (selectedBranchId || null) : (user?.branch_id || null);
   const canViewCategories = hasPermission('product_view');
-  const categoryQueryKey = ['categories', branchFilter || 'global'];
+  const categoryQueryKey = ['categories', 'global'];
 
-  // Fetch categories scoped by branch
+  // Fetch categories
   const { data, isLoading, error } = useQuery({
     queryKey: categoryQueryKey,
     queryFn: async () => {
-      const response = await api.get('/categories', {
-        params: {
-          branch_id: branchFilter || undefined,
-          include_global: 'true'
-        }
-      });
+      const response = await api.get('/categories');
       return response.data.categories || [];
     },
     enabled: canViewCategories
@@ -121,8 +113,7 @@ const Categories = () => {
       name: '',
       parent_id: '',
       description: '',
-      is_active: true,
-      branch_id: isSuperAdmin ? (selectedBranchId || '') : ''
+      is_active: true
     });
     setFormError('');
     setShowModal(true);
@@ -134,8 +125,7 @@ const Categories = () => {
       name: category.name || '',
       parent_id: category.parent_id || '',
       description: category.description || '',
-      is_active: category.is_active !== undefined ? category.is_active : true,
-      branch_id: isSuperAdmin ? (category.branch_id || '') : ''
+      is_active: category.is_active !== undefined ? category.is_active : true
     });
     setFormError('');
     setShowModal(true);
@@ -148,8 +138,7 @@ const Categories = () => {
       name: '',
       parent_id: '',
       description: '',
-      is_active: true,
-      branch_id: isSuperAdmin ? (selectedBranchId || '') : ''
+      is_active: true
     });
     setFormError('');
   };
@@ -170,9 +159,7 @@ const Categories = () => {
       is_active: formData.is_active
     };
 
-    if (isSuperAdmin) {
-      submitData.branch_id = formData.branch_id || null;
-    }
+
 
     if (selectedCategory) {
       updateMutation.mutate({ id: selectedCategory.id, data: submitData });
@@ -250,26 +237,7 @@ const Categories = () => {
         </div>
       </div>
 
-      {isSuperAdmin && (
-        <div className="mb-6 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-4 sm:flex-row sm:items-center sm:gap-4">
-          <div className="flex flex-col">
-            <span className="text-sm font-medium text-gray-700">Branch Scope</span>
-            <span className="text-xs text-gray-500">Select a branch to view its categories (global categories are always included).</span>
-          </div>
-          <select
-            value={selectedBranchId}
-            onChange={(e) => setSelectedBranchId(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 sm:max-w-xs"
-          >
-            <option value="">Global Categories Only</option>
-            {branches.map((branch) => (
-              <option key={branch.id} value={branch.id}>
-                {branch.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
+
 
       {/* Toolbar */}
       <ListToolbar
@@ -325,7 +293,7 @@ const Categories = () => {
           }}
           entity="categories"
           title="Import Categories"
-          targetEndpoint={`/api/categories/import${isSuperAdmin && selectedBranchId ? `?branch_id=${selectedBranchId}` : ''}`}
+          targetEndpoint={`/api/categories/import`}
         />
       )}
 
@@ -434,23 +402,7 @@ const Categories = () => {
                   />
                 </div>
 
-                {isSuperAdmin && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Branch Scope</label>
-                    <select
-                      value={formData.branch_id}
-                      onChange={(e) => setFormData({ ...formData, branch_id: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                    >
-                      <option value="">Global (All Branches)</option>
-                      {branches.map((branch) => (
-                        <option key={branch.id} value={branch.id}>
-                          {branch.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Parent Category</label>

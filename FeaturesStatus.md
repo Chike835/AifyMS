@@ -42,7 +42,7 @@
 | Feature Category | Sub-Feature | Built (AI) | Working (User) |
 |-----------------|-------------|------------|----------------|
 | **Inventory** | Product types implementation (Standard, Compound, Raw Tracked, Manufactured Virtual) | [x] | [ ] |
-| **Inventory** | Add Product page with full form (/products/add) | [x] | [ ] |
+| **Inventory** | Add/Edit Product page with full form (/products/add, /products/:id/edit) | [x] | [ ] |
 | **Inventory** | Stock transfer functionality | [x] | [ ] |
 | **Inventory** | Stock adjustment with reasons | [x] | [ ] |
 | **Inventory** | Print labels for inventory instances | [x] | [ ] |
@@ -228,6 +228,9 @@
 | **Attributes** | Color management | [x] | [ ] |
 | **Attributes** | Gauge category toggles (dynamic range) | [x] | [ ] |
 | **Attributes** | Attribute management interface | [x] | [ ] |
+| **Attributes** | Gauge/Color/Design dropdowns in Add Product (filtered by category) | [x] | [ ] |
+| **Attributes** | Default batch type with Make Default UI | [x] | [ ] |
+| **Attributes** | Auto-assign to global default batch type | [x] | [ ] |
 
 ---
 

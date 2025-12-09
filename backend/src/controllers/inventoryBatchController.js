@@ -37,8 +37,8 @@ export const createBatch = async (req, res, next) => {
 
     // Validation
     if (!product_id || !branch_id || initial_quantity === undefined) {
-      return res.status(400).json({ 
-        error: 'Missing required fields: product_id, branch_id, initial_quantity' 
+      return res.status(400).json({
+        error: 'Missing required fields: product_id, branch_id, initial_quantity'
       });
     }
 
@@ -48,8 +48,8 @@ export const createBatch = async (req, res, next) => {
 
     // If grouped, instance_code is required
     if (grouped && !instance_code) {
-      return res.status(400).json({ 
-        error: 'instance_code is required when grouped is true' 
+      return res.status(400).json({
+        error: 'instance_code is required when grouped is true'
       });
     }
 
@@ -60,8 +60,8 @@ export const createBatch = async (req, res, next) => {
     }
 
     if (product.type !== 'raw_tracked') {
-      return res.status(400).json({ 
-        error: 'Only raw_tracked products can have inventory batches' 
+      return res.status(400).json({
+        error: 'Only raw_tracked products can have inventory batches'
       });
     }
 
@@ -92,7 +92,7 @@ export const createBatch = async (req, res, next) => {
       }
     }
 
-    // Verify batch_type_id if provided, or get default from category
+    // Verify batch_type_id if provided, or get default from category, or global default
     let finalBatchTypeId = batch_type_id;
     if (!finalBatchTypeId && category_id) {
       // Get first assigned batch type for this category
@@ -114,9 +114,19 @@ export const createBatch = async (req, res, next) => {
       }
     }
 
+    // Fallback to global default batch type if still not set
     if (!finalBatchTypeId) {
-      return res.status(400).json({ 
-        error: 'batch_type_id is required. Assign batch types to the category first.' 
+      const defaultBatchType = await BatchType.findOne({
+        where: { is_default: true, is_active: true }
+      });
+      if (defaultBatchType) {
+        finalBatchTypeId = defaultBatchType.id;
+      }
+    }
+
+    if (!finalBatchTypeId) {
+      return res.status(400).json({
+        error: 'batch_type_id is required. Configure a default batch type or assign batch types to the category.'
       });
     }
 
@@ -135,16 +145,16 @@ export const createBatch = async (req, res, next) => {
         where: { category_id, batch_type_id: finalBatchTypeId }
       });
       if (!assignment) {
-        return res.status(400).json({ 
-          error: `Batch type "${batchType.name}" is not assigned to this category. Please assign it in Batch Settings first.` 
+        return res.status(400).json({
+          error: `Batch type "${batchType.name}" is not assigned to this category. Please assign it in Batch Settings first.`
         });
       }
     }
 
     // Check if instance_code already exists (if grouped)
     if (grouped && instance_code) {
-      const existingBatch = await InventoryBatch.findOne({ 
-        where: { instance_code } 
+      const existingBatch = await InventoryBatch.findOne({
+        where: { instance_code }
       });
       if (existingBatch) {
         return res.status(409).json({ error: 'Instance code already exists' });
@@ -221,13 +231,13 @@ export const getBatches = async (req, res, next) => {
     const batches = await InventoryBatch.findAll({
       where,
       include: [
-        { 
-          model: Product, 
+        {
+          model: Product,
           as: 'product',
           attributes: ['id', 'sku', 'name', 'type', 'base_unit']
         },
-        { 
-          model: Branch, 
+        {
+          model: Branch,
           as: 'branch',
           attributes: ['id', 'name', 'code']
         },
@@ -261,13 +271,13 @@ export const getBatchById = async (req, res, next) => {
 
     const batch = await InventoryBatch.findByPk(id, {
       include: [
-        { 
-          model: Product, 
+        {
+          model: Product,
           as: 'product',
           attributes: ['id', 'sku', 'name', 'type', 'base_unit']
         },
-        { 
-          model: Branch, 
+        {
+          model: Branch,
           as: 'branch',
           attributes: ['id', 'name', 'code']
         },
@@ -379,8 +389,8 @@ export const updateBatch = async (req, res, next) => {
         });
         if (!assignment) {
           await transaction.rollback();
-          return res.status(400).json({ 
-            error: `Batch type "${batchType.name}" is not assigned to this category. Please assign it in Batch Settings first.` 
+          return res.status(400).json({
+            error: `Batch type "${batchType.name}" is not assigned to this category. Please assign it in Batch Settings first.`
           });
         }
       }
@@ -417,8 +427,8 @@ export const updateBatch = async (req, res, next) => {
           for (const attr of requiredAttrs) {
             if (!attribute_data[attr.name]) {
               await transaction.rollback();
-              return res.status(400).json({ 
-                error: `Required attribute '${attr.name}' is missing` 
+              return res.status(400).json({
+                error: `Required attribute '${attr.name}' is missing`
               });
             }
           }
@@ -481,11 +491,11 @@ export const deleteBatch = async (req, res, next) => {
       where: { inventory_batch_id: id },
       transaction
     });
-    
+
     if (linkedSalesItems > 0) {
       await transaction.rollback();
-      return res.status(403).json({ 
-        error: 'Cannot delete batch: Linked to sales transactions. This prevents theft tracking. Archive the batch instead by setting status to "scrapped".' 
+      return res.status(403).json({
+        error: 'Cannot delete batch: Linked to sales transactions. This prevents theft tracking. Archive the batch instead by setting status to "scrapped".'
       });
     }
 
@@ -494,11 +504,11 @@ export const deleteBatch = async (req, res, next) => {
       where: { inventory_batch_id: id },
       transaction
     });
-    
+
     if (linkedAssignments > 0) {
       await transaction.rollback();
-      return res.status(403).json({ 
-        error: 'Cannot delete batch: Has historical assignments. Archive the batch instead by setting status to "scrapped".' 
+      return res.status(403).json({
+        error: 'Cannot delete batch: Has historical assignments. Archive the batch instead by setting status to "scrapped".'
       });
     }
 
@@ -541,13 +551,13 @@ export const getAvailableBatches = async (req, res, next) => {
     const batches = await InventoryBatch.findAll({
       where,
       include: [
-        { 
-          model: Product, 
+        {
+          model: Product,
           as: 'product',
           attributes: ['id', 'sku', 'name', 'base_unit']
         },
-        { 
-          model: Branch, 
+        {
+          model: Branch,
           as: 'branch',
           attributes: ['id', 'name', 'code']
         },

@@ -1,9 +1,10 @@
 import sequelize from '../config/db.js';
-import { SalesOrder, SalesItem, ItemAssignment, Product, InventoryBatch, Recipe, Customer, Branch, User, Agent, AgentCommission } from '../models/index.js';
+import { SalesOrder, SalesItem, ItemAssignment, Product, InventoryBatch, Recipe, Customer, Branch, User, Agent, AgentCommission, ProductBusinessLocation } from '../models/index.js';
 import { Op } from 'sequelize';
 import { multiply, add, subtract, sum, equals, lessThan, lessThanOrEqual, greaterThan, percentage } from '../utils/mathUtils.js';
 import { processManufacturedVirtualItem, processManufacturedVirtualItemForConversion } from '../services/inventoryService.js';
 import { createLedgerEntry } from '../services/ledgerService.js';
+import { hasGlobalBranchAccess } from '../utils/authHelpers.js';
 
 /**
  * Generate unique invoice number with transaction lock to prevent race conditions
@@ -79,6 +80,15 @@ export const createSale = async (req, res, next) => {
       return res.status(400).json({ error: 'branch_id is required' });
     }
 
+    // SECURITY FIX: Enforce branch isolation for non-Super Admin users
+    // Non-Super Admin users can only create sales for their own branch
+    if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id) {
+      if (finalBranchId !== req.user.branch_id) {
+        await transaction.rollback();
+        return res.status(403).json({ error: 'You can only create sales for your own branch' });
+      }
+    }
+
     // Generate invoice number (within transaction for locking)
     const invoiceNumber = await generateInvoiceNumber(transaction);
 
@@ -147,6 +157,38 @@ export const createSale = async (req, res, next) => {
       if (!product) {
         await transaction.rollback();
         return res.status(404).json({ error: `Product ${product_id} not found` });
+      }
+
+      // VALIDATION FIX: Check product is available at this branch
+      // Skip for Super Admin users who can sell from any location
+      if (req.user?.role_name !== 'Super Admin') {
+        const productAvailableAtBranch = await ProductBusinessLocation.findOne({
+          where: {
+            product_id: product_id,
+            branch_id: finalBranchId
+          },
+          transaction
+        });
+        if (!productAvailableAtBranch) {
+          await transaction.rollback();
+          return res.status(400).json({
+            error: `Product "${product.name}" is not available at this branch. Please add it to the branch's product list first.`
+          });
+        }
+      }
+
+      // SECURITY FIX: Validate price override
+      // If unit_price differs from product's sale_price, require sale_edit_price permission
+      const priceMatches = equals(unit_price, product.sale_price);
+      if (!priceMatches) {
+        const canEditPrice = req.user?.permissions?.includes('sale_edit_price');
+        if (!canEditPrice) {
+          await transaction.rollback();
+          return res.status(403).json({
+            error: `Price override not allowed for product "${product.name}". Expected ${product.sale_price}, received ${unit_price}. You need the 'sale_edit_price' permission to modify prices.`
+          });
+        }
+        // Price override is allowed, continue with the sale
       }
 
       const subtotal = multiply(quantity, unit_price);
