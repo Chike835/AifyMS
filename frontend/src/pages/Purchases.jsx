@@ -5,6 +5,8 @@ import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import ListToolbar from '../components/common/ListToolbar';
 import ExportModal from '../components/import/ExportModal';
+import { sortData } from '../utils/sortUtils';
+import SortIndicator from '../components/common/SortIndicator';
 import { ShoppingBag, Plus, Eye, X } from 'lucide-react';
 
 const Purchases = () => {
@@ -14,6 +16,19 @@ const Purchases = () => {
   const [statusFilter, setStatusFilter] = useState('');
   const [selectedPurchase, setSelectedPurchase] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+
+  // Sorting
+  const [sortField, setSortField] = useState('created_at');
+  const [sortDirection, setSortDirection] = useState('desc');
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -113,7 +128,7 @@ const Purchases = () => {
   const pagination = data?.pagination || { total: 0, page: 1, limit: 25, total_pages: 1 };
 
   // Filter by search term
-  const filteredPurchases = purchases.filter(purchase => {
+  const filteredPurchases = sortData(purchases.filter(purchase => {
     if (!searchTerm) return true;
     const search = searchTerm.toLowerCase();
     return (
@@ -121,7 +136,7 @@ const Purchases = () => {
       purchase.supplier?.name?.toLowerCase().includes(search) ||
       purchase.branch?.name?.toLowerCase().includes(search)
     );
-  });
+  }), sortField, sortDirection);
 
   return (
     <div>
@@ -177,37 +192,58 @@ const Purchases = () => {
             <tr>
               {visibleColumns.purchase_number && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  PO Number
+                  <button onClick={() => handleSort('purchase_number')} className="flex items-center gap-1">
+                    PO Number
+                    <SortIndicator field="purchase_number" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.supplier && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Supplier
+                  <button onClick={() => handleSort('supplier.name')} className="flex items-center gap-1">
+                    Supplier
+                    <SortIndicator field="supplier.name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.branch && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Branch
+                  <button onClick={() => handleSort('branch.name')} className="flex items-center gap-1">
+                    Branch
+                    <SortIndicator field="branch.name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.total && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Total
+                  <button onClick={() => handleSort('total_amount')} className="flex items-center gap-1">
+                    Total
+                    <SortIndicator field="total_amount" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.status && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
+                  <button onClick={() => handleSort('status')} className="flex items-center gap-1">
+                    Status
+                    <SortIndicator field="status" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.payment && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Payment
+                  <button onClick={() => handleSort('payment_status')} className="flex items-center gap-1">
+                    Payment
+                    <SortIndicator field="payment_status" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.date && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
+                  <button onClick={() => handleSort('created_at')} className="flex items-center gap-1">
+                    Date
+                    <SortIndicator field="created_at" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -428,11 +464,10 @@ const Purchases = () => {
                                   <span className="text-sm font-mono text-primary-600">
                                     {item.inventory_batch.instance_code || item.inventory_batch.batch_identifier}
                                   </span>
-                                  <span className={`ml-2 px-1.5 py-0.5 text-xs rounded-full ${
-                                    item.inventory_batch.status === 'in_stock'
-                                      ? 'bg-green-100 text-green-800'
-                                      : 'bg-gray-100 text-gray-800'
-                                  }`}>
+                                  <span className={`ml-2 px-1.5 py-0.5 text-xs rounded-full ${item.inventory_batch.status === 'in_stock'
+                                    ? 'bg-green-100 text-green-800'
+                                    : 'bg-gray-100 text-gray-800'
+                                    }`}>
                                     {item.inventory_batch.status}
                                   </span>
                                 </div>

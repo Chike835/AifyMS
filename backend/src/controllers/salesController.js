@@ -322,8 +322,30 @@ export const createSale = async (req, res, next) => {
  */
 export const getSales = async (req, res, next) => {
   try {
-    const { branch_id, customer_id, payment_status, production_status, order_type, start_date, end_date } = req.query;
+    const {
+      branch_id,
+      customer_id,
+      payment_status,
+      production_status,
+      order_type,
+      start_date,
+      end_date,
+      search,
+      page = 1,
+      limit = 25
+    } = req.query;
+
     const where = {};
+
+    // Global Search (Invoice #, Customer Name, Branch Name)
+    if (search) {
+      const searchTerm = `%${search}%`;
+      where[Op.or] = [
+        { invoice_number: { [Op.iLike]: searchTerm } },
+        { '$customer.name$': { [Op.iLike]: searchTerm } },
+        { '$branch.name$': { [Op.iLike]: searchTerm } }
+      ];
+    }
 
     // Apply filters
     if (branch_id) {
@@ -366,7 +388,17 @@ export const getSales = async (req, res, next) => {
       where.user_id = req.user.id;
     }
 
-    const orders = await SalesOrder.findAll({
+    // Pagination calculations
+    const pageNum = parseInt(page);
+    let limitNum = parseInt(limit);
+    let offset = (pageNum - 1) * limitNum;
+
+    if (limitNum < 1) {
+      limitNum = null;
+      offset = null;
+    }
+
+    const { count, rows: orders } = await SalesOrder.findAndCountAll({
       where,
       include: [
         { model: Customer, as: 'customer' },
@@ -379,10 +411,20 @@ export const getSales = async (req, res, next) => {
         }
       ],
       order: [['created_at', 'DESC']],
-      limit: 500 // Increased limit for POS list
+      limit: limitNum,
+      offset: offset,
+      distinct: true // Important for correct count with associations
     });
 
-    res.json({ orders });
+    res.json({
+      orders,
+      pagination: {
+        total: count,
+        page: pageNum,
+        limit: limitNum,
+        total_pages: limitNum ? Math.ceil(count / limitNum) : 1
+      }
+    });
   } catch (error) {
     next(error);
   }

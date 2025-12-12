@@ -212,7 +212,7 @@ graph TB
 **Data Flow:**
 1. **Register Coil:** `POST /api/inventory/instances`
    - Creates `InventoryInstance` with `instance_code` (e.g., "COIL-001")
-   - Links to `Product` (type: `raw_tracked`)
+   - Links to `Product` (any type)
    - Sets `initial_quantity` and `remaining_quantity`
    - Associates with `Branch`
 

@@ -5,6 +5,8 @@ import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import ListToolbar from '../components/common/ListToolbar';
 import ExportModal from '../components/import/ExportModal';
+import { sortData } from '../utils/sortUtils';
+import SortIndicator from '../components/common/SortIndicator';
 import { Building2, Plus, Edit, Trash2, X, Eye } from 'lucide-react';
 
 const Suppliers = () => {
@@ -21,6 +23,19 @@ const Suppliers = () => {
     address: ''
   });
   const [formError, setFormError] = useState('');
+
+  // Sorting
+  const [sortField, setSortField] = useState('name');
+  const [sortDirection, setSortDirection] = useState('asc');
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -184,7 +199,7 @@ const Suppliers = () => {
     );
   }
 
-  const suppliers = data?.suppliers || [];
+  const suppliers = sortData(data?.suppliers || [], sortField, sortDirection);
   const branches = branchesData || [];
   const pagination = data?.pagination || { total: 0, page: 1, limit: 25, total_pages: 1 };
 
@@ -231,27 +246,42 @@ const Suppliers = () => {
             <tr>
               {visibleColumns.name && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Name
+                  <button onClick={() => handleSort('name')} className="flex items-center gap-1">
+                    Name
+                    <SortIndicator field="name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.phone && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Phone
+                  <button onClick={() => handleSort('phone')} className="flex items-center gap-1">
+                    Phone
+                    <SortIndicator field="phone" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.email && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Email
+                  <button onClick={() => handleSort('email')} className="flex items-center gap-1">
+                    Email
+                    <SortIndicator field="email" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.branch && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Branch
+                  <button onClick={() => handleSort('branch.name')} className="flex items-center gap-1">
+                    Branch
+                    <SortIndicator field="branch.name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.balance && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Balance
+                  <button onClick={() => handleSort('ledger_balance')} className="flex items-center gap-1">
+                    Balance
+                    <SortIndicator field="ledger_balance" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -296,11 +326,10 @@ const Suppliers = () => {
                   )}
                   {visibleColumns.balance && (
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`text-sm font-medium ${
-                        parseFloat(supplier.ledger_balance) >= 0 
-                          ? 'text-green-600' 
-                          : 'text-red-600'
-                      }`}>
+                      <span className={`text-sm font-medium ${parseFloat(supplier.ledger_balance) >= 0
+                        ? 'text-green-600'
+                        : 'text-red-600'
+                        }`}>
                         {formatCurrency(supplier.ledger_balance)}
                       </span>
                     </td>
@@ -492,8 +521,8 @@ const Suppliers = () => {
                   {createMutation.isPending || updateMutation.isPending
                     ? 'Saving...'
                     : selectedSupplier
-                    ? 'Update'
-                    : 'Create'}
+                      ? 'Update'
+                      : 'Create'}
                 </button>
               </div>
             </form>

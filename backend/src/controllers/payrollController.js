@@ -8,16 +8,22 @@ import { Op } from 'sequelize';
 export const getPayrollRecords = async (req, res) => {
   try {
     const { branch_id, role_name } = req.user;
-    const { 
-      page = 1, 
-      limit = 20, 
+    const {
+      page = 1,
+      limit = 20,
       user_id,
       month,
       year,
-      search 
+      search
     } = req.query;
 
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    let queryLimit = parseInt(limit);
+    let offset = (parseInt(page) - 1) * queryLimit;
+
+    if (queryLimit < 1) {
+      queryLimit = null;
+      offset = null;
+    }
 
     // Build where clause with branch filtering
     let whereClause = {};
@@ -47,7 +53,7 @@ export const getPayrollRecords = async (req, res) => {
         { model: User, as: 'employee', attributes: ['id', 'full_name', 'email'] }
       ],
       order: [['year', 'DESC'], ['month', 'DESC'], ['created_at', 'DESC']],
-      limit: parseInt(limit),
+      limit: queryLimit,
       offset
     });
 
@@ -58,7 +64,7 @@ export const getPayrollRecords = async (req, res) => {
 
     res.status(200).json({
       total_count: count,
-      total_pages: Math.ceil(count / parseInt(limit)),
+      total_pages: queryLimit ? Math.ceil(count / queryLimit) : 1,
       current_page: parseInt(page),
       totals: {
         gross_pay: totalGrossPay.toFixed(2),
@@ -153,8 +159,8 @@ export const createPayrollRecord = async (req, res) => {
       where: { user_id, month, year }
     });
     if (existingRecord) {
-      return res.status(409).json({ 
-        error: `Payroll record for this employee already exists for ${month}/${year}` 
+      return res.status(409).json({
+        error: `Payroll record for this employee already exists for ${month}/${year}`
       });
     }
 

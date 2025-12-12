@@ -44,7 +44,13 @@ const generatePurchaseNumber = async () => {
 export const getPurchases = async (req, res) => {
   try {
     const { status, page = 1, limit = 50 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    let queryLimit = parseInt(limit);
+    let offset = (parseInt(page) - 1) * queryLimit;
+
+    if (queryLimit < 1) {
+      queryLimit = null;
+      offset = null;
+    }
 
     // Build where clause
     const whereClause = {};
@@ -78,7 +84,7 @@ export const getPurchases = async (req, res) => {
         }
       ],
       order: [['created_at', 'DESC']],
-      limit: parseInt(limit),
+      limit: queryLimit,
       offset
     });
 
@@ -87,8 +93,8 @@ export const getPurchases = async (req, res) => {
       pagination: {
         total: count,
         page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(count / parseInt(limit))
+        limit: queryLimit,
+        totalPages: queryLimit ? Math.ceil(count / queryLimit) : 1
       }
     });
   } catch (error) {

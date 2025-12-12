@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
+import { sortData } from '../utils/sortUtils';
+import SortIndicator from '../components/common/SortIndicator';
 import ListToolbar from '../components/common/ListToolbar';
 import ExportModal from '../components/import/ExportModal';
 import { Wallet, Plus, Edit, Trash2, X, Calendar, Users, Calculator } from 'lucide-react';
@@ -61,6 +63,19 @@ const Payroll = () => {
     deductions: true,
     net_pay: true
   });
+
+  // Sorting
+  const [sortField, setSortField] = useState('employee.full_name');
+  const [sortDirection, setSortDirection] = useState('asc');
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
   // Export modal
   const [showExportModal, setShowExportModal] = useState(false);
@@ -143,7 +158,7 @@ const Payroll = () => {
       setShowCalculateModal(false);
       setCalculateData({ month: new Date().getMonth() + 1, year: currentYear, user_id: '' });
       setCalculateError('');
-      
+
       // Show success message with details
       const successMsg = data.errors && data.errors.length > 0
         ? `Calculated for ${data.results.length} employee(s). ${data.errors.length} error(s) occurred.`
@@ -272,7 +287,7 @@ const Payroll = () => {
     );
   }
 
-  const payrollRecords = data?.payroll_records || [];
+  const payrollRecords = sortData(data?.payroll_records || [], sortField, sortDirection);
   const employees = employeesData || [];
   const totals = data?.totals || {};
 
@@ -371,22 +386,40 @@ const Payroll = () => {
           <thead className="bg-gray-50">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Employee
+                <button onClick={() => handleSort('employee.full_name')} className="flex items-center gap-1">
+                  Employee
+                  <SortIndicator field="employee.full_name" sortField={sortField} sortDirection={sortDirection} />
+                </button>
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Period
+                <button onClick={() => handleSort('month')} className="flex items-center gap-1">
+                  Period
+                  <SortIndicator field="month" sortField={sortField} sortDirection={sortDirection} />
+                </button>
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Branch
+                <button onClick={() => handleSort('branch.name')} className="flex items-center gap-1">
+                  Branch
+                  <SortIndicator field="branch.name" sortField={sortField} sortDirection={sortDirection} />
+                </button>
               </th>
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Gross Pay
+                <button onClick={() => handleSort('gross_pay')} className="flex items-center gap-1 justify-end w-full">
+                  Gross Pay
+                  <SortIndicator field="gross_pay" sortField={sortField} sortDirection={sortDirection} />
+                </button>
               </th>
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Deductions
+                <button onClick={() => handleSort('deductions')} className="flex items-center gap-1 justify-end w-full">
+                  Deductions
+                  <SortIndicator field="deductions" sortField={sortField} sortDirection={sortDirection} />
+                </button>
               </th>
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Net Pay
+                <button onClick={() => handleSort('net_pay')} className="flex items-center gap-1 justify-end w-full">
+                  Net Pay
+                  <SortIndicator field="net_pay" sortField={sortField} sortDirection={sortDirection} />
+                </button>
               </th>
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Actions
@@ -654,8 +687,8 @@ const Payroll = () => {
                   {createMutation.isPending || updateMutation.isPending
                     ? 'Saving...'
                     : selectedRecord
-                    ? 'Update'
-                    : 'Create'}
+                      ? 'Update'
+                      : 'Create'}
                 </button>
               </div>
             </form>
@@ -671,12 +704,12 @@ const Payroll = () => {
               <h2 className="text-2xl font-bold text-gray-900">
                 Auto-Calculate Payroll
               </h2>
-              <button 
+              <button
                 onClick={() => {
                   setShowCalculateModal(false);
                   setCalculateError('');
                   setCalculateData({ month: new Date().getMonth() + 1, year: currentYear, user_id: '' });
-                }} 
+                }}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <X className="h-6 w-6" />
@@ -692,16 +725,16 @@ const Payroll = () => {
             <form onSubmit={(e) => {
               e.preventDefault();
               setCalculateError('');
-              
+
               const submitData = {
                 month: parseInt(calculateData.month),
                 year: parseInt(calculateData.year)
               };
-              
+
               if (calculateData.user_id) {
                 submitData.user_id = calculateData.user_id;
               }
-              
+
               calculateMutation.mutate(submitData);
             }} className="space-y-4">
               <div>

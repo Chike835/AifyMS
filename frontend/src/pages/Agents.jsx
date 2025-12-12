@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
+import { sortData } from '../utils/sortUtils';
+import SortIndicator from '../components/common/SortIndicator';
 import { Users, Plus, Edit, Trash2, X, DollarSign, CheckCircle, AlertCircle, Eye } from 'lucide-react';
 import ListToolbar from '../components/common/ListToolbar';
 import ExportModal from '../components/import/ExportModal';
@@ -34,6 +36,19 @@ const Agents = () => {
   });
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
+
+  // Sorting
+  const [sortField, setSortField] = useState('name');
+  const [sortDirection, setSortDirection] = useState('asc');
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
   // Fetch agents
   const { data, isLoading, error } = useQuery({
@@ -256,6 +271,15 @@ const Agents = () => {
     );
   }
 
+  // Filter and sort agents
+  const sortedAgents = sortData((data || []).filter(agent => {
+    if (!searchTerm) return true;
+    const search = searchTerm.toLowerCase();
+    return agent.name?.toLowerCase().includes(search) ||
+      agent.email?.toLowerCase().includes(search) ||
+      agent.phone?.toLowerCase().includes(search);
+  }), sortField, sortDirection);
+
   return (
     <div className="p-6">
       <div className="mb-6 flex justify-between items-center">
@@ -319,27 +343,42 @@ const Agents = () => {
             <tr>
               {visibleColumns.name && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Name
+                  <button onClick={() => handleSort('name')} className="flex items-center gap-1">
+                    Name
+                    <SortIndicator field="name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.contact && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Contact
+                  <button onClick={() => handleSort('email')} className="flex items-center gap-1">
+                    Contact
+                    <SortIndicator field="email" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.commission_rate && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Commission Rate
+                  <button onClick={() => handleSort('commission_rate')} className="flex items-center gap-1">
+                    Commission Rate
+                    <SortIndicator field="commission_rate" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.branch && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Branch
+                  <button onClick={() => handleSort('branch.name')} className="flex items-center gap-1">
+                    Branch
+                    <SortIndicator field="branch.name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.status && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
+                  <button onClick={() => handleSort('is_active')} className="flex items-center gap-1">
+                    Status
+                    <SortIndicator field="is_active" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.actions && hasPermission('agent_manage') && (
@@ -350,79 +389,71 @@ const Agents = () => {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {(data || [])
-              .filter(agent => {
-                if (!searchTerm) return true;
-                const search = searchTerm.toLowerCase();
-                return agent.name?.toLowerCase().includes(search) ||
-                       agent.email?.toLowerCase().includes(search) ||
-                       agent.phone?.toLowerCase().includes(search);
-              })
+            {sortedAgents
               .slice(0, limit === -1 ? undefined : limit)
               .map((agent) => (
-              <tr key={agent.id} className="hover:bg-gray-50">
-                {visibleColumns.name && (
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{agent.name}</div>
-                  </td>
-                )}
-                {visibleColumns.contact && (
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-gray-900">{agent.email || '—'}</div>
-                    <div className="text-xs text-gray-500">{agent.phone || '—'}</div>
-                  </td>
-                )}
-                {visibleColumns.commission_rate && (
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{agent.commission_rate}%</div>
-                  </td>
-                )}
-                {visibleColumns.branch && (
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{agent.branch?.name || 'All Branches'}</div>
-                  </td>
-                )}
-                {visibleColumns.status && (
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      agent.is_active
+                <tr key={agent.id} className="hover:bg-gray-50">
+                  {visibleColumns.name && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{agent.name}</div>
+                    </td>
+                  )}
+                  {visibleColumns.contact && (
+                    <td className="px-6 py-4">
+                      <div className="text-sm text-gray-900">{agent.email || '—'}</div>
+                      <div className="text-xs text-gray-500">{agent.phone || '—'}</div>
+                    </td>
+                  )}
+                  {visibleColumns.commission_rate && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{agent.commission_rate}%</div>
+                    </td>
+                  )}
+                  {visibleColumns.branch && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{agent.branch?.name || 'All Branches'}</div>
+                    </td>
+                  )}
+                  {visibleColumns.status && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${agent.is_active
                         ? 'bg-green-100 text-green-800'
                         : 'bg-red-100 text-red-800'
-                    }`}>
-                      {agent.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                )}
-                {visibleColumns.actions && hasPermission('agent_manage') && (
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex justify-end space-x-2">
-                      <button
-                        onClick={() => {
-                          setSelectedAgent(agent);
-                          setShowDetailModal(true);
-                        }}
-                        className="text-blue-600 hover:text-blue-900"
-                        title="View details"
-                      >
-                        <Eye className="h-5 w-5" />
-                      </button>
-                      <button
-                        onClick={() => handleEdit(agent)}
-                        className="text-primary-600 hover:text-primary-900"
-                      >
-                        <Edit className="h-5 w-5" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(agent)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        <Trash2 className="h-5 w-5" />
-                      </button>
-                    </div>
-                  </td>
-                )}
-              </tr>
-            ))}
+                        }`}>
+                        {agent.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.actions && hasPermission('agent_manage') && (
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex justify-end space-x-2">
+                        <button
+                          onClick={() => {
+                            setSelectedAgent(agent);
+                            setShowDetailModal(true);
+                          }}
+                          className="text-blue-600 hover:text-blue-900"
+                          title="View details"
+                        >
+                          <Eye className="h-5 w-5" />
+                        </button>
+                        <button
+                          onClick={() => handleEdit(agent)}
+                          className="text-primary-600 hover:text-primary-900"
+                        >
+                          <Edit className="h-5 w-5" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(agent)}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          <Trash2 className="h-5 w-5" />
+                        </button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
           </tbody>
         </table>
         {data?.length === 0 && (
@@ -754,13 +785,12 @@ const Agents = () => {
                           {formatCurrency(commission.commission_amount)}
                         </td>
                         <td className="px-4 py-3 text-sm">
-                          <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                            commission.payment_status === 'paid'
-                              ? 'bg-green-100 text-green-800'
-                              : commission.payment_status === 'cancelled'
+                          <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${commission.payment_status === 'paid'
+                            ? 'bg-green-100 text-green-800'
+                            : commission.payment_status === 'cancelled'
                               ? 'bg-red-100 text-red-800'
                               : 'bg-yellow-100 text-yellow-800'
-                          }`}>
+                            }`}>
                             {commission.payment_status?.toUpperCase()}
                           </span>
                         </td>

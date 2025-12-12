@@ -17,7 +17,7 @@ const Product = sequelize.define('Product', {
     allowNull: false
   },
   type: {
-    type: DataTypes.ENUM('standard', 'compound', 'raw_tracked', 'manufactured_virtual'),
+    type: DataTypes.ENUM('standard', 'compound', 'raw_tracked', 'manufactured_virtual', 'variable'),
     allowNull: false
   },
   base_unit: {

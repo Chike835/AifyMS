@@ -262,6 +262,72 @@ export const getBatches = async (req, res, next) => {
 };
 
 /**
+ * GET /api/inventory/instances
+ * List inventory instances (alias for batches but with 'instances' key)
+ */
+export const getInstances = async (req, res, next) => {
+  try {
+    const { product_id, branch_id, status, batch_type_id, category_id } = req.query;
+    const where = {};
+
+    // Apply filters
+    if (product_id) {
+      where.product_id = product_id;
+    }
+
+    if (branch_id) {
+      where.branch_id = branch_id;
+    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      // Branch managers only see their branch
+      where.branch_id = req.user.branch_id;
+    }
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (batch_type_id) {
+      where.batch_type_id = batch_type_id;
+    }
+
+    if (category_id) {
+      where.category_id = category_id;
+    }
+
+    const instances = await InventoryBatch.findAll({
+      where,
+      include: [
+        {
+          model: Product,
+          as: 'product',
+          attributes: ['id', 'sku', 'name', 'type', 'base_unit']
+        },
+        {
+          model: Branch,
+          as: 'branch',
+          attributes: ['id', 'name', 'code']
+        },
+        {
+          model: Category,
+          as: 'category',
+          attributes: ['id', 'name', 'unit_type', 'attribute_schema']
+        },
+        {
+          model: BatchType,
+          as: 'batch_type',
+          attributes: ['id', 'name', 'description', 'can_slit']
+        }
+      ],
+      order: [['created_at', 'DESC']]
+    });
+
+    res.json({ instances });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * GET /api/inventory/batches/:id
  * Get inventory batch by ID
  */

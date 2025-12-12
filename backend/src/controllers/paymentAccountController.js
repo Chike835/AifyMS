@@ -95,15 +95,15 @@ export const createPaymentAccount = async (req, res, next) => {
 
     // Validation
     if (!name || !account_type) {
-      return res.status(400).json({ 
-        error: 'Missing required fields: name, account_type' 
+      return res.status(400).json({
+        error: 'Missing required fields: name, account_type'
       });
     }
 
     const validTypes = ['cash', 'bank', 'mobile_money', 'pos_terminal'];
     if (!validTypes.includes(account_type)) {
-      return res.status(400).json({ 
-        error: `Invalid account_type. Must be one of: ${validTypes.join(', ')}` 
+      return res.status(400).json({
+        error: `Invalid account_type. Must be one of: ${validTypes.join(', ')}`
       });
     }
 
@@ -210,6 +210,14 @@ export const getAccountTransactions = async (req, res, next) => {
     const { id } = req.params;
     const { start_date, end_date, transaction_type, limit = 50, offset = 0 } = req.query;
 
+    let queryLimit = parseInt(limit);
+    let queryOffset = parseInt(offset);
+
+    if (queryLimit < 1) {
+      queryLimit = null;
+    }
+    if (queryOffset < 0) queryOffset = 0;
+
     // Verify account exists and check access
     const account = await PaymentAccount.findByPk(id);
     if (!account) {
@@ -241,15 +249,15 @@ export const getAccountTransactions = async (req, res, next) => {
         { model: User, as: 'user', attributes: ['id', 'full_name', 'email'] }
       ],
       order: [['created_at', 'DESC']],
-      limit: parseInt(limit),
-      offset: parseInt(offset)
+      limit: queryLimit,
+      offset: queryOffset
     });
 
     res.json({
       transactions,
       total: count,
-      limit: parseInt(limit),
-      offset: parseInt(offset)
+      limit: queryLimit,
+      offset: queryOffset
     });
   } catch (error) {
     next(error);
@@ -262,7 +270,7 @@ export const getAccountTransactions = async (req, res, next) => {
  */
 export const recordDeposit = async (req, res, next) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const { id } = req.params;
     const { amount, notes } = req.body;
@@ -328,7 +336,7 @@ export const recordDeposit = async (req, res, next) => {
  */
 export const recordWithdrawal = async (req, res, next) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const { id } = req.params;
     const { amount, notes } = req.body;
@@ -400,14 +408,14 @@ export const recordWithdrawal = async (req, res, next) => {
  */
 export const transferBetweenAccounts = async (req, res, next) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const { from_account_id, to_account_id, amount, notes } = req.body;
 
     if (!from_account_id || !to_account_id || !amount || amount <= 0) {
       await transaction.rollback();
-      return res.status(400).json({ 
-        error: 'Missing required fields: from_account_id, to_account_id, amount' 
+      return res.status(400).json({
+        error: 'Missing required fields: from_account_id, to_account_id, amount'
       });
     }
 
@@ -585,8 +593,8 @@ export const getAccountReport = async (req, res, next) => {
 
     // Calculate ending balance (opening balance + net change for the period)
     // If no date range, use current balance; otherwise calculate from opening + net change
-    const endingBalance = start_date && end_date 
-      ? openingBalance + netChange 
+    const endingBalance = start_date && end_date
+      ? openingBalance + netChange
       : parseFloat(account.current_balance || 0);
 
     // Group transactions by type

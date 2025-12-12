@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
+import { sortData } from '../utils/sortUtils';
+import SortIndicator from '../components/common/SortIndicator';
 import { Package, Plus, ArrowRightLeft, Edit, Trash2, Search, Filter } from 'lucide-react';
 import ListToolbar from '../components/common/ListToolbar';
 import ExportModal from '../components/import/ExportModal';
@@ -32,6 +34,20 @@ const InventoryBatches = () => {
     status: true,
     actions: true
   });
+
+  // Sorting
+  const [sortField, setSortField] = useState('created_at');
+  const [sortDirection, setSortDirection] = useState('desc');
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
   const [formData, setFormData] = useState({
     product_id: '',
     branch_id: user?.branch_id || '',
@@ -146,16 +162,16 @@ const InventoryBatches = () => {
     setFormData(prev => {
       const category = selectedProduct?.categoryRef || selectedCategory;
       let updatedAttributeData = { ...prev.attribute_data };
-      
+
       // Merge product defaults if available
       if (selectedProduct?.attribute_default_values) {
         updatedAttributeData = { ...selectedProduct.attribute_default_values, ...updatedAttributeData };
       }
-      
+
       // Check if category has gauge_mm in attribute_schema and remove gauge_mm if not
       if (category?.attribute_schema && Array.isArray(category.attribute_schema)) {
         const hasGaugeMm = category.attribute_schema.some(attr => attr.name === 'gauge_mm');
-        
+
         if (!hasGaugeMm && updatedAttributeData.gauge_mm !== undefined) {
           const { gauge_mm, ...restAttributeData } = updatedAttributeData;
           updatedAttributeData = restAttributeData;
@@ -165,12 +181,12 @@ const InventoryBatches = () => {
         const { gauge_mm, ...restAttributeData } = updatedAttributeData;
         updatedAttributeData = restAttributeData;
       }
-      
+
       // Only update if attribute_data actually changed (avoid unnecessary re-renders)
       if (JSON.stringify(prev.attribute_data) === JSON.stringify(updatedAttributeData)) {
         return prev;
       }
-      
+
       return {
         ...prev,
         attribute_data: updatedAttributeData
@@ -342,16 +358,16 @@ const InventoryBatches = () => {
   }
 
   const batches = data || [];
-  
-  // Filter batches by search term
-  const filteredBatches = batches.filter(batch => {
-    const matchesSearch = !searchTerm || 
+
+  // Filter and sort batches
+  const filteredBatches = sortData(batches.filter(batch => {
+    const matchesSearch = !searchTerm ||
       batch.instance_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       batch.batch_identifier?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       batch.product?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       batch.product?.sku?.toLowerCase().includes(searchTerm.toLowerCase());
     return matchesSearch;
-  });
+  }), sortField, sortDirection);
 
   return (
     <div className="p-6">
@@ -425,37 +441,58 @@ const InventoryBatches = () => {
             <tr>
               {visibleColumns.identifier && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Identifier
+                  <button onClick={() => handleSort('instance_code')} className="flex items-center gap-1">
+                    Identifier
+                    <SortIndicator field="instance_code" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.type && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Type
+                  <button onClick={() => handleSort('batch_type.name')} className="flex items-center gap-1">
+                    Type
+                    <SortIndicator field="batch_type.name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.product && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Product
+                  <button onClick={() => handleSort('product.name')} className="flex items-center gap-1">
+                    Product
+                    <SortIndicator field="product.name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.branch && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Branch
+                  <button onClick={() => handleSort('branch.name')} className="flex items-center gap-1">
+                    Branch
+                    <SortIndicator field="branch.name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.initial_qty && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Initial Qty
+                  <button onClick={() => handleSort('initial_quantity')} className="flex items-center gap-1">
+                    Initial Qty
+                    <SortIndicator field="initial_quantity" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.remaining && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Remaining
+                  <button onClick={() => handleSort('remaining_quantity')} className="flex items-center gap-1">
+                    Remaining
+                    <SortIndicator field="remaining_quantity" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.status && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
+                  <button onClick={() => handleSort('status')} className="flex items-center gap-1">
+                    Status
+                    <SortIndicator field="status" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.actions && (
@@ -513,13 +550,12 @@ const InventoryBatches = () => {
                   {visibleColumns.status && (
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
-                        className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          batch.status === 'in_stock'
-                            ? 'bg-green-100 text-green-800'
-                            : batch.status === 'depleted'
+                        className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${batch.status === 'in_stock'
+                          ? 'bg-green-100 text-green-800'
+                          : batch.status === 'depleted'
                             ? 'bg-red-100 text-red-800'
                             : 'bg-gray-100 text-gray-800'
-                        }`}
+                          }`}
                       >
                         {batch.status}
                       </span>
@@ -636,8 +672,8 @@ const InventoryBatches = () => {
                 <select
                   value={formData.category_id}
                   onChange={(e) => {
-                    setFormData({ 
-                      ...formData, 
+                    setFormData({
+                      ...formData,
                       category_id: e.target.value,
                       batch_type_id: '' // Reset batch type when category changes
                     });
@@ -665,9 +701,9 @@ const InventoryBatches = () => {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                   >
                     <option value="">
-                      {formData.category_id 
-                        ? (categoryBatchTypes?.length > 0 
-                          ? 'Select Batch Type' 
+                      {formData.category_id
+                        ? (categoryBatchTypes?.length > 0
+                          ? 'Select Batch Type'
                           : 'No batch types assigned to this category')
                         : 'Select Category first'}
                     </option>
@@ -776,9 +812,9 @@ const InventoryBatches = () => {
               {selectedCategory?.attribute_schema && selectedCategory.attribute_schema.length > 0 && (() => {
                 // Filter out gauge_mm from schema to prevent duplicate input (gauge is handled separately above)
                 const filteredSchema = selectedCategory.attribute_schema.filter(attr => attr.name !== 'gauge_mm');
-                
+
                 if (filteredSchema.length === 0) return null;
-                
+
                 return (
                   <div className="mt-4 pt-4 border-t border-gray-200">
                     <h4 className="text-sm font-semibold text-gray-900 mb-4">Batch Attributes</h4>
@@ -830,8 +866,8 @@ const InventoryBatches = () => {
                 <select
                   value={formData.category_id}
                   onChange={(e) => {
-                    setFormData({ 
-                      ...formData, 
+                    setFormData({
+                      ...formData,
                       category_id: e.target.value,
                       batch_type_id: '' // Reset batch type when category changes
                     });
@@ -858,9 +894,9 @@ const InventoryBatches = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                 >
                   <option value="">
-                    {formData.category_id 
-                      ? (categoryBatchTypes?.length > 0 
-                        ? 'Select Batch Type' 
+                    {formData.category_id
+                      ? (categoryBatchTypes?.length > 0
+                        ? 'Select Batch Type'
                         : 'No batch types assigned to this category')
                       : 'Select Category first'}
                   </option>
@@ -949,9 +985,9 @@ const InventoryBatches = () => {
               {selectedCategory?.attribute_schema && selectedCategory.attribute_schema.length > 0 && (() => {
                 // Filter out gauge_mm from schema to prevent duplicate input (gauge is handled separately above)
                 const filteredSchema = selectedCategory.attribute_schema.filter(attr => attr.name !== 'gauge_mm');
-                
+
                 if (filteredSchema.length === 0) return null;
-                
+
                 return (
                   <div className="mt-4 pt-4 border-t border-gray-200">
                     <h4 className="text-sm font-semibold text-gray-900 mb-4">Batch Attributes</h4>

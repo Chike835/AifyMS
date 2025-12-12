@@ -44,10 +44,47 @@ const Sidebar = ({ isCollapsed, onToggle }) => {
   const [expandedGroups, setExpandedGroups] = useState({});
 
   const toggleGroup = (groupKey) => {
-    setExpandedGroups((prev) => ({
-      ...prev,
-      [groupKey]: !prev[groupKey],
-    }));
+    setExpandedGroups((prev) => {
+      const isCurrentlyExpanded = prev[groupKey];
+
+      // If closing the current group, just close it
+      if (isCurrentlyExpanded) {
+        return {
+          ...prev,
+          [groupKey]: false,
+        };
+      }
+
+      // Check if this is a subgroup (ends with '-subgroup')
+      const isSubgroup = groupKey.endsWith('-subgroup');
+
+      if (isSubgroup) {
+        // For subgroups: close other subgroups, keep parent groups open
+        const newState = {};
+        Object.keys(prev).forEach((key) => {
+          if (key.endsWith('-subgroup')) {
+            // Close all other subgroups
+            newState[key] = false;
+          } else {
+            // Keep parent group state unchanged
+            newState[key] = prev[key];
+          }
+        });
+        // Open the clicked subgroup
+        newState[groupKey] = true;
+        return newState;
+      } else {
+        // For top-level groups: close all other top-level groups and all subgroups
+        const newState = {};
+        Object.keys(prev).forEach((key) => {
+          // Close everything
+          newState[key] = false;
+        });
+        // Open only the clicked group
+        newState[groupKey] = true;
+        return newState;
+      }
+    });
   };
 
   const isPathActive = (path) => {
@@ -108,6 +145,7 @@ const Sidebar = ({ isCollapsed, onToggle }) => {
           type: 'subgroup',
           name: 'Stock Operations',
           items: [
+            { name: 'Inventory Management', path: '/inventory', icon: Package, permission: 'batch_view' },
             { name: 'Stock Transfer', path: '/inventory/stock-transfer', icon: Truck, permission: 'stock_transfer_init' },
             { name: 'Stock Adjustment', path: '/inventory/stock-adjustment', icon: RotateCcw, permission: 'stock_adjust' },
           ],
@@ -250,11 +288,10 @@ const Sidebar = ({ isCollapsed, onToggle }) => {
         <Link
           key={item.path}
           to={item.path}
-          className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
-            isActive
-              ? 'bg-primary-600 text-white'
-              : 'text-gray-300 hover:bg-gray-800'
-          }`}
+          className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${isActive
+            ? 'bg-primary-600 text-white'
+            : 'text-gray-300 hover:bg-gray-800'
+            }`}
         >
           <Icon className="h-5 w-5" />
           <span>{item.name}</span>
@@ -278,11 +315,10 @@ const Sidebar = ({ isCollapsed, onToggle }) => {
         <div key={groupKey} className="space-y-1">
           <button
             onClick={() => toggleGroup(groupKey)}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-lg transition-colors ${
-              hasActiveChild
-                ? 'bg-primary-600 text-white'
-                : 'text-gray-300 hover:bg-gray-800'
-            }`}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-lg transition-colors ${hasActiveChild
+              ? 'bg-primary-600 text-white'
+              : 'text-gray-300 hover:bg-gray-800'
+              }`}
           >
             <div className="flex items-center space-x-3">
               <item.icon className="h-5 w-5" />
@@ -318,11 +354,10 @@ const Sidebar = ({ isCollapsed, onToggle }) => {
         <div key={subgroupKey} className="space-y-1">
           <button
             onClick={() => toggleGroup(subgroupKey)}
-            className={`w-full flex items-center justify-between px-4 py-2 rounded-lg transition-colors text-sm ${
-              hasActiveChild
-                ? 'bg-primary-600 text-white'
-                : 'text-gray-400 hover:bg-gray-800'
-            }`}
+            className={`w-full flex items-center justify-between px-4 py-2 rounded-lg transition-colors text-sm ${hasActiveChild
+              ? 'bg-primary-600 text-white'
+              : 'text-gray-400 hover:bg-gray-800'
+              }`}
           >
             <span>{item.name}</span>
             {isExpanded ? (
@@ -351,11 +386,10 @@ const Sidebar = ({ isCollapsed, onToggle }) => {
         key={item.path}
         to={item.path}
         state={item.action ? { action: item.action } : undefined}
-        className={`flex items-center space-x-3 px-4 py-2 rounded-lg transition-colors text-sm ${
-          isActive
-            ? 'bg-primary-600 text-white'
-            : 'text-gray-300 hover:bg-gray-800'
-        }`}
+        className={`flex items-center space-x-3 px-4 py-2 rounded-lg transition-colors text-sm ${isActive
+          ? 'bg-primary-600 text-white'
+          : 'text-gray-300 hover:bg-gray-800'
+          }`}
       >
         <Icon className="h-4 w-4" />
         <span>{item.name}</span>

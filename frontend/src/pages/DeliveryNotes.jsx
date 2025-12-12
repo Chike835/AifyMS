@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
+import { sortData } from '../utils/sortUtils';
+import SortIndicator from '../components/common/SortIndicator';
 import { FileText, Plus, Edit, Trash2, X, CheckCircle, AlertCircle, Star, Eye } from 'lucide-react';
 import ListToolbar from '../components/common/ListToolbar';
 import ExportModal from '../components/import/ExportModal';
@@ -23,6 +25,20 @@ const DeliveryNotes = () => {
     preview: true,
     actions: true
   });
+
+  // Sorting
+  const [sortField, setSortField] = useState('name');
+  const [sortDirection, setSortDirection] = useState('asc');
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
   const [formData, setFormData] = useState({
     name: '',
     template_content: '',
@@ -295,17 +311,26 @@ Thank you for your business!`;
             <tr>
               {visibleColumns.name && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Name
+                  <button onClick={() => handleSort('name')} className="flex items-center gap-1">
+                    Name
+                    <SortIndicator field="name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.branch && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Branch
+                  <button onClick={() => handleSort('branch.name')} className="flex items-center gap-1">
+                    Branch
+                    <SortIndicator field="branch.name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.is_default && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Default
+                  <button onClick={() => handleSort('is_default')} className="flex items-center gap-1">
+                    Default
+                    <SortIndicator field="is_default" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.preview && (
@@ -321,64 +346,64 @@ Thank you for your business!`;
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {(data || [])
+            {sortData((data || [])
               .filter(template => {
                 if (!searchTerm) return true;
                 return template.name?.toLowerCase().includes(searchTerm.toLowerCase());
-              })
+              }), sortField, sortDirection)
               .slice(0, limit === -1 ? undefined : limit)
               .map((template) => (
-              <tr key={template.id} className="hover:bg-gray-50">
-                {visibleColumns.name && (
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{template.name}</div>
-                  </td>
-                )}
-                {visibleColumns.branch && (
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{template.branch?.name || 'All Branches'}</div>
-                  </td>
-                )}
-                {visibleColumns.is_default && (
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {template.is_default ? (
-                      <Star className="h-5 w-5 text-yellow-500 fill-current" />
-                    ) : (
-                      <span className="text-gray-400">—</span>
-                    )}
-                  </td>
-                )}
-                {visibleColumns.preview && (
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <button
-                      onClick={() => handlePreview(template)}
-                      className="text-blue-600 hover:text-blue-900 text-sm"
-                    >
-                      <Eye className="h-5 w-5" />
-                    </button>
-                  </td>
-                )}
-                {visibleColumns.actions && hasPermission('sale_edit_price') && (
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex justify-end space-x-2">
+                <tr key={template.id} className="hover:bg-gray-50">
+                  {visibleColumns.name && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{template.name}</div>
+                    </td>
+                  )}
+                  {visibleColumns.branch && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{template.branch?.name || 'All Branches'}</div>
+                    </td>
+                  )}
+                  {visibleColumns.is_default && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {template.is_default ? (
+                        <Star className="h-5 w-5 text-yellow-500 fill-current" />
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
+                  )}
+                  {visibleColumns.preview && (
+                    <td className="px-6 py-4 whitespace-nowrap">
                       <button
-                        onClick={() => handleEdit(template)}
-                        className="text-primary-600 hover:text-primary-900"
+                        onClick={() => handlePreview(template)}
+                        className="text-blue-600 hover:text-blue-900 text-sm"
                       >
-                        <Edit className="h-5 w-5" />
+                        <Eye className="h-5 w-5" />
                       </button>
-                      <button
-                        onClick={() => handleDelete(template)}
-                        className="text-red-600 hover:text-red-900"
-                        disabled={template.is_default}
-                      >
-                        <Trash2 className="h-5 w-5" />
-                      </button>
-                    </div>
-                  </td>
-                )}
-              </tr>
-            ))}
+                    </td>
+                  )}
+                  {visibleColumns.actions && hasPermission('sale_edit_price') && (
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex justify-end space-x-2">
+                        <button
+                          onClick={() => handleEdit(template)}
+                          className="text-primary-600 hover:text-primary-900"
+                        >
+                          <Edit className="h-5 w-5" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(template)}
+                          className="text-red-600 hover:text-red-900"
+                          disabled={template.is_default}
+                        >
+                          <Trash2 className="h-5 w-5" />
+                        </button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
           </tbody>
         </table>
         {data?.length === 0 && (

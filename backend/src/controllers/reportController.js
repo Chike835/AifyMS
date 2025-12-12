@@ -52,14 +52,14 @@ export const getSalesSummary = async (req, res, next) => {
     const salesCount = await SalesOrder.count({ where });
 
     // Paid/Unpaid breakdown
-    const paidSales = await SalesOrder.sum('total_amount', { 
-      where: { ...where, payment_status: 'paid' } 
+    const paidSales = await SalesOrder.sum('total_amount', {
+      where: { ...where, payment_status: 'paid' }
     }) || 0;
-    const unpaidSales = await SalesOrder.sum('total_amount', { 
-      where: { ...where, payment_status: 'unpaid' } 
+    const unpaidSales = await SalesOrder.sum('total_amount', {
+      where: { ...where, payment_status: 'unpaid' }
     }) || 0;
-    const partialSales = await SalesOrder.sum('total_amount', { 
-      where: { ...where, payment_status: 'partial' } 
+    const partialSales = await SalesOrder.sum('total_amount', {
+      where: { ...where, payment_status: 'partial' }
     }) || 0;
 
     // Top selling products
@@ -70,11 +70,11 @@ export const getSalesSummary = async (req, res, next) => {
         [fn('SUM', col('subtotal')), 'total_revenue']
       ],
       include: [
-        { 
-          model: SalesOrder, 
-          as: 'order', 
+        {
+          model: SalesOrder,
+          as: 'order',
           attributes: [],
-          where 
+          where
         },
         { model: Product, as: 'product', attributes: ['name', 'sku'] }
       ],
@@ -209,9 +209,9 @@ export const getInventoryValue = async (req, res, next) => {
     const batches = await InventoryBatch.findAll({
       where,
       include: [
-        { 
-          model: Product, 
-          as: 'product', 
+        {
+          model: Product,
+          as: 'product',
           attributes: ['name', 'sku', 'cost_price', 'sale_price', 'type']
         },
         { model: Branch, as: 'branch', attributes: ['name'] }
@@ -227,10 +227,10 @@ export const getInventoryValue = async (req, res, next) => {
       const qty = parseFloat(instance.remaining_quantity);
       const costPrice = parseFloat(instance.product?.cost_price || 0);
       const salePrice = parseFloat(instance.product?.sale_price || 0);
-      
+
       const costValue = qty * costPrice;
       const saleValue = qty * salePrice;
-      
+
       totalCostValue += costValue;
       totalSaleValue += saleValue;
 
@@ -420,12 +420,12 @@ export const getPaymentSummary = async (req, res, next) => {
     }
 
     // Total payments
-    const confirmedPayments = await Payment.sum('amount', { 
-      where: { ...where, status: 'confirmed' } 
+    const confirmedPayments = await Payment.sum('amount', {
+      where: { ...where, status: 'confirmed' }
     }) || 0;
 
-    const pendingPayments = await Payment.sum('amount', { 
-      where: { ...where, status: 'pending_confirmation' } 
+    const pendingPayments = await Payment.sum('amount', {
+      where: { ...where, status: 'pending_confirmation' }
     }) || 0;
 
     // By method
@@ -495,8 +495,8 @@ export const getProfitLoss = async (req, res, next) => {
     const totalRevenue = await SalesOrder.sum('total_amount', { where: orderWhere }) || 0;
 
     // Cost of Goods Sold (simplified - using purchases)
-    const cogs = await Purchase.sum('total_amount', { 
-      where: { ...where, status: { [Op.ne]: 'cancelled' } } 
+    const cogs = await Purchase.sum('total_amount', {
+      where: { ...where, status: { [Op.ne]: 'cancelled' } }
     }) || 0;
 
     // Operating Expenses
@@ -583,8 +583,8 @@ export const getBalanceSheet = async (req, res, next) => {
     // Fixed Assets (simplified - could add fixed assets table later)
     const fixedAssets = 0; // Placeholder
 
-    const totalAssets = parseFloat(cashAccounts) + parseFloat(bankAccounts) + 
-                       parseFloat(accountsReceivable) + totalInventoryValue + fixedAssets;
+    const totalAssets = parseFloat(cashAccounts) + parseFloat(bankAccounts) +
+      parseFloat(accountsReceivable) + totalInventoryValue + fixedAssets;
 
     // LIABILITIES
     // Current Liabilities
@@ -603,8 +603,8 @@ export const getBalanceSheet = async (req, res, next) => {
     // EQUITY
     // - Retained Earnings (simplified - calculate net profit directly)
     const revenue = await SalesOrder.sum('total_amount', { where: orderWhere }) || 0;
-    const cogs = await Purchase.sum('total_amount', { 
-      where: { ...where, status: { [Op.ne]: 'cancelled' } } 
+    const cogs = await Purchase.sum('total_amount', {
+      where: { ...where, status: { [Op.ne]: 'cancelled' } }
     }) || 0;
     const expenseWhere = {};
     if (as_of_date) {
@@ -632,8 +632,8 @@ export const getBalanceSheet = async (req, res, next) => {
           bank: parseFloat(bankAccounts),
           accounts_receivable: parseFloat(accountsReceivable),
           inventory: totalInventoryValue,
-          total: parseFloat(cashAccounts) + parseFloat(bankAccounts) + 
-                 parseFloat(accountsReceivable) + totalInventoryValue
+          total: parseFloat(cashAccounts) + parseFloat(bankAccounts) +
+            parseFloat(accountsReceivable) + totalInventoryValue
         },
         fixed_assets: fixedAssets,
         total: totalAssets
@@ -704,8 +704,8 @@ export const getTrialBalance = async (req, res, next) => {
       where: { ...where }
     }) || 0;
 
-    const totalDebits = parseFloat(cashDebit) + inventoryDebitTotal + 
-                       parseFloat(accountsReceivableDebit) + parseFloat(expenseDebit);
+    const totalDebits = parseFloat(cashDebit) + inventoryDebitTotal +
+      parseFloat(accountsReceivableDebit) + parseFloat(expenseDebit);
 
     // Credits (Liabilities, Revenue, Equity)
     const accountsPayableCredit = await Purchase.sum('total_amount', {
@@ -722,8 +722,8 @@ export const getTrialBalance = async (req, res, next) => {
       where: { ...where, is_active: true }
     }) || 0;
 
-    const totalCredits = parseFloat(accountsPayableCredit) + parseFloat(supplierCredit) + 
-                        parseFloat(revenueCredit) + parseFloat(openingBalanceCredit);
+    const totalCredits = parseFloat(accountsPayableCredit) + parseFloat(supplierCredit) +
+      parseFloat(revenueCredit) + parseFloat(openingBalanceCredit);
 
     res.json({
       as_of_date: as_of_date || new Date().toISOString().split('T')[0],
@@ -790,8 +790,8 @@ export const getCashFlowStatement = async (req, res, next) => {
       where: { ...where, status: { [Op.ne]: 'cancelled' } }
     }) || 0;
 
-    const operatingCashFlow = parseFloat(cashFromSales) + parseFloat(cashFromTransfers) - 
-                             parseFloat(cashPaidExpenses) - parseFloat(cashPaidPurchases);
+    const operatingCashFlow = parseFloat(cashFromSales) + parseFloat(cashFromTransfers) -
+      parseFloat(cashPaidExpenses) - parseFloat(cashPaidPurchases);
 
     // INVESTING ACTIVITIES (simplified - could add fixed assets later)
     const investingCashFlow = 0;
@@ -906,6 +906,10 @@ export const getStockAdjustmentReport = async (req, res, next) => {
 export const getTrendingProducts = async (req, res, next) => {
   try {
     const { start_date, end_date, branch_id, limit = 20 } = req.query;
+    let queryLimit = parseInt(limit);
+    if (queryLimit < 1) {
+      queryLimit = null;
+    }
     const orderWhere = {
       order_type: 'invoice'
     };
@@ -944,7 +948,7 @@ export const getTrendingProducts = async (req, res, next) => {
       ],
       group: ['SalesItem.product_id', 'product.id'],
       order: [[literal('total_revenue'), 'DESC']],
-      limit: parseInt(limit)
+      limit: queryLimit
     });
 
     res.json({
@@ -1588,7 +1592,11 @@ export const getRegisterReport = async (req, res, next) => {
 export const getActivityLogReport = async (req, res, next) => {
   try {
     const { start_date, end_date, branch_id, action_type, module, user_id, limit = 100 } = req.query;
-    
+    let queryLimit = parseInt(limit);
+    if (queryLimit < 1) {
+      queryLimit = null;
+    }
+
     const where = {};
 
     // Date filter
@@ -1632,14 +1640,14 @@ export const getActivityLogReport = async (req, res, next) => {
     const activities = await ActivityLog.findAll({
       where,
       include: [
-        { 
-          model: User, 
-          as: 'user', 
-          attributes: ['id', 'full_name', 'email'] 
+        {
+          model: User,
+          as: 'user',
+          attributes: ['id', 'full_name', 'email']
         },
-        { 
-          model: Branch, 
-          as: 'branch', 
+        {
+          model: Branch,
+          as: 'branch',
           attributes: ['id', 'name', 'code'],
           required: false
         }

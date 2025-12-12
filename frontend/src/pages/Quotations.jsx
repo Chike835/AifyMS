@@ -8,6 +8,9 @@ import ManufacturedItemSelector from '../components/sales/ManufacturedItemSelect
 import ListToolbar from '../components/common/ListToolbar';
 import ExportModal from '../components/import/ExportModal';
 
+import { sortData } from '../utils/sortUtils';
+import SortIndicator from '../components/common/SortIndicator';
+
 const Quotations = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -31,6 +34,19 @@ const Quotations = () => {
   const [deleteId, setDeleteId] = useState(null);
   const [showCoilSelector, setShowCoilSelector] = useState(false);
   const [quotationToConvert, setQuotationToConvert] = useState(null);
+
+  // Sorting
+  const [sortField, setSortField] = useState('created_at');
+  const [sortDirection, setSortDirection] = useState('desc');
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
   // Fetch quotations
   const { data, isLoading, error } = useQuery({
@@ -125,7 +141,7 @@ const Quotations = () => {
 
     // Check if quotation has manufactured products that need coil selection
     const hasManufactured = quotation.items?.some(item => item.product?.type === 'manufactured_virtual');
-    
+
     if (hasManufactured) {
       // Show coil selection modal for manufactured items
       setQuotationToConvert(quotation);
@@ -139,9 +155,9 @@ const Quotations = () => {
 
   const handleCoilSelectionConfirm = (itemAssignments) => {
     if (quotationToConvert) {
-      convertMutation.mutate({ 
-        id: quotationToConvert.id, 
-        item_assignments: itemAssignments 
+      convertMutation.mutate({
+        id: quotationToConvert.id,
+        item_assignments: itemAssignments
       });
     }
     setShowCoilSelector(false);
@@ -172,14 +188,14 @@ const Quotations = () => {
   const quotations = data?.quotations || [];
 
   // Filter by search term
-  const filteredQuotations = quotations.filter(quote => {
+  const filteredQuotations = sortData(quotations.filter(quote => {
     if (!searchTerm) return true;
     const search = searchTerm.toLowerCase();
     return (
       quote.invoice_number?.toLowerCase().includes(search) ||
       quote.customer?.name?.toLowerCase().includes(search)
     );
-  });
+  }), sortField, sortDirection);
 
   // Calculate stats
   const activeCount = quotations.filter(q => !q.is_expired).length;
@@ -262,12 +278,18 @@ const Quotations = () => {
             <tr>
               {visibleColumns.quote_number && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Quote #
+                  <button onClick={() => handleSort('invoice_number')} className="flex items-center gap-1">
+                    Quote #
+                    <SortIndicator field="invoice_number" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.customer && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Customer
+                  <button onClick={() => handleSort('customer.name')} className="flex items-center gap-1">
+                    Customer
+                    <SortIndicator field="customer.name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.items && (
@@ -277,17 +299,26 @@ const Quotations = () => {
               )}
               {visibleColumns.total && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Total
+                  <button onClick={() => handleSort('total_amount')} className="flex items-center gap-1">
+                    Total
+                    <SortIndicator field="total_amount" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.valid_until && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Valid Until
+                  <button onClick={() => handleSort('valid_until')} className="flex items-center gap-1">
+                    Valid Until
+                    <SortIndicator field="valid_until" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.status && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
+                  <button onClick={() => handleSort('is_expired')} className="flex items-center gap-1">
+                    Status
+                    <SortIndicator field="is_expired" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.actions && (
@@ -312,7 +343,7 @@ const Quotations = () => {
               filteredQuotations.slice(0, limit === -1 ? undefined : limit).map((quote) => {
                 const daysUntil = getDaysUntilExpiry(quote.valid_until);
                 const isExpiringSoon = daysUntil !== null && daysUntil >= 0 && daysUntil <= 3;
-                
+
                 return (
                   <tr key={quote.id} className="hover:bg-gray-50">
                     {visibleColumns.quote_number && (

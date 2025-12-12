@@ -5,6 +5,8 @@ import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import ListToolbar from '../components/common/ListToolbar';
 import ExportModal from '../components/import/ExportModal';
+import { sortData } from '../utils/sortUtils';
+import SortIndicator from '../components/common/SortIndicator';
 import { ClipboardList, Plus, Eye, X, FileText } from 'lucide-react';
 
 const Sales = () => {
@@ -16,6 +18,19 @@ const Sales = () => {
   const [orderTypeFilter, setOrderTypeFilter] = useState('invoice');
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+
+  // Sorting
+  const [sortField, setSortField] = useState('created_at');
+  const [sortDirection, setSortDirection] = useState('desc');
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -38,12 +53,13 @@ const Sales = () => {
 
   // Fetch sales orders
   const { data, isLoading, error } = useQuery({
-    queryKey: ['sales', paymentStatusFilter, productionStatusFilter, orderTypeFilter, page, limit],
+    queryKey: ['sales', paymentStatusFilter, productionStatusFilter, orderTypeFilter, page, limit, searchTerm],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (paymentStatusFilter) params.append('payment_status', paymentStatusFilter);
       if (productionStatusFilter) params.append('production_status', productionStatusFilter);
       if (orderTypeFilter) params.append('order_type', orderTypeFilter);
+      if (searchTerm) params.append('search', searchTerm);
       params.append('page', page);
       params.append('limit', limit === -1 ? 10000 : limit);
       const response = await api.get(`/sales?${params.toString()}`);
@@ -126,16 +142,8 @@ const Sales = () => {
   const orders = data?.orders || [];
   const pagination = data?.pagination || { total: 0, page: 1, limit: 25, total_pages: 1 };
 
-  // Filter by search term
-  const filteredOrders = orders.filter(order => {
-    if (!searchTerm) return true;
-    const search = searchTerm.toLowerCase();
-    return (
-      order.invoice_number?.toLowerCase().includes(search) ||
-      order.customer?.name?.toLowerCase().includes(search) ||
-      order.branch?.name?.toLowerCase().includes(search)
-    );
-  });
+  // Filter by search term (Server-side now)
+  const filteredOrders = sortData(orders, sortField, sortDirection);
 
   return (
     <div>
@@ -170,6 +178,7 @@ const Sales = () => {
         searchTerm={searchTerm}
         onSearchChange={(value) => {
           setSearchTerm(value);
+          setPage(1);
         }}
         searchPlaceholder="Search by invoice #, customer..."
       >
@@ -240,42 +249,66 @@ const Sales = () => {
             <tr>
               {visibleColumns.invoice_number && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Invoice #
+                  <button onClick={() => handleSort('invoice_number')} className="flex items-center gap-1">
+                    Invoice #
+                    <SortIndicator field="invoice_number" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.customer && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Customer
+                  <button onClick={() => handleSort('customer.name')} className="flex items-center gap-1">
+                    Customer
+                    <SortIndicator field="customer.name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.branch && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Branch
+                  <button onClick={() => handleSort('branch.name')} className="flex items-center gap-1">
+                    Branch
+                    <SortIndicator field="branch.name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.total && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Total
+                  <button onClick={() => handleSort('total_amount')} className="flex items-center gap-1">
+                    Total
+                    <SortIndicator field="total_amount" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.type && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Type
+                  <button onClick={() => handleSort('order_type')} className="flex items-center gap-1">
+                    Type
+                    <SortIndicator field="order_type" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.payment && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Payment
+                  <button onClick={() => handleSort('payment_status')} className="flex items-center gap-1">
+                    Payment
+                    <SortIndicator field="payment_status" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.production && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Production
+                  <button onClick={() => handleSort('production_status')} className="flex items-center gap-1">
+                    Production
+                    <SortIndicator field="production_status" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.date && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
+                  <button onClick={() => handleSort('created_at')} className="flex items-center gap-1">
+                    Date
+                    <SortIndicator field="created_at" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">

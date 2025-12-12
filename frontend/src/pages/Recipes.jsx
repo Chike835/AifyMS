@@ -6,6 +6,9 @@ import { BookOpen, Plus, Edit, Trash2, X, Calculator, CheckCircle, AlertCircle }
 import ListToolbar from '../components/common/ListToolbar';
 import ExportModal from '../components/import/ExportModal';
 
+import { sortData } from '../utils/sortUtils';
+import SortIndicator from '../components/common/SortIndicator';
+
 const Recipes = () => {
   const { hasPermission } = useAuth();
   const queryClient = useQueryClient();
@@ -34,6 +37,19 @@ const Recipes = () => {
   });
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
+
+  // Sorting
+  const [sortField, setSortField] = useState('name');
+  const [sortDirection, setSortDirection] = useState('asc');
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
   // Fetch recipes
   const { data, isLoading, error } = useQuery({
@@ -221,7 +237,7 @@ const Recipes = () => {
 
     const conversionFactor = parseFloat(selectedRecipe.conversion_factor);
     const wastageMargin = parseFloat(selectedRecipe.wastage_margin || 0);
-    
+
     const baseRequired = qty * conversionFactor;
     const wastage = (baseRequired * wastageMargin) / 100;
     const totalRequired = baseRequired + wastage;
@@ -324,27 +340,42 @@ const Recipes = () => {
             <tr>
               {visibleColumns.recipe_name && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Recipe Name
+                  <button onClick={() => handleSort('name')} className="flex items-center gap-1">
+                    Recipe Name
+                    <SortIndicator field="name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.virtual_product && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Virtual Product
+                  <button onClick={() => handleSort('virtual_product.name')} className="flex items-center gap-1">
+                    Virtual Product
+                    <SortIndicator field="virtual_product.name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.raw_product && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Raw Product
+                  <button onClick={() => handleSort('raw_product.name')} className="flex items-center gap-1">
+                    Raw Product
+                    <SortIndicator field="raw_product.name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.conversion_factor && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Conversion Factor
+                  <button onClick={() => handleSort('conversion_factor')} className="flex items-center gap-1">
+                    Conversion Factor
+                    <SortIndicator field="conversion_factor" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.wastage_margin && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Wastage Margin
+                  <button onClick={() => handleSort('wastage_margin')} className="flex items-center gap-1">
+                    Wastage Margin
+                    <SortIndicator field="wastage_margin" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.actions && hasPermission('recipe_manage') && (
@@ -360,68 +391,68 @@ const Recipes = () => {
                 if (!searchTerm) return true;
                 const search = searchTerm.toLowerCase();
                 return recipe.name?.toLowerCase().includes(search) ||
-                       recipe.virtual_product?.name?.toLowerCase().includes(search) ||
-                       recipe.raw_product?.name?.toLowerCase().includes(search);
+                  recipe.virtual_product?.name?.toLowerCase().includes(search) ||
+                  recipe.raw_product?.name?.toLowerCase().includes(search);
               })
               .slice(0, limit === -1 ? undefined : limit)
               .map((recipe) => (
-              <tr key={recipe.id} className="hover:bg-gray-50">
-                {visibleColumns.recipe_name && (
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{recipe.name}</div>
-                  </td>
-                )}
-                {visibleColumns.virtual_product && (
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-gray-900">{recipe.virtual_product?.name || 'N/A'}</div>
-                    <div className="text-xs text-gray-500">{recipe.virtual_product?.sku || ''}</div>
-                  </td>
-                )}
-                {visibleColumns.raw_product && (
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-gray-900">{recipe.raw_product?.name || 'N/A'}</div>
-                    <div className="text-xs text-gray-500">{recipe.raw_product?.sku || ''}</div>
-                  </td>
-                )}
-                {visibleColumns.conversion_factor && (
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">
-                      1 {recipe.virtual_product?.base_unit || 'unit'} = {recipe.conversion_factor} {recipe.raw_product?.base_unit || 'unit'}
-                    </div>
-                  </td>
-                )}
-                {visibleColumns.wastage_margin && (
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{recipe.wastage_margin || 0}%</div>
-                  </td>
-                )}
-                {visibleColumns.actions && hasPermission('recipe_manage') && (
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex justify-end space-x-2">
-                      <button
-                        onClick={() => handleShowCalculation(recipe)}
-                        className="text-blue-600 hover:text-blue-900"
-                        title="Calculate raw material"
-                      >
-                        <Calculator className="h-5 w-5" />
-                      </button>
-                      <button
-                        onClick={() => handleEdit(recipe)}
-                        className="text-primary-600 hover:text-primary-900"
-                      >
-                        <Edit className="h-5 w-5" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(recipe)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        <Trash2 className="h-5 w-5" />
-                      </button>
-                    </div>
-                  </td>
-                )}
-              </tr>
-            ))}
+                <tr key={recipe.id} className="hover:bg-gray-50">
+                  {visibleColumns.recipe_name && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{recipe.name}</div>
+                    </td>
+                  )}
+                  {visibleColumns.virtual_product && (
+                    <td className="px-6 py-4">
+                      <div className="text-sm text-gray-900">{recipe.virtual_product?.name || 'N/A'}</div>
+                      <div className="text-xs text-gray-500">{recipe.virtual_product?.sku || ''}</div>
+                    </td>
+                  )}
+                  {visibleColumns.raw_product && (
+                    <td className="px-6 py-4">
+                      <div className="text-sm text-gray-900">{recipe.raw_product?.name || 'N/A'}</div>
+                      <div className="text-xs text-gray-500">{recipe.raw_product?.sku || ''}</div>
+                    </td>
+                  )}
+                  {visibleColumns.conversion_factor && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        1 {recipe.virtual_product?.base_unit || 'unit'} = {recipe.conversion_factor} {recipe.raw_product?.base_unit || 'unit'}
+                      </div>
+                    </td>
+                  )}
+                  {visibleColumns.wastage_margin && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{recipe.wastage_margin || 0}%</div>
+                    </td>
+                  )}
+                  {visibleColumns.actions && hasPermission('recipe_manage') && (
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex justify-end space-x-2">
+                        <button
+                          onClick={() => handleShowCalculation(recipe)}
+                          className="text-blue-600 hover:text-blue-900"
+                          title="Calculate raw material"
+                        >
+                          <Calculator className="h-5 w-5" />
+                        </button>
+                        <button
+                          onClick={() => handleEdit(recipe)}
+                          className="text-primary-600 hover:text-primary-900"
+                        >
+                          <Edit className="h-5 w-5" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(recipe)}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          <Trash2 className="h-5 w-5" />
+                        </button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
           </tbody>
         </table>
         {data?.length === 0 && (

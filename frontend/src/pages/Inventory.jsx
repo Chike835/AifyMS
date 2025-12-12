@@ -9,6 +9,9 @@ import ImportModal from '../components/import/ImportModal';
 import ListToolbar from '../components/common/ListToolbar';
 import ExportModal from '../components/import/ExportModal';
 
+import { sortData } from '../utils/sortUtils';
+import SortIndicator from '../components/common/SortIndicator';
+
 const Inventory = () => {
   const { hasPermission, user } = useAuth();
   const queryClient = useQueryClient();
@@ -24,7 +27,20 @@ const Inventory = () => {
     instance_code: '',
     initial_quantity: '',
   });
-  
+
+  // Sorting
+  const [sortField, setSortField] = useState('instance_code');
+  const [sortDirection, setSortDirection] = useState('asc');
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
   // Toolbar states
   const [limit, setLimit] = useState(25);
   const [searchTerm, setSearchTerm] = useState('');
@@ -49,9 +65,9 @@ const Inventory = () => {
 
   // Fetch products (raw_tracked only)
   const { data: products } = useQuery({
-    queryKey: ['products', 'raw_tracked'],
+    queryKey: ['products', 'all_inventory'],
     queryFn: async () => {
-      const response = await api.get('/products?type=raw_tracked');
+      const response = await api.get('/products');
       return response.data.products || [];
     },
   });
@@ -121,6 +137,28 @@ const Inventory = () => {
     },
   });
 
+  const instances = data || [];
+
+  // Filter and paginate instances
+  const filteredInstances = useMemo(() => {
+    let result = instances;
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      result = instances.filter(instance =>
+        instance.instance_code?.toLowerCase().includes(search) ||
+        instance.product?.name?.toLowerCase().includes(search) ||
+        instance.product?.sku?.toLowerCase().includes(search) ||
+        instance.branch?.name?.toLowerCase().includes(search)
+      );
+    }
+    return sortData(result, sortField, sortDirection);
+  }, [instances, searchTerm, sortField, sortDirection]);
+
+  const paginatedInstances = useMemo(() => {
+    if (limit === -1) return filteredInstances;
+    return filteredInstances.slice(0, limit);
+  }, [filteredInstances, limit]);
+
   const handleSubmit = (e) => {
     e.preventDefault();
     registerMutation.mutate({
@@ -129,32 +167,7 @@ const Inventory = () => {
     });
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
-      </div>
-    );
-  }
 
-  const instances = data || [];
-
-  // Filter and paginate instances
-  const filteredInstances = useMemo(() => {
-    if (!searchTerm) return instances;
-    const search = searchTerm.toLowerCase();
-    return instances.filter(instance =>
-      instance.instance_code?.toLowerCase().includes(search) ||
-      instance.product?.name?.toLowerCase().includes(search) ||
-      instance.product?.sku?.toLowerCase().includes(search) ||
-      instance.branch?.name?.toLowerCase().includes(search)
-    );
-  }, [instances, searchTerm]);
-
-  const paginatedInstances = useMemo(() => {
-    if (limit === -1) return filteredInstances;
-    return filteredInstances.slice(0, limit);
-  }, [filteredInstances, limit]);
 
   const handlePrint = () => {
     window.print();
@@ -168,15 +181,15 @@ const Inventory = () => {
           <p className="text-gray-600 mt-2">Manage coils and stock instances</p>
         </div>
         <div className="flex flex-wrap gap-3">
-        {hasPermission('stock_add_opening') && (
+          {hasPermission('stock_add_opening') && (
             <>
-          <button
-            onClick={() => setShowRegisterModal(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-          >
-            <Plus className="h-5 w-5" />
-            <span>Register New Coil</span>
-          </button>
+              <button
+                onClick={() => setShowRegisterModal(true)}
+                className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              >
+                <Plus className="h-5 w-5" />
+                <span>Register</span>
+              </button>
               <button
                 onClick={() => setShowImportModal(true)}
                 className="flex items-center space-x-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
@@ -185,7 +198,7 @@ const Inventory = () => {
                 <span>Import Inventory</span>
               </button>
             </>
-        )}
+          )}
         </div>
       </div>
 
@@ -212,140 +225,163 @@ const Inventory = () => {
         />
       )}
 
-      <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              {visibleColumns.instance_code && (
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Instance Code
-                </th>
-              )}
-              {visibleColumns.product && (
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Product
-                </th>
-              )}
-              {visibleColumns.branch && (
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Branch
-                </th>
-              )}
-              {visibleColumns.initial_quantity && (
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Initial Quantity
-                </th>
-              )}
-              {visibleColumns.remaining && (
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Remaining
-                </th>
-              )}
-              {visibleColumns.status && (
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-              )}
-              {visibleColumns.actions && (
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              )}
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {paginatedInstances.length === 0 ? (
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+        </div>
+      ) : (
+        <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
               <tr>
-                <td colSpan={Object.values(visibleColumns).filter(v => v).length} className="px-6 py-12 text-center text-gray-500">
-                  <Package className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                  <p>No inventory instances found</p>
-                  {searchTerm && (
-                    <p className="text-sm mt-1">Try adjusting your search</p>
-                  )}
-                </td>
+                {visibleColumns.instance_code && (
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('instance_code')} className="flex items-center gap-1">
+                      Instance Code
+                      <SortIndicator field="instance_code" sortField={sortField} sortDirection={sortDirection} />
+                    </button>
+                  </th>
+                )}
+                {visibleColumns.product && (
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('product.name')} className="flex items-center gap-1">
+                      Product
+                      <SortIndicator field="product.name" sortField={sortField} sortDirection={sortDirection} />
+                    </button>
+                  </th>
+                )}
+                {visibleColumns.branch && (
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('branch.name')} className="flex items-center gap-1">
+                      Branch
+                      <SortIndicator field="branch.name" sortField={sortField} sortDirection={sortDirection} />
+                    </button>
+                  </th>
+                )}
+                {visibleColumns.initial_quantity && (
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('initial_quantity')} className="flex items-center gap-1">
+                      Initial Quantity
+                      <SortIndicator field="initial_quantity" sortField={sortField} sortDirection={sortDirection} />
+                    </button>
+                  </th>
+                )}
+                {visibleColumns.remaining && (
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('remaining_quantity')} className="flex items-center gap-1">
+                      Remaining
+                      <SortIndicator field="remaining_quantity" sortField={sortField} sortDirection={sortDirection} />
+                    </button>
+                  </th>
+                )}
+                {visibleColumns.status && (
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('status')} className="flex items-center gap-1">
+                      Status
+                      <SortIndicator field="status" sortField={sortField} sortDirection={sortDirection} />
+                    </button>
+                  </th>
+                )}
+                {visibleColumns.actions && (
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
+                )}
               </tr>
-            ) : (
-              paginatedInstances.map((instance) => (
-                <tr key={instance.id} className="hover:bg-gray-50">
-                  {visibleColumns.instance_code && (
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">
-                        {instance.instance_code}
-                      </div>
-                    </td>
-                  )}
-                  {visibleColumns.product && (
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{instance.product?.name}</div>
-                      <div className="text-sm text-gray-500">{instance.product?.sku}</div>
-                    </td>
-                  )}
-                  {visibleColumns.branch && (
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {instance.branch?.name}
-                    </td>
-                  )}
-                  {visibleColumns.initial_quantity && (
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {parseFloat(instance.initial_quantity).toFixed(3)} {instance.product?.base_unit}
-                    </td>
-                  )}
-                  {visibleColumns.remaining && (
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {parseFloat(instance.remaining_quantity).toFixed(3)} {instance.product?.base_unit}
-                    </td>
-                  )}
-                  {visibleColumns.status && (
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          instance.status === 'in_stock'
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {paginatedInstances.length === 0 ? (
+                <tr>
+                  <td colSpan={Object.values(visibleColumns).filter(v => v).length} className="px-6 py-12 text-center text-gray-500">
+                    <Package className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                    <p>No inventory instances found</p>
+                    {searchTerm && (
+                      <p className="text-sm mt-1">Try adjusting your search</p>
+                    )}
+                  </td>
+                </tr>
+              ) : (
+                paginatedInstances.map((instance) => (
+                  <tr key={instance.id} className="hover:bg-gray-50">
+                    {visibleColumns.instance_code && (
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">
+                          {instance.instance_code}
+                        </div>
+                      </td>
+                    )}
+                    {visibleColumns.product && (
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{instance.product?.name}</div>
+                        <div className="text-sm text-gray-500">{instance.product?.sku}</div>
+                      </td>
+                    )}
+                    {visibleColumns.branch && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {instance.branch?.name}
+                      </td>
+                    )}
+                    {visibleColumns.initial_quantity && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {parseFloat(instance.initial_quantity).toFixed(3)} {instance.product?.base_unit}
+                      </td>
+                    )}
+                    {visibleColumns.remaining && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {parseFloat(instance.remaining_quantity).toFixed(3)} {instance.product?.base_unit}
+                      </td>
+                    )}
+                    {visibleColumns.status && (
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${instance.status === 'in_stock'
                             ? 'bg-green-100 text-green-800'
                             : instance.status === 'depleted'
-                            ? 'bg-red-100 text-red-800'
-                            : 'bg-gray-100 text-gray-800'
-                        }`}
-                      >
-                        {instance.status}
-                      </span>
-                    </td>
-                  )}
-                  {visibleColumns.actions && (
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex justify-end space-x-2">
-                        {hasPermission('stock_transfer_init') && (
-                          <button
-                            onClick={() => {
-                              setSelectedInstance(instance);
-                              setShowTransferModal(true);
-                            }}
-                            className="text-blue-600 hover:text-blue-900"
-                            title="Transfer"
-                          >
-                            <ArrowRightLeft className="h-4 w-4" />
-                          </button>
-                        )}
-                        {hasPermission('stock_adjust') && (
-                          <button
-                            onClick={() => {
-                              setSelectedInstance(instance);
-                              setShowAdjustModal(true);
-                            }}
-                            className="text-orange-600 hover:text-orange-900"
-                            title="Adjust"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-gray-100 text-gray-800'
+                            }`}
+                        >
+                          {instance.status}
+                        </span>
+                      </td>
+                    )}
+                    {visibleColumns.actions && (
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <div className="flex justify-end space-x-2">
+                          {hasPermission('stock_transfer_init') && (
+                            <button
+                              onClick={() => {
+                                setSelectedInstance(instance);
+                                setShowTransferModal(true);
+                              }}
+                              className="text-blue-600 hover:text-blue-900"
+                              title="Transfer"
+                            >
+                              <ArrowRightLeft className="h-4 w-4" />
+                            </button>
+                          )}
+                          {hasPermission('stock_adjust') && (
+                            <button
+                              onClick={() => {
+                                setSelectedInstance(instance);
+                                setShowAdjustModal(true);
+                              }}
+                              className="text-orange-600 hover:text-orange-900"
+                              title="Adjust"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Register Coil Modal */}
       {showRegisterModal && (
@@ -425,8 +461,8 @@ const Inventory = () => {
         branches={branches || []}
         isSubmitting={transferMutation.isPending}
         onClose={() => {
-                    setShowTransferModal(false);
-                    setSelectedInstance(null);
+          setShowTransferModal(false);
+          setSelectedInstance(null);
         }}
         onSubmit={(payload) => transferMutation.mutate(payload)}
       />
@@ -436,8 +472,8 @@ const Inventory = () => {
         instance={selectedInstance}
         isSubmitting={adjustMutation.isPending}
         onClose={() => {
-                    setShowAdjustModal(false);
-                    setSelectedInstance(null);
+          setShowAdjustModal(false);
+          setSelectedInstance(null);
         }}
         onSubmit={(payload) => adjustMutation.mutate(payload)}
       />
@@ -451,11 +487,11 @@ const Inventory = () => {
           const updated = results.updated || 0;
           const skipped = results.skipped || 0;
           const errors = results.errors || [];
-          
+
           // Only refresh if records were actually created/updated
           if (created > 0 || updated > 0) {
             queryClient.invalidateQueries({ queryKey: ['inventoryInstances'] });
-            
+
             let message = `Import completed! ${created} created, ${updated} updated`;
             if (skipped > 0) {
               message += `, ${skipped} skipped`;

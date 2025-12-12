@@ -24,11 +24,15 @@ import {
   Upload
 } from 'lucide-react';
 
+import { sortData } from '../utils/sortUtils';
+import SortIndicator from '../components/common/SortIndicator';
+
 const productTypeLabels = {
   standard: 'Single',
   compound: 'Combo',
   raw_tracked: 'Raw (Tracked)',
-  manufactured_virtual: 'Manufactured'
+  manufactured_virtual: 'Manufactured',
+  variable: 'Variable'
 };
 
 const Products = () => {
@@ -50,6 +54,19 @@ const Products = () => {
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  // Sorting
+  const [sortField, setSortField] = useState('name');
+  const [sortDirection, setSortDirection] = useState('asc');
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -180,7 +197,7 @@ const Products = () => {
     }
   });
 
-  const products = data?.products || [];
+  const products = sortData(data?.products || [], sortField, sortDirection);
   const pagination = data?.pagination || { total: 0, page: 1, limit: 25, total_pages: 1 };
   const totals = data?.totals || { total_stock: 0, total_purchase_price: 0, total_selling_price: 0 };
 
@@ -296,8 +313,8 @@ const Products = () => {
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium shadow-sm ${showFilters
-                ? 'border-primary-500 bg-primary-50 text-primary-700'
-                : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+              ? 'border-primary-500 bg-primary-50 text-primary-700'
+              : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
               }`}
           >
             <Filter className="h-4 w-4" />
@@ -331,6 +348,7 @@ const Products = () => {
                 <option value="compound">Combo</option>
                 <option value="raw_tracked">Raw (Tracked)</option>
                 <option value="manufactured_virtual">Manufactured</option>
+                <option value="variable">Variable</option>
               </select>
             </div>
 
@@ -498,16 +516,25 @@ const Products = () => {
                     Action
                   </th>
                   <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600">
-                    SKU
+                    <button onClick={() => handleSort('sku')} className="flex items-center gap-1">
+                      SKU
+                      <SortIndicator field="sku" sortField={sortField} sortDirection={sortDirection} />
+                    </button>
                   </th>
                   {visibleColumns.product && (
                     <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600">
-                      Product
+                      <button onClick={() => handleSort('name')} className="flex items-center gap-1">
+                        Product
+                        <SortIndicator field="name" sortField={sortField} sortDirection={sortDirection} />
+                      </button>
                     </th>
                   )}
                   {visibleColumns.category && (
                     <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600">
-                      Category
+                      <button onClick={() => handleSort('categoryRef.name')} className="flex items-center gap-1">
+                        Category
+                        <SortIndicator field="categoryRef.name" sortField={sortField} sortDirection={sortDirection} />
+                      </button>
                     </th>
                   )}
                   {visibleColumns.business_location && (
@@ -517,22 +544,34 @@ const Products = () => {
                   )}
                   {visibleColumns.unit_price && (
                     <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-600">
-                      Unit Purchase Price
+                      <button onClick={() => handleSort('cost_price')} className="flex items-center justify-end gap-1 w-full">
+                        Unit Purchase Price
+                        <SortIndicator field="cost_price" sortField={sortField} sortDirection={sortDirection} />
+                      </button>
                     </th>
                   )}
                   {visibleColumns.selling_price && (
                     <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-600">
-                      Selling Price
+                      <button onClick={() => handleSort('sale_price')} className="flex items-center justify-end gap-1 w-full">
+                        Selling Price
+                        <SortIndicator field="sale_price" sortField={sortField} sortDirection={sortDirection} />
+                      </button>
                     </th>
                   )}
                   {visibleColumns.current_stock && (
                     <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-600">
-                      Current Stock
+                      <button onClick={() => handleSort('current_stock')} className="flex items-center justify-end gap-1 w-full">
+                        Current Stock
+                        <SortIndicator field="current_stock" sortField={sortField} sortDirection={sortDirection} />
+                      </button>
                     </th>
                   )}
                   {visibleColumns.brand && (
                     <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600">
-                      Brand
+                      <button onClick={() => handleSort('brandAttribute.name')} className="flex items-center gap-1">
+                        Brand
+                        <SortIndicator field="brandAttribute.name" sortField={sortField} sortDirection={sortDirection} />
+                      </button>
                     </th>
                   )}
                 </tr>
@@ -751,8 +790,8 @@ const Products = () => {
                   key={pageNum}
                   onClick={() => setPage(pageNum)}
                   className={`rounded px-3 py-1.5 text-sm font-medium ${pageNum === page
-                      ? 'bg-primary-600 text-white'
-                      : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                    ? 'bg-primary-600 text-white'
+                    : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
                     }`}
                 >
                   {pageNum}
@@ -870,120 +909,371 @@ const Products = () => {
 
 // Product View Modal Component
 const ProductViewModal = ({ product, onClose }) => {
+  const [selectedVariantForLedger, setSelectedVariantForLedger] = useState(null);
+
   const formatCurrency = (value) => {
     const num = parseFloat(value) || 0;
     return `₦${num.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-          <h3 className="text-lg font-semibold text-gray-900">Product Details</h3>
+    <>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+        <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-white shadow-xl">
+          <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+            <h3 className="text-lg font-semibold text-gray-900">Product Details</h3>
+            <button onClick={onClose} className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="p-6">
+            <div className="mb-6 flex items-start gap-6">
+              <div className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-100">
+                {product.image_url ? (
+                  <img src={product.image_url} alt={product.name} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-gray-400">
+                    <Package className="h-10 w-10" />
+                  </div>
+                )}
+              </div>
+              <div>
+                <h4 className="text-xl font-semibold text-gray-900">{product.name}</h4>
+                <p className="text-sm text-gray-500">SKU: {product.sku}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <span className="inline-block rounded bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700">
+                    {productTypeLabels[product.type] || product.type}
+                  </span>
+                  {product.not_for_selling && (
+                    <span className="inline-block rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-700">
+                      Not for selling
+                    </span>
+                  )}
+                  {product.is_active === false && (
+                    <span className="inline-block rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700">
+                      Inactive
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-medium text-gray-500">Category</label>
+                <p className="text-sm text-gray-900">{product.categoryRef?.name || product.category || '—'}</p>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500">Brand</label>
+                <p className="text-sm text-gray-900">{product.brandAttribute?.name || product.brand || '—'}</p>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500">Unit</label>
+                <p className="text-sm text-gray-900">
+                  {product.unit ? `${product.unit.name} (${product.unit.abbreviation})` : product.base_unit || '—'}
+                </p>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500">Tax Rate</label>
+                <p className="text-sm text-gray-900">
+                  {product.taxRate ? `${product.taxRate.name} (${product.taxRate.rate}%)` : '—'}
+                </p>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500">Purchase Price</label>
+                <p className="text-sm text-gray-900">
+                  {product.cost_price !== undefined && product.cost_price !== null
+                    ? formatCurrency(product.cost_price)
+                    : '—'}
+                </p>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500">Selling Price</label>
+                <p className="text-sm font-semibold text-gray-900">{formatCurrency(product.sale_price)}</p>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500">Profit Margin</label>
+                <p className="text-sm text-gray-900">{product.profit_margin || 0}%</p>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500">Current Stock</label>
+                <p className="text-sm text-gray-900">
+                  {parseFloat(product.current_stock || 0).toLocaleString()} {product.base_unit || ''}
+                </p>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500">Weight</label>
+                <p className="text-sm text-gray-900">{product.weight || '—'}</p>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500">Manage Stock</label>
+                <p className="text-sm text-gray-900">{product.manage_stock ? 'Yes' : 'No'}</p>
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs font-medium text-gray-500">Business Locations</label>
+                <p className="text-sm text-gray-900">
+                  {product.business_locations && product.business_locations.length > 0
+                    ? product.business_locations.map((b) => b.name).join(', ')
+                    : '—'}
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="border-t border-gray-200 px-6 py-4">
+            {product.type === 'variable' && product.variants && product.variants.length > 0 && (
+              <div className="mb-6">
+                <h4 className="mb-3 text-lg font-semibold text-gray-900">Variants</h4>
+                <div className="overflow-hidden rounded-lg border border-gray-200">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-600">Variant</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-600">SKU</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-gray-600">Price</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-gray-600">Stock</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-gray-600">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 bg-white">
+                      {product.variants.map((variant) => {
+                        const child = variant.child || {};
+                        return (
+                          <tr key={variant.id} className="hover:bg-gray-50">
+                            <td className="px-4 py-2 text-sm text-gray-900">{child.name || 'Unknown Variant'}</td>
+                            <td className="px-4 py-2 text-sm text-gray-500">{child.sku || '—'}</td>
+                            <td className="px-4 py-2 text-right text-sm text-gray-900">
+                              {formatCurrency(child.sale_price)}
+                            </td>
+                            <td className="px-4 py-2 text-right text-sm text-gray-900">
+                              {parseFloat(child.current_stock || 0).toLocaleString()} {product.base_unit}
+                            </td>
+                            <td className="px-4 py-2 text-right text-sm">
+                              <button
+                                onClick={() => setSelectedVariantForLedger(child)}
+                                className="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                              >
+                                <Eye className="h-3 w-3" /> View Ledger
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={onClose}
+              className="w-full rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+      {selectedVariantForLedger && (
+        <VariantLedgerModal
+          variant={selectedVariantForLedger}
+          onClose={() => setSelectedVariantForLedger(null)}
+        />
+      )}
+    </>
+  );
+};
+
+// Variant Ledger Modal Component
+const VariantLedgerModal = ({ variant, onClose }) => {
+  const [activeTab, setActiveTab] = useState('all'); // all, purchases, sales, batches
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['variantLedger', variant.id],
+    queryFn: async () => {
+      const res = await api.get(`/products/${variant.id}/variant-ledger`);
+      return res.data;
+    }
+  });
+
+  const ledger = data?.ledger || [];
+  const batches = data?.batches || [];
+  const summary = data?.summary || {};
+
+  const filteredLedger = ledger.filter(item => {
+    if (activeTab === 'all') return true;
+    if (activeTab === 'purchases') return item.type === 'purchase';
+    if (activeTab === 'sales') return item.type === 'sale';
+    return true; // batches are separate
+  });
+
+  const formatCurrency = (value) => {
+    const num = parseFloat(value) || 0;
+    return `₦${num.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return '—';
+    return new Date(dateString).toLocaleDateString() + ' ' + new Date(dateString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-50">
+      <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-lg bg-white shadow-xl flex flex-col">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 bg-white">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Ledger: {variant.name}</h3>
+            <p className="text-sm text-gray-500">SKU: {variant.sku}</p>
+          </div>
           <button onClick={onClose} className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="p-6">
-          <div className="mb-6 flex items-start gap-6">
-            <div className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-100">
-              {product.image_url ? (
-                <img src={product.image_url} alt={product.name} className="h-full w-full object-cover" />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-gray-400">
-                  <Package className="h-10 w-10" />
-                </div>
-              )}
+
+        <div className="flex-1 overflow-y-auto bg-gray-50 p-6">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-primary-600"></div>
             </div>
-            <div>
-              <h4 className="text-xl font-semibold text-gray-900">{product.name}</h4>
-              <p className="text-sm text-gray-500">SKU: {product.sku}</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <span className="inline-block rounded bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700">
-                  {productTypeLabels[product.type] || product.type}
-                </span>
-                {product.not_for_selling && (
-                  <span className="inline-block rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-700">
-                    Not for selling
-                  </span>
-                )}
-                {product.is_active === false && (
-                  <span className="inline-block rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700">
-                    Inactive
-                  </span>
+          ) : (
+            <div className="space-y-6">
+              {/* Summary Cards */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-lg bg-white p-4 shadow-sm">
+                  <p className="text-sm font-medium text-gray-500">Total Bought</p>
+                  <p className="mt-1 text-2xl font-semibold text-gray-900">{summary.total_bought?.toLocaleString()}</p>
+                </div>
+                <div className="rounded-lg bg-white p-4 shadow-sm">
+                  <p className="text-sm font-medium text-gray-500">Total Sold</p>
+                  <p className="mt-1 text-2xl font-semibold text-gray-900">{summary.total_sold?.toLocaleString()}</p>
+                </div>
+                <div className="rounded-lg bg-white p-4 shadow-sm">
+                  <p className="text-sm font-medium text-gray-500">Total Revenue</p>
+                  <p className="mt-1 text-2xl font-semibold text-green-600">{formatCurrency(summary.total_revenue)}</p>
+                </div>
+                <div className="rounded-lg bg-white p-4 shadow-sm">
+                  <p className="text-sm font-medium text-gray-500">Est. Profit</p>
+                  <p className={`mt-1 text-2xl font-semibold ${summary.net_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {formatCurrency(summary.net_profit)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Tabs */}
+              <div className="border-b border-gray-200 bg-white px-2">
+                <nav className="-mb-px flex space-x-8">
+                  {['all', 'purchases', 'sales', 'batches'].map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveTab(tab)}
+                      className={`border-b-2 px-1 py-4 text-sm font-medium ${activeTab === tab
+                          ? 'border-primary-500 text-primary-600'
+                          : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                        }`}
+                    >
+                      {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                    </button>
+                  ))}
+                </nav>
+              </div>
+
+              {/* Content */}
+              <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+                {activeTab === 'batches' ? (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Date/Time</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Instance Code</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Branch</th>
+                          <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Initial Qty</th>
+                          <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Remaining</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200 bg-white">
+                        {batches.length === 0 ? (
+                          <tr>
+                            <td colSpan="6" className="px-6 py-4 text-center text-sm text-gray-500">
+                              No batches found
+                            </td>
+                          </tr>
+                        ) : (
+                          batches.map((batch) => (
+                            <tr key={batch.id} className="hover:bg-gray-50">
+                              <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{formatDate(batch.created_at)}</td>
+                              <td className="px-6 py-4 text-sm text-gray-900">{batch.instance_code || '—'}</td>
+                              <td className="px-6 py-4 text-sm text-gray-900">{batch.branch?.name}</td>
+                              <td className="whitespace-nowrap px-6 py-4 text-right text-sm text-gray-900">
+                                {parseFloat(batch.initial_quantity).toLocaleString()}
+                              </td>
+                              <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-semibold text-gray-900">
+                                {parseFloat(batch.remaining_quantity).toLocaleString()}
+                              </td>
+                              <td className="px-6 py-4 text-sm">
+                                <span className={`inline-flex rounded-full px-2 text-xs font-semibold leading-5 ${batch.status === 'in_stock' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                  }`}>
+                                  {batch.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Date/Time</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Type</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Reference</th>
+                          <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Quantity</th>
+                          <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Unit Amount</th>
+                          <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Total Amount</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200 bg-white">
+                        {filteredLedger.length === 0 ? (
+                          <tr>
+                            <td colSpan="7" className="px-6 py-4 text-center text-sm text-gray-500">
+                              No transactions found
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredLedger.map((item) => (
+                            <tr key={item.id} className="hover:bg-gray-50">
+                              <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{formatDate(item.date)}</td>
+                              <td className="px-6 py-4 text-sm">
+                                <span className={`inline-flex rounded-full px-2 text-xs font-semibold leading-5 ${item.type === 'sale' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
+                                  }`}>
+                                  {item.type.toUpperCase()}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 text-sm text-gray-900 font-medium">{item.reference}</td>
+                              <td className="whitespace-nowrap px-6 py-4 text-right text-sm text-gray-900">
+                                {item.quantity.toLocaleString()}
+                              </td>
+                              <td className="whitespace-nowrap px-6 py-4 text-right text-sm text-gray-900">
+                                {formatCurrency(item.unit_amount)}
+                              </td>
+                              <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-semibold text-gray-900">
+                                {formatCurrency(item.total_amount)}
+                              </td>
+                              <td className="px-6 py-4 text-sm text-gray-500">{item.status}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
             </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-medium text-gray-500">Category</label>
-              <p className="text-sm text-gray-900">{product.categoryRef?.name || product.category || '—'}</p>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-500">Brand</label>
-              <p className="text-sm text-gray-900">{product.brandAttribute?.name || product.brand || '—'}</p>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-500">Unit</label>
-              <p className="text-sm text-gray-900">
-                {product.unit ? `${product.unit.name} (${product.unit.abbreviation})` : product.base_unit || '—'}
-              </p>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-500">Tax Rate</label>
-              <p className="text-sm text-gray-900">
-                {product.taxRate ? `${product.taxRate.name} (${product.taxRate.rate}%)` : '—'}
-              </p>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-500">Purchase Price</label>
-              <p className="text-sm text-gray-900">
-                {product.cost_price !== undefined && product.cost_price !== null
-                  ? formatCurrency(product.cost_price)
-                  : '—'}
-              </p>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-500">Selling Price</label>
-              <p className="text-sm font-semibold text-gray-900">{formatCurrency(product.sale_price)}</p>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-500">Profit Margin</label>
-              <p className="text-sm text-gray-900">{product.profit_margin || 0}%</p>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-500">Current Stock</label>
-              <p className="text-sm text-gray-900">
-                {parseFloat(product.current_stock || 0).toLocaleString()} {product.base_unit || ''}
-              </p>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-500">Weight</label>
-              <p className="text-sm text-gray-900">{product.weight || '—'}</p>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-500">Manage Stock</label>
-              <p className="text-sm text-gray-900">{product.manage_stock ? 'Yes' : 'No'}</p>
-            </div>
-            <div className="col-span-2">
-              <label className="text-xs font-medium text-gray-500">Business Locations</label>
-              <p className="text-sm text-gray-900">
-                {product.business_locations && product.business_locations.length > 0
-                  ? product.business_locations.map((b) => b.name).join(', ')
-                  : '—'}
-              </p>
-            </div>
-          </div>
-        </div>
-        <div className="border-t border-gray-200 px-6 py-4">
-          <button
-            onClick={onClose}
-            className="w-full rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
-          >
-            Close
-          </button>
+          )}
         </div>
       </div>
     </div>
@@ -1231,10 +1521,10 @@ const ProductBatchListModal = ({ product, onClose }) => {
                     <td className="px-4 py-3 text-sm">
                       <span
                         className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${batch.status === 'in_stock'
-                            ? 'bg-green-100 text-green-700'
-                            : batch.status === 'depleted'
-                              ? 'bg-gray-100 text-gray-700'
-                              : 'bg-red-100 text-red-700'
+                          ? 'bg-green-100 text-green-700'
+                          : batch.status === 'depleted'
+                            ? 'bg-gray-100 text-gray-700'
+                            : 'bg-red-100 text-red-700'
                           }`}
                       >
                         {batch.status}

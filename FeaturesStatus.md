@@ -41,7 +41,7 @@
 
 | Feature Category | Sub-Feature | Built (AI) | Working (User) |
 |-----------------|-------------|------------|----------------|
-| **Inventory** | Product types implementation (Standard, Compound, Raw Tracked, Manufactured Virtual) | [x] | [ ] |
+| **Inventory** | Product types implementation (Standard, Compound, Raw Tracked, Manufactured Virtual, Variable) | [x] | [ ] |
 | **Inventory** | Add/Edit Product page with full form (/products/add, /products/:id/edit) | [x] | [ ] |
 | **Inventory** | Stock transfer functionality | [x] | [ ] |
 | **Inventory** | Stock adjustment with reasons | [x] | [ ] |

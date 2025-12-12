@@ -2,9 +2,9 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
+import { sortData } from '../utils/sortUtils';
+import SortIndicator from '../components/common/SortIndicator';
 import { ShoppingCart, Search, X, FileText, Calendar } from 'lucide-react';
-import ListToolbar from '../components/common/ListToolbar';
-import ExportModal from '../components/import/ExportModal';
 
 const POSList = () => {
   const { hasPermission } = useAuth();
@@ -13,7 +13,20 @@ const POSList = () => {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
-  
+
+  // Sorting
+  const [sortField, setSortField] = useState('created_at');
+  const [sortDirection, setSortDirection] = useState('desc');
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
   // Toolbar states
   const [limit, setLimit] = useState(25);
   const [visibleColumns, setVisibleColumns] = useState({
@@ -81,6 +94,28 @@ const POSList = () => {
     });
   };
 
+  const orders = data?.orders || [];
+
+  // Filter by search term
+  const filteredOrders = useMemo(() => {
+    let result = orders;
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      result = orders.filter(order =>
+        order.invoice_number?.toLowerCase().includes(search) ||
+        order.customer?.name?.toLowerCase().includes(search) ||
+        order.creator?.full_name?.toLowerCase().includes(search)
+      );
+    }
+    return sortData(result, sortField, sortDirection);
+  }, [orders, searchTerm, sortField, sortDirection]);
+
+  // Paginate orders
+  const paginatedOrders = useMemo(() => {
+    if (limit === -1) return filteredOrders;
+    return filteredOrders.slice(0, limit);
+  }, [filteredOrders, limit]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -97,24 +132,7 @@ const POSList = () => {
     );
   }
 
-  const orders = data?.orders || [];
 
-  // Filter by search term
-  const filteredOrders = useMemo(() => {
-    if (!searchTerm) return orders;
-    const search = searchTerm.toLowerCase();
-    return orders.filter(order =>
-      order.invoice_number?.toLowerCase().includes(search) ||
-      order.customer?.name?.toLowerCase().includes(search) ||
-      order.creator?.full_name?.toLowerCase().includes(search)
-    );
-  }, [orders, searchTerm]);
-
-  // Paginate orders
-  const paginatedOrders = useMemo(() => {
-    if (limit === -1) return filteredOrders;
-    return filteredOrders.slice(0, limit);
-  }, [filteredOrders, limit]);
 
   const handlePrint = () => {
     window.print();
@@ -224,17 +242,26 @@ const POSList = () => {
             <tr>
               {visibleColumns.invoice_number && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Invoice #
+                  <button onClick={() => handleSort('invoice_number')} className="flex items-center gap-1">
+                    Invoice #
+                    <SortIndicator field="invoice_number" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.time && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Time
+                  <button onClick={() => handleSort('created_at')} className="flex items-center gap-1">
+                    Time
+                    <SortIndicator field="created_at" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.cashier && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Cashier
+                  <button onClick={() => handleSort('creator.full_name')} className="flex items-center gap-1">
+                    Cashier
+                    <SortIndicator field="creator.full_name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.items && (
@@ -244,12 +271,18 @@ const POSList = () => {
               )}
               {visibleColumns.total && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Total
+                  <button onClick={() => handleSort('total_amount')} className="flex items-center gap-1">
+                    Total
+                    <SortIndicator field="total_amount" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.payment_status && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Payment Status
+                  <button onClick={() => handleSort('payment_status')} className="flex items-center gap-1">
+                    Payment Status
+                    <SortIndicator field="payment_status" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.actions && (
@@ -302,13 +335,12 @@ const POSList = () => {
                   )}
                   {visibleColumns.payment_status && (
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                        order.payment_status === 'paid' 
-                          ? 'bg-green-100 text-green-800'
-                          : order.payment_status === 'partial'
+                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${order.payment_status === 'paid'
+                        ? 'bg-green-100 text-green-800'
+                        : order.payment_status === 'partial'
                           ? 'bg-yellow-100 text-yellow-800'
                           : 'bg-red-100 text-red-800'
-                      }`}>
+                        }`}>
                         {order.payment_status}
                       </span>
                     </td>

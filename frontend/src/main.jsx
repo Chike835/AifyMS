@@ -11,7 +11,7 @@ if (!rootElement) {
 } else {
   try {
     const root = ReactDOM.createRoot(rootElement);
-    
+
     root.render(
       <React.StrictMode>
         <App />

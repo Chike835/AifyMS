@@ -20,8 +20,8 @@ export const authenticate = async (req, res, next) => {
     // Verify token
     const decoded = jwt.verify(token, config.jwtSecret);
 
-    // Lightweight query: Only check if user exists and is active
-    // We include Role to ensure role_name is always fresh and correct from DB
+    // PERFORMANCE FIX: Single optimized query to fetch user, role, permissions, and branch
+    // This replaces the previous 2-query approach (user + separate getPermissions call)
     const user = await User.findByPk(decoded.userId, {
       attributes: ['id', 'email', 'full_name', 'is_active', 'role_id', 'branch_id'],
       include: [
@@ -34,7 +34,15 @@ export const authenticate = async (req, res, next) => {
         {
           model: Role,
           as: 'role',
-          attributes: ['id', 'name']
+          attributes: ['id', 'name'],
+          include: [
+            {
+              model: Permission,
+              as: 'permissions',
+              attributes: ['slug'],
+              through: { attributes: [] } // Exclude junction table fields
+            }
+          ]
         }
       ]
     });
@@ -43,13 +51,8 @@ export const authenticate = async (req, res, next) => {
       return res.status(401).json({ error: 'User not found or inactive' });
     }
 
-    // SECURITY FIX: Fetch fresh permissions from DB to prevent stale JWT permissions
-    // This ensures revoked permissions take effect immediately
-    const currentPermissions = await user.role.getPermissions({
-      attributes: ['slug'],
-      raw: true
-    });
-    const permissionSlugs = currentPermissions.map(p => p.slug);
+    // Extract permission slugs from the nested include
+    const permissionSlugs = user.role?.permissions?.map(p => p.slug) || [];
 
     // Attach user data to request
     req.user = {
@@ -60,7 +63,7 @@ export const authenticate = async (req, res, next) => {
       role_name: user.role?.name || decoded.role_name, // Prefer DB role name
       branch_id: user.branch_id, // Prefer DB branch_id
       branch: user.branch,
-      permissions: permissionSlugs // Use fresh permissions from DB
+      permissions: permissionSlugs // Fresh permissions from single query
     };
 
     next();
@@ -92,7 +95,7 @@ export const optionalAuth = async (req, res, next) => {
     const token = authHeader.substring(7);
     const decoded = jwt.verify(token, config.jwtSecret);
 
-    // Lightweight query for optional auth
+    // PERFORMANCE FIX: Single query for optional auth (same optimization as authenticate)
     const user = await User.findByPk(decoded.userId, {
       attributes: ['id', 'email', 'full_name', 'is_active', 'role_id', 'branch_id'],
       include: [
@@ -105,18 +108,21 @@ export const optionalAuth = async (req, res, next) => {
         {
           model: Role,
           as: 'role',
-          attributes: ['id', 'name']
+          attributes: ['id', 'name'],
+          include: [
+            {
+              model: Permission,
+              as: 'permissions',
+              attributes: ['slug'],
+              through: { attributes: [] }
+            }
+          ]
         }
       ]
     });
 
     if (user && user.is_active) {
-      // SECURITY FIX: Fetch fresh permissions from DB to prevent stale JWT permissions
-      const currentPermissions = await user.role.getPermissions({
-        attributes: ['slug'],
-        raw: true
-      });
-      const permissionSlugs = currentPermissions.map(p => p.slug);
+      const permissionSlugs = user.role?.permissions?.map(p => p.slug) || [];
 
       req.user = {
         id: user.id,
@@ -126,7 +132,7 @@ export const optionalAuth = async (req, res, next) => {
         role_name: user.role?.name || decoded.role_name,
         branch_id: user.branch_id,
         branch: user.branch,
-        permissions: permissionSlugs // Use fresh permissions from DB
+        permissions: permissionSlugs
       };
     } else {
       req.user = null;

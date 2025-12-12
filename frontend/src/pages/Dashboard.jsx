@@ -4,11 +4,11 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import DateFilterDropdown from '../components/common/DateFilterDropdown';
-import { 
-  CreditCard, 
-  Package, 
-  TrendingUp, 
-  Users, 
+import {
+  CreditCard,
+  Package,
+  TrendingUp,
+  Users,
   Factory,
   AlertTriangle,
   ShoppingCart,
@@ -25,7 +25,7 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const [dateRange, setDateRange] = useState({ startDate: null, endDate: null, startDateTime: null, endDateTime: null });
   const [selectedBranch, setSelectedBranch] = useState(null);
-  
+
   // Initialize branch filter - default to user's branch if not Super Admin
   // Must be before conditional returns to follow Rules of Hooks
   const defaultBranchId = user?.role_name !== 'Super Admin' ? user?.branch_id : null;
@@ -175,7 +175,7 @@ const Dashboard = () => {
       if (branchId) {
         params.append('branch_id', branchId);
       }
-      
+
       const response = await api.get(`/reports/expenses?${params.toString()}`);
       return response.data;
     }
@@ -247,7 +247,7 @@ const Dashboard = () => {
     const salesMap = new Map(chartData.daily_data.map(d => [d.date, d.amount]));
     const expensesMap = new Map(expenseChartData.daily_trend.map(d => [d.date, d.amount]));
     const allDates = new Set([...salesMap.keys(), ...expensesMap.keys()]);
-    
+
     // Build data with original date for sorting
     const unsortedData = Array.from(allDates).map(date => ({
       originalDate: new Date(date),
@@ -255,10 +255,10 @@ const Dashboard = () => {
       revenue: parseFloat(salesMap.get(date) || 0),
       expenses: parseFloat(expensesMap.get(date) || 0)
     }));
-    
+
     // Sort by original date before formatting
     unsortedData.sort((a, b) => a.originalDate - b.originalDate);
-    
+
     // Format dates after sorting
     revenueVsExpensesData.push(...unsortedData.map(item => ({
       date: item.originalDate.toLocaleDateString('en-NG', { month: 'short', day: 'numeric' }),
@@ -350,15 +350,15 @@ const Dashboard = () => {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" />
                 <YAxis tickFormatter={(value) => `₦${(value / 1000).toFixed(0)}k`} />
-                <Tooltip 
+                <Tooltip
                   formatter={(value) => formatCurrency(value)}
                   labelStyle={{ color: '#333' }}
                 />
                 <Legend />
-                <Line 
-                  type="monotone" 
-                  dataKey="sales" 
-                  stroke="#2563eb" 
+                <Line
+                  type="monotone"
+                  dataKey="sales"
+                  stroke="#2563eb"
                   strokeWidth={2}
                   name="Sales"
                   dot={{ r: 4 }}
@@ -381,15 +381,15 @@ const Dashboard = () => {
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={topProductsChartData}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="name" 
+                <XAxis
+                  dataKey="name"
                   angle={-45}
                   textAnchor="end"
                   height={80}
                   interval={0}
                 />
                 <YAxis tickFormatter={(value) => `₦${(value / 1000).toFixed(0)}k`} />
-                <Tooltip 
+                <Tooltip
                   formatter={(value) => formatCurrency(value)}
                   labelStyle={{ color: '#333' }}
                 />
@@ -417,26 +417,26 @@ const Dashboard = () => {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" />
                 <YAxis tickFormatter={(value) => `₦${(value / 1000).toFixed(0)}k`} />
-                <Tooltip 
+                <Tooltip
                   formatter={(value) => formatCurrency(value)}
                   labelStyle={{ color: '#333' }}
                 />
                 <Legend />
-                <Area 
-                  type="monotone" 
-                  dataKey="revenue" 
+                <Area
+                  type="monotone"
+                  dataKey="revenue"
                   stackId="1"
-                  stroke="#2563eb" 
-                  fill="#2563eb" 
+                  stroke="#2563eb"
+                  fill="#2563eb"
                   fillOpacity={0.6}
                   name="Revenue"
                 />
-                <Area 
-                  type="monotone" 
-                  dataKey="expenses" 
+                <Area
+                  type="monotone"
+                  dataKey="expenses"
                   stackId="1"
-                  stroke="#ef4444" 
-                  fill="#ef4444" 
+                  stroke="#ef4444"
+                  fill="#ef4444"
                   fillOpacity={0.6}
                   name="Expenses"
                 />
@@ -484,11 +484,10 @@ const Dashboard = () => {
             <div className="space-y-3 max-h-96 overflow-y-auto">
               {activityData.activities.map((activity, idx) => (
                 <div key={idx} className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
-                  <div className={`p-2 rounded ${
-                    activity.type === 'sale' ? 'bg-green-100' :
+                  <div className={`p-2 rounded ${activity.type === 'sale' ? 'bg-green-100' :
                     activity.type === 'payment' ? 'bg-blue-100' :
-                    'bg-purple-100'
-                  }`}>
+                      'bg-purple-100'
+                    }`}>
                     {activity.type === 'sale' ? (
                       <ShoppingCart className="h-4 w-4 text-green-600" />
                     ) : activity.type === 'payment' ? (
@@ -648,7 +647,7 @@ const Dashboard = () => {
           )}
           {hasPermission('payment_confirm') && (
             <button
-              onClick={() => navigate('/payments')}
+              onClick={() => navigate('/payments?status=pending_confirmation')}
               className="p-4 border border-gray-200 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-colors text-left"
             >
               <h3 className="font-medium text-gray-900">Review Payments</h3>

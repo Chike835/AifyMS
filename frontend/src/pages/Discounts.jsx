@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
+import { sortData } from '../utils/sortUtils';
+import SortIndicator from '../components/common/SortIndicator';
 import { Percent, Plus, Edit, Trash2, X, CheckCircle, AlertCircle, Calendar } from 'lucide-react';
 import ListToolbar from '../components/common/ListToolbar';
 import ExportModal from '../components/import/ExportModal';
@@ -24,6 +26,20 @@ const Discounts = () => {
     status: true,
     actions: true
   });
+
+  // Sorting
+  const [sortField, setSortField] = useState('name');
+  const [sortDirection, setSortDirection] = useState('asc');
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
   const [formData, setFormData] = useState({
     name: '',
     discount_type: 'percentage',
@@ -226,7 +242,7 @@ const Discounts = () => {
 
   const calculateDiscount = (discount, orderAmount) => {
     if (orderAmount < discount.min_purchase_amount) return 0;
-    
+
     let discountAmount = 0;
     if (discount.discount_type === 'percentage') {
       discountAmount = (orderAmount * parseFloat(discount.value)) / 100;
@@ -236,7 +252,7 @@ const Discounts = () => {
     } else {
       discountAmount = parseFloat(discount.value);
     }
-    
+
     return discountAmount;
   };
 
@@ -324,32 +340,50 @@ const Discounts = () => {
             <tr>
               {visibleColumns.name && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Name
+                  <button onClick={() => handleSort('name')} className="flex items-center gap-1">
+                    Name
+                    <SortIndicator field="name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.type && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Type
+                  <button onClick={() => handleSort('discount_type')} className="flex items-center gap-1">
+                    Type
+                    <SortIndicator field="discount_type" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.value && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Value
+                  <button onClick={() => handleSort('value')} className="flex items-center gap-1">
+                    Value
+                    <SortIndicator field="value" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.min_purchase && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Min Purchase
+                  <button onClick={() => handleSort('min_purchase_amount')} className="flex items-center gap-1">
+                    Min Purchase
+                    <SortIndicator field="min_purchase_amount" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.valid_period && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Valid Period
+                  <button onClick={() => handleSort('valid_from')} className="flex items-center gap-1">
+                    Valid Period
+                    <SortIndicator field="valid_from" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.status && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
+                  <button onClick={() => handleSort('is_active')} className="flex items-center gap-1">
+                    Status
+                    <SortIndicator field="is_active" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.actions && hasPermission('discount_manage') && (
@@ -360,107 +394,106 @@ const Discounts = () => {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {(data || [])
+            {sortData((data || [])
               .filter(discount => {
                 if (!searchTerm) return true;
                 const search = searchTerm.toLowerCase();
                 return discount.name?.toLowerCase().includes(search);
-              })
+              }), sortField, sortDirection)
               .slice(0, limit === -1 ? undefined : limit)
               .map((discount) => {
-              const today = new Date().toISOString().split('T')[0];
-              const isExpired = discount.valid_until && discount.valid_until < today;
-              const notStarted = discount.valid_from && discount.valid_from > today;
-              
-              return (
-                <tr key={discount.id} className="hover:bg-gray-50">
-                  {visibleColumns.name && (
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{discount.name}</div>
-                      <div className="text-xs text-gray-500">{discount.branch?.name || 'All Branches'}</div>
-                    </td>
-                  )}
-                  {visibleColumns.type && (
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
-                        {discount.discount_type === 'percentage' ? 'Percentage' : 'Fixed'}
-                      </span>
-                    </td>
-                  )}
-                  {visibleColumns.value && (
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">
-                        {discount.discount_type === 'percentage' 
-                          ? `${discount.value}%`
-                          : formatCurrency(discount.value)
-                        }
-                      </div>
-                      {discount.max_discount_amount && discount.discount_type === 'percentage' && (
-                        <div className="text-xs text-gray-500">
-                          Max: {formatCurrency(discount.max_discount_amount)}
+                const today = new Date().toISOString().split('T')[0];
+                const isExpired = discount.valid_until && discount.valid_until < today;
+                const notStarted = discount.valid_from && discount.valid_from > today;
+
+                return (
+                  <tr key={discount.id} className="hover:bg-gray-50">
+                    {visibleColumns.name && (
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">{discount.name}</div>
+                        <div className="text-xs text-gray-500">{discount.branch?.name || 'All Branches'}</div>
+                      </td>
+                    )}
+                    {visibleColumns.type && (
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                          {discount.discount_type === 'percentage' ? 'Percentage' : 'Fixed'}
+                        </span>
+                      </td>
+                    )}
+                    {visibleColumns.value && (
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">
+                          {discount.discount_type === 'percentage'
+                            ? `${discount.value}%`
+                            : formatCurrency(discount.value)
+                          }
                         </div>
-                      )}
-                    </td>
-                  )}
-                  {visibleColumns.min_purchase && (
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">
-                        {formatCurrency(discount.min_purchase_amount)}
-                      </div>
-                    </td>
-                  )}
-                  {visibleColumns.valid_period && (
-                    <td className="px-6 py-4">
-                      <div className="text-sm text-gray-900">
-                        {discount.valid_from || discount.valid_until ? (
-                          <>
-                            {discount.valid_from ? new Date(discount.valid_from).toLocaleDateString() : '—'} to{' '}
-                            {discount.valid_until ? new Date(discount.valid_until).toLocaleDateString() : '—'}
-                          </>
-                        ) : (
-                          'Always valid'
+                        {discount.max_discount_amount && discount.discount_type === 'percentage' && (
+                          <div className="text-xs text-gray-500">
+                            Max: {formatCurrency(discount.max_discount_amount)}
+                          </div>
                         )}
-                      </div>
-                      {isExpired && (
-                        <div className="text-xs text-red-600">Expired</div>
-                      )}
-                      {notStarted && (
-                        <div className="text-xs text-yellow-600">Not started</div>
-                      )}
-                    </td>
-                  )}
-                  {visibleColumns.status && (
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        discount.is_active && !isExpired && !notStarted
+                      </td>
+                    )}
+                    {visibleColumns.min_purchase && (
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">
+                          {formatCurrency(discount.min_purchase_amount)}
+                        </div>
+                      </td>
+                    )}
+                    {visibleColumns.valid_period && (
+                      <td className="px-6 py-4">
+                        <div className="text-sm text-gray-900">
+                          {discount.valid_from || discount.valid_until ? (
+                            <>
+                              {discount.valid_from ? new Date(discount.valid_from).toLocaleDateString() : '—'} to{' '}
+                              {discount.valid_until ? new Date(discount.valid_until).toLocaleDateString() : '—'}
+                            </>
+                          ) : (
+                            'Always valid'
+                          )}
+                        </div>
+                        {isExpired && (
+                          <div className="text-xs text-red-600">Expired</div>
+                        )}
+                        {notStarted && (
+                          <div className="text-xs text-yellow-600">Not started</div>
+                        )}
+                      </td>
+                    )}
+                    {visibleColumns.status && (
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${discount.is_active && !isExpired && !notStarted
                           ? 'bg-green-100 text-green-800'
                           : 'bg-red-100 text-red-800'
-                      }`}>
-                        {discount.is_active && !isExpired && !notStarted ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                  )}
-                  {visibleColumns.actions && hasPermission('discount_manage') && (
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex justify-end space-x-2">
-                        <button
-                          onClick={() => handleEdit(discount)}
-                          className="text-primary-600 hover:text-primary-900"
-                        >
-                          <Edit className="h-5 w-5" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(discount)}
-                          className="text-red-600 hover:text-red-900"
-                        >
-                          <Trash2 className="h-5 w-5" />
-                        </button>
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              );
-            })}
+                          }`}>
+                          {discount.is_active && !isExpired && !notStarted ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                    )}
+                    {visibleColumns.actions && hasPermission('discount_manage') && (
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <div className="flex justify-end space-x-2">
+                          <button
+                            onClick={() => handleEdit(discount)}
+                            className="text-primary-600 hover:text-primary-900"
+                          >
+                            <Edit className="h-5 w-5" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(discount)}
+                            className="text-red-600 hover:text-red-900"
+                          >
+                            <Trash2 className="h-5 w-5" />
+                          </button>
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
           </tbody>
         </table>
         {data?.length === 0 && (
@@ -542,7 +575,7 @@ const Discounts = () => {
                     placeholder={formData.discount_type === 'percentage' ? 'e.g., 10' : 'e.g., 500'}
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    {formData.discount_type === 'percentage' 
+                    {formData.discount_type === 'percentage'
                       ? 'Percentage (0-100)'
                       : 'Fixed amount in NGN'
                     }

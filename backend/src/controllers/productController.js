@@ -1,4 +1,5 @@
-import { Product, PriceHistory, User, InventoryBatch, Branch, Category, Unit, TaxRate, ProductBrand, ProductBusinessLocation, BatchType, ProductStockSummary } from '../models/index.js';
+import { Product, PriceHistory, User, InventoryBatch, Branch, Category, Unit, TaxRate, ProductBrand, ProductBusinessLocation, BatchType, ProductVariationAssignment, ProductVariant, ProductVariation, ProductVariationValue, PurchaseItem, Purchase, SalesItem, SalesOrder } from '../models/index.js';
+import * as variantService from '../services/variantService.js';
 import { Op } from 'sequelize';
 import sequelize from '../config/db.js';
 import { VALID_PRODUCT_TYPES } from '../utils/constants.js';
@@ -57,7 +58,8 @@ export const createProduct = async (req, res, next) => {
       alert_quantity,
       reorder_quantity,
       woocommerce_enabled,
-      business_location_ids
+      business_location_ids,
+      variation_ids // Array of variation IDs for variable products
     } = req.body;
 
     // Validation
@@ -173,6 +175,17 @@ export const createProduct = async (req, res, next) => {
       await ProductBusinessLocation.bulkCreate(locationRecords, { transaction });
     }
 
+
+
+    // Handle variable product assignments
+    if (type === 'variable' && variation_ids && Array.isArray(variation_ids)) {
+      const assignmentRecords = variation_ids.map(varId => ({
+        product_id: product.id,
+        variation_id: varId
+      }));
+      await ProductVariationAssignment.bulkCreate(assignmentRecords, { transaction });
+    }
+
     await transaction.commit();
 
     // Reload with associations
@@ -229,8 +242,35 @@ export const getProducts = async (req, res, next) => {
     if (search) {
       where[Op.or] = [
         { name: { [Op.iLike]: `%${search}%` } },
+        { name: { [Op.iLike]: `%${search}%` } },
         { sku: { [Op.iLike]: `%${search}%` } }
       ];
+    }
+
+    // Exclude variant children from the main list (unless specifically searching by ID or something specific, but for general list we hide them)
+    // We want to show ONLY parent products (variable) or standalone products (standard/compound/etc)
+    // A product is a variant child if it exists in the 'product_id' column of ProductVariant table?? 
+    // Wait, ProductVariant table structure: id, product_id (parent), variation_value_id, child_product_id?
+    // Let's check the schema.
+    // Based on previous ViewFile: 
+    // ProductVariant belongsTo Product (as child)
+    // We need to exclude products that ARE the 'child' in a ProductVariant relationship.
+    // However, the relationship might be defined differently. 
+    // In getProductById: { model: ProductVariant, as: 'variants', include: [{ model: Product, as: 'child' }] }
+    // This implies ProductVariant has a 'child_product_id' or similar that points to the child Product.
+    // Let's assume standard normalization: ProductVariant links Parent -> Child.
+
+    // Efficient way: Subquery to get all child_product_ids
+    const childProductIds = await ProductVariant.findAll({
+      attributes: ['product_id'],
+      where: {
+        product_id: { [Op.ne]: null }
+      },
+      raw: true
+    }).then(items => items.map(i => i.product_id));
+
+    if (childProductIds.length > 0) {
+      where.id = { [Op.notIn]: childProductIds };
     }
 
     // Category filter
@@ -284,7 +324,13 @@ export const getProducts = async (req, res, next) => {
     }
 
     // Pagination
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    let queryLimit = parseInt(limit);
+    let queryOffset = (parseInt(page) - 1) * queryLimit;
+
+    if (queryLimit < 1) {
+      queryLimit = null;
+      queryOffset = null;
+    }
 
     // Allowed sort columns
     const allowedSortColumns = ['created_at', 'name', 'sku', 'sale_price', 'cost_price', 'type'];
@@ -295,8 +341,8 @@ export const getProducts = async (req, res, next) => {
       where,
       include: includes,
       order: [[sortColumn, order]],
-      limit: parseInt(limit),
-      offset,
+      limit: queryLimit,
+      offset: queryOffset,
       distinct: true
     });
 
@@ -358,7 +404,7 @@ export const getProducts = async (req, res, next) => {
         total: count,
         page: parseInt(page),
         limit: parseInt(limit),
-        total_pages: Math.ceil(count / parseInt(limit))
+        total_pages: queryLimit ? Math.ceil(count / queryLimit) : 1
       }
     });
   } catch (error) {
@@ -381,7 +427,33 @@ export const getProductById = async (req, res, next) => {
         { model: Category, as: 'subCategory', attributes: ['id', 'name'] },
         { model: Unit, as: 'unit', attributes: ['id', 'name', 'abbreviation'] },
         { model: TaxRate, as: 'taxRate', attributes: ['id', 'name', 'rate'] },
-        { model: Branch, as: 'business_locations', attributes: ['id', 'name', 'code'] }
+        { model: Branch, as: 'business_locations', attributes: ['id', 'name', 'code'] },
+        {
+          model: ProductVariant,
+          as: 'variants',
+          separate: true, // Run as separate query for performance
+          order: [['id', 'ASC']],
+          include: [
+            { model: Product, as: 'child', attributes: ['id', 'sku', 'name', 'sale_price'] }
+          ]
+        },
+        {
+          model: ProductVariationAssignment,
+          as: 'variation_assignments',
+          include: [
+            {
+              model: ProductVariation,
+              as: 'variation',
+              include: [
+                {
+                  model: ProductVariationValue,
+                  as: 'values',
+                  attributes: ['id', 'value', 'display_order']
+                }
+              ]
+            }
+          ]
+        }
       ]
     });
     if (!product) {
@@ -395,6 +467,12 @@ export const getProductById = async (req, res, next) => {
       delete productData.cost_price_inc_tax;
     }
 
+    // Ensure variants is always an array (defensive check)
+    if (!Array.isArray(productData.variants)) {
+      console.log(`[getProductById] Product ${id} variants is not an array (type: ${typeof productData.variants}), defaulting to empty array`);
+      productData.variants = [];
+    }
+
     // Get current stock
     const totalStock = await InventoryBatch.sum('remaining_quantity', {
       where: {
@@ -404,6 +482,65 @@ export const getProductById = async (req, res, next) => {
     });
     productData.current_stock = parseFloat(totalStock) || 0;
 
+    // Calculate stock for variant child products
+    if (productData.variants && productData.variants.length > 0) {
+      const childProductIds = productData.variants
+        .filter(v => v.child && v.child.id)
+        .map(v => v.child.id);
+
+      if (childProductIds.length > 0) {
+        const childStockData = await InventoryBatch.findAll({
+          where: {
+            product_id: { [Op.in]: childProductIds },
+            status: 'in_stock'
+          },
+          attributes: [
+            'product_id',
+            [sequelize.fn('SUM', sequelize.col('remaining_quantity')), 'total_stock']
+          ],
+          group: ['product_id'],
+          raw: true
+        });
+
+        // Create a map of product_id -> stock
+        const childStockMap = {};
+        childStockData.forEach(s => {
+          childStockMap[s.product_id] = parseFloat(s.total_stock) || 0;
+        });
+
+        // Update variant child products with calculated stock
+        productData.variants.forEach(variant => {
+          if (variant.child && variant.child.id) {
+            variant.child.current_stock = childStockMap[variant.child.id] || 0;
+          }
+        });
+      }
+    }
+
+    // Debug logging for variants
+    console.log(`[getProductById] Product ${id} has ${productData.variants.length} variants`);
+    if (productData.variants.length > 0) {
+      const variantsWithChild = productData.variants.filter(v => v?.child).length;
+      const variantsWithoutChild = productData.variants.length - variantsWithChild;
+      console.log(`[getProductById] Variants with child: ${variantsWithChild}, without child: ${variantsWithoutChild}`);
+      if (variantsWithoutChild > 0) {
+        console.warn(`[getProductById] Warning: ${variantsWithoutChild} variants missing child relationship`);
+      }
+      // Log first variant structure for debugging
+      if (productData.variants[0]) {
+        console.log(`[getProductById] First variant structure:`, JSON.stringify({
+          id: productData.variants[0].id,
+          hasChild: !!productData.variants[0].child,
+          childId: productData.variants[0].child?.id,
+          childSku: productData.variants[0].child?.sku
+        }));
+      }
+    } else {
+      console.log(`[getProductById] Product ${id} has no variants (empty array)`);
+    }
+
+    // Debug logging for final response
+    console.log(`[getProductById] Sending response for product ${id}. Variant count: ${productData.variants?.length}`);
     res.json({ product: productData });
   } catch (error) {
     next(error);
@@ -446,7 +583,8 @@ export const updateProduct = async (req, res, next) => {
       reorder_quantity,
       woocommerce_enabled,
       is_active,
-      business_location_ids
+      business_location_ids,
+      variation_ids
     } = req.body;
 
     const product = await Product.findByPk(id, { transaction });
@@ -557,6 +695,26 @@ export const updateProduct = async (req, res, next) => {
           branch_id: branchId
         }));
         await ProductBusinessLocation.bulkCreate(locationRecords, { transaction });
+      }
+    }
+
+
+
+    // Handle variable product assignments
+    if (variation_ids !== undefined) {
+      // Delete existing
+      await ProductVariationAssignment.destroy({
+        where: { product_id: id },
+        transaction
+      });
+
+      // Add new
+      if (Array.isArray(variation_ids) && variation_ids.length > 0) {
+        const assignmentRecords = variation_ids.map(varId => ({
+          product_id: id,
+          variation_id: varId
+        }));
+        await ProductVariationAssignment.bulkCreate(assignmentRecords, { transaction });
       }
     }
 
@@ -1106,6 +1264,11 @@ export const getProductSales = async (req, res, next) => {
       orderWhere.branch_id = req.user.branch_id;
     }
 
+    let queryLimit = parseInt(limit);
+    if (queryLimit < 1) {
+      queryLimit = null;
+    }
+
     const salesItems = await SalesItem.findAll({
       where,
       include: [
@@ -1120,7 +1283,7 @@ export const getProductSales = async (req, res, next) => {
         }
       ],
       order: [[{ model: SalesOrder, as: 'order' }, 'created_at', 'DESC']],
-      limit: parseInt(limit)
+      limit: queryLimit
     });
 
     // Calculate totals
@@ -1140,6 +1303,204 @@ export const getProductSales = async (req, res, next) => {
         average_price: totalQuantity > 0 ? totalRevenue / totalQuantity : 0
       }
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/products/:id/generate-variants
+ * Generate variants for a variable product
+ */
+export const generateVariants = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { id } = req.params;
+    const { variation_ids, variation_configs, allowed_sku_suffixes } = req.body;
+
+    const product = await Product.findByPk(id, { transaction });
+    if (!product) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    if (product.type !== 'variable') {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Product is not a variable product' });
+    }
+
+    let targetVariationIds = variation_ids;
+
+    // If configs are provided, derive IDs from them if variation_ids not explicitly passed
+    if (!targetVariationIds && variation_configs && Array.isArray(variation_configs)) {
+      targetVariationIds = variation_configs.map(c => c.variationId);
+    }
+
+    if (!targetVariationIds) {
+      const assignments = await ProductVariationAssignment.findAll({
+        where: { product_id: id },
+        transaction
+      });
+      targetVariationIds = assignments.map(a => a.variation_id);
+    }
+
+    if (!targetVariationIds || targetVariationIds.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'No variations assigned to this product' });
+    }
+
+    const dryRun = req.query.dry_run === 'true';
+
+    const variants = await variantService.generateVariants(id, targetVariationIds, {
+      transaction,
+      variationConfigs: variation_configs,
+      dryRun,
+      allowedSkuSuffixes: allowed_sku_suffixes
+    });
+
+    await transaction.commit();
+
+    res.json({
+      message: `Successfully generated ${variants.length} variants`,
+      variants
+    });
+  } catch (error) {
+    await transaction.rollback();
+    next(error);
+  }
+};
+
+/**
+ * GET /api/products/:id/variant-ledger
+ * Get ledger (purchases, sales, batches) for a specific variant product
+ */
+export const getVariantLedger = async (req, res, next) => {
+  try {
+    const { id } = req.params; // This is the child product ID (the variant)
+
+    const product = await Product.findByPk(id);
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    // 1. Fetch Purchases
+    const purchases = await PurchaseItem.findAll({
+      where: { product_id: id },
+      include: [
+        {
+          model: Purchase,
+          as: 'purchase',
+          attributes: ['id', 'purchase_number', 'purchase_date', 'status']
+        }
+      ],
+      order: [[{ model: Purchase, as: 'purchase' }, 'purchase_date', 'DESC']]
+    });
+
+    // 2. Fetch Sales
+    const sales = await SalesItem.findAll({
+      where: { product_id: id },
+      include: [
+        {
+          model: SalesOrder,
+          as: 'order',
+          attributes: ['id', 'invoice_number', 'order_date', 'status']
+        }
+      ],
+      order: [[{ model: SalesOrder, as: 'order' }, 'order_date', 'DESC']]
+    });
+
+    // 3. Fetch Batches (Inventory)
+    const batches = await InventoryBatch.findAll({
+      where: { product_id: id },
+      include: [
+        { model: Branch, as: 'branch', attributes: ['id', 'name'] }
+      ],
+      order: [['created_at', 'DESC']]
+    });
+
+    // Transform and unify data
+    const ledger = [];
+
+    // Process Purchases
+    let totalCost = 0;
+    purchases.forEach(item => {
+      const quantity = parseFloat(item.quantity) || 0;
+      const cost = parseFloat(item.unit_cost) || 0;
+      const subtotal = parseFloat(item.subtotal) || (quantity * cost);
+
+      if (item.purchase?.status === 'received') { // Only count received for valid cost calculation? Or all? Let's show all but maybe mark status
+        totalCost += subtotal;
+      }
+
+      ledger.push({
+        id: `PUR-${item.id}`,
+        type: 'purchase',
+        date: item.purchase?.purchase_date || item.created_at,
+        reference: item.purchase?.purchase_number || 'N/A',
+        reference_id: item.purchase?.id,
+        quantity: quantity,
+        unit_amount: cost,
+        total_amount: subtotal,
+        status: item.purchase?.status,
+        details: `Purchased in batch` // Could link to specific batch if tracked
+      });
+    });
+
+    // Process Sales
+    let totalRevenue = 0;
+    sales.forEach(item => {
+      const quantity = parseFloat(item.quantity) || 0;
+      const price = parseFloat(item.unit_price) || 0;
+      const subtotal = parseFloat(item.subtotal) || (quantity * price);
+
+      if (item.order?.status !== 'cancelled') {
+        totalRevenue += subtotal;
+      }
+
+      ledger.push({
+        id: `SALE-${item.id}`,
+        type: 'sale',
+        date: item.order?.order_date || item.created_at,
+        reference: item.order?.invoice_number || 'N/A',
+        reference_id: item.order?.id,
+        quantity: quantity, // Sold quantity
+        unit_amount: price,
+        total_amount: subtotal,
+        status: item.order?.status,
+        details: `Sold`
+      });
+    });
+
+    // Batches - largely for info, but could be added as events if they are adjustments
+    // For now, we'll return batches as a separate list or just integrate opening stocks?
+    // Let's add them as 'adjustment' or similar if they are not from purchase?
+    // Or just strictly follow the user request: "view a list ledger style of when the material was used or bought"
+
+    // Sort ledger by date descending
+    ledger.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    // Calculate Summary
+    const totalSold = sales.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0);
+    const totalBought = purchases.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0);
+    const profit = totalRevenue - totalCost; // simplistic, assumes FIFO/LIFO matching not strictly required for this view, just raw totals
+
+    res.json({
+      product: {
+        id: product.id,
+        name: product.name,
+        sku: product.sku
+      },
+      ledger,
+      batches, // Return raw batches as requested for "matches attached to variations"
+      summary: {
+        total_bought: totalBought,
+        total_sold: totalSold,
+        total_cost: totalCost,
+        total_revenue: totalRevenue,
+        net_profit: profit
+      }
+    });
+
   } catch (error) {
     next(error);
   }

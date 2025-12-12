@@ -149,8 +149,8 @@ export const deleteExpenseCategory = async (req, res) => {
     // Check if category has expenses
     const expenseCount = await Expense.count({ where: { category_id: id } });
     if (expenseCount > 0) {
-      return res.status(400).json({ 
-        error: `Cannot delete category with ${expenseCount} associated expenses. Remove expenses first.` 
+      return res.status(400).json({
+        error: `Cannot delete category with ${expenseCount} associated expenses. Remove expenses first.`
       });
     }
 
@@ -236,16 +236,22 @@ export const createExpense = async (req, res) => {
 export const getExpenses = async (req, res) => {
   try {
     const { branch_id, role_name } = req.user;
-    const { 
-      page = 1, 
-      limit = 20, 
-      category_id, 
-      start_date, 
+    const {
+      page = 1,
+      limit = 20,
+      category_id,
+      start_date,
       end_date,
-      search 
+      search
     } = req.query;
 
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    let queryLimit = parseInt(limit);
+    let offset = (parseInt(page) - 1) * queryLimit;
+
+    if (queryLimit < 1) {
+      queryLimit = null;
+      offset = null;
+    }
 
     // Build where clause with branch filtering
     let whereClause = {};
@@ -290,7 +296,7 @@ export const getExpenses = async (req, res) => {
         { model: User, as: 'creator', attributes: ['id', 'full_name'] }
       ],
       order: [['expense_date', 'DESC'], ['created_at', 'DESC']],
-      limit: parseInt(limit),
+      limit: queryLimit,
       offset
     });
 
@@ -299,7 +305,7 @@ export const getExpenses = async (req, res) => {
 
     res.status(200).json({
       total_count: count,
-      total_pages: Math.ceil(count / parseInt(limit)),
+      total_pages: queryLimit ? Math.ceil(count / queryLimit) : 1,
       current_page: parseInt(page),
       total_amount: totalAmount.toFixed(2),
       expenses
@@ -466,7 +472,7 @@ export const getExpenseSummary = async (req, res) => {
     expenses.forEach(exp => {
       const catName = exp.category?.name || 'Uncategorized';
       const amount = parseFloat(exp.amount);
-      
+
       if (!categoryTotals[catName]) {
         categoryTotals[catName] = { count: 0, total: 0 };
       }

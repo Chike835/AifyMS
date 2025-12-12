@@ -9,7 +9,13 @@ import { logActivitySync } from '../middleware/activityLogger.js';
 export const getSuppliers = async (req, res) => {
   try {
     const { search, page = 1, limit = 50 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    let queryLimit = parseInt(limit);
+    let queryOffset = (parseInt(page) - 1) * queryLimit;
+
+    if (queryLimit < 1) {
+      queryLimit = null;
+      queryOffset = null;
+    }
 
     // Build where clause
     const whereClause = {};
@@ -38,8 +44,8 @@ export const getSuppliers = async (req, res) => {
         }
       ],
       order: [['created_at', 'DESC']],
-      limit: parseInt(limit),
-      offset
+      limit: queryLimit,
+      offset: queryOffset
     });
 
     return res.json({
@@ -47,8 +53,8 @@ export const getSuppliers = async (req, res) => {
       pagination: {
         total: count,
         page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(count / parseInt(limit))
+        limit: queryLimit,
+        totalPages: queryLimit ? Math.ceil(count / queryLimit) : 1
       }
     });
   } catch (error) {
@@ -346,6 +352,10 @@ export const getSupplierPurchases = async (req, res) => {
   try {
     const { id } = req.params;
     const { limit = 50, offset = 0 } = req.query;
+    let queryLimit = parseInt(limit);
+    if (queryLimit < 1) {
+      queryLimit = null;
+    }
 
     const supplier = await Supplier.findByPk(id);
     if (!supplier) {
@@ -365,7 +375,7 @@ export const getSupplierPurchases = async (req, res) => {
         { model: Branch, as: 'branch', attributes: ['id', 'name'] }
       ],
       order: [['created_at', 'DESC']],
-      limit: parseInt(limit),
+      limit: queryLimit,
       offset: parseInt(offset)
     });
 

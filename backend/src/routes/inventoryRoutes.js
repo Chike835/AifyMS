@@ -1,5 +1,5 @@
 import express from 'express';
-import { 
+import {
   transferBatch,
   getTransfers,
   adjustStock,
@@ -13,6 +13,7 @@ import {
 import {
   createBatch,
   getBatches,
+  getInstances,
   getBatchById,
   updateBatch,
   deleteBatch,
@@ -29,6 +30,12 @@ router.use(authenticate);
 // Batch CRUD Routes
 // GET /api/inventory/batches - List batches (requires batch_view or product_view)
 router.get('/batches', requirePermission('batch_view', 'product_view'), getBatches);
+
+// GET /api/inventory/instances - List instances (same as batches, alias for frontend consistency)
+router.get('/instances', requirePermission('batch_view', 'product_view'), getInstances);
+
+// POST /api/inventory/instances - Create new instance (alias for batches)
+router.post('/instances', requirePermission('batch_create', 'stock_add_opening'), createBatch);
 
 // GET /api/inventory/batches/available/:productId - Get available batches for POS
 router.get('/batches/available/:productId', requirePermission('pos_access'), getAvailableBatches);

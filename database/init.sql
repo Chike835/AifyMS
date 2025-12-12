@@ -8,7 +8,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- ENUMS
 -- ============================================
 
-CREATE TYPE product_type AS ENUM ('standard', 'compound', 'raw_tracked', 'manufactured_virtual');
+CREATE TYPE product_type AS ENUM ('standard', 'compound', 'raw_tracked', 'manufactured_virtual', 'variable');
 CREATE TYPE payment_method AS ENUM ('cash', 'transfer', 'pos');
 CREATE TYPE payment_status AS ENUM ('pending_confirmation', 'confirmed', 'voided');
 CREATE TYPE production_status AS ENUM ('queue', 'processing', 'produced', 'delivered', 'na');
@@ -139,6 +139,32 @@ CREATE TABLE product_variation_values (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_variation_values_variation_id ON product_variation_values(variation_id);
+
+-- Product Variation Assignments table (Links parent variable products to variations they use)
+CREATE TABLE product_variation_assignments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    variation_id UUID NOT NULL REFERENCES product_variations(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(product_id, variation_id)
+);
+CREATE INDEX idx_product_variation_assignments_product ON product_variation_assignments(product_id);
+CREATE INDEX idx_product_variation_assignments_variation ON product_variation_assignments(variation_id);
+
+-- Product Variants table (Links child variant products to parent variable product)
+CREATE TABLE product_variants (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    parent_product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    variation_combination JSONB NOT NULL DEFAULT '{}'::jsonb,
+    sku_suffix VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(parent_product_id, product_id)
+);
+CREATE INDEX idx_product_variants_parent ON product_variants(parent_product_id);
+CREATE INDEX idx_product_variants_child ON product_variants(product_id);
+CREATE INDEX idx_product_variants_combination ON product_variants USING GIN(variation_combination);
 
 -- Units table
 CREATE TABLE units (

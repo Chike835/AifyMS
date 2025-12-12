@@ -223,7 +223,7 @@ export const importProducts = async (data, errors = []) => {
     errors: []
   };
 
-  const validTypes = ['standard', 'compound', 'raw_tracked', 'manufactured_virtual'];
+  const validTypes = ['standard', 'compound', 'raw_tracked', 'manufactured_virtual', 'variable'];
   const validRows = [];
   const rowNumMap = new Map(); // Map to track row numbers for error reporting
 

@@ -55,6 +55,14 @@ const calculateRunningBalance = async (contactId, contactType, transactionDate, 
 
   const previousEntries = await LedgerEntry.findAll({
     where,
+    include: [
+      {
+        model: Payment,
+        as: 'payment',
+        required: false,
+        attributes: ['status']
+      }
+    ],
     order: [['transaction_date', 'ASC'], ['created_at', 'ASC']],
     transaction
   });
@@ -63,9 +71,92 @@ const calculateRunningBalance = async (contactId, contactType, transactionDate, 
   // All entries (including OPENING_BALANCE if present) are summed
   let runningBalance = 0;
   for (const entry of previousEntries) {
+    // Skip pending payments
+    if (entry.transaction_type === 'PAYMENT' && entry.payment?.status !== 'confirmed') {
+      continue;
+    }
     const debit = parseFloat(entry.debit_amount || 0);
     const credit = parseFloat(entry.credit_amount || 0);
     runningBalance = runningBalance + debit - credit;
+  }
+
+  return runningBalance;
+};
+
+/**
+ * Recalculate running balances for all ledger entries after a given date.
+ * This is critical for maintaining ledger integrity when entries are backdated.
+ * @param {string} contactId - Customer or Supplier ID
+ * @param {string} contactType - 'customer' or 'supplier'
+ * @param {Date} fromDate - Recalculate all entries from this date onwards (exclusive of pivot entry if applicable)
+ * @param {string} branchId - Branch ID (optional, for branch-specific ledgers)
+ * @param {object} transaction - Sequelize transaction object (required for ACID compliance)
+ * @returns {Promise<number>} Final balance after recalculation
+ */
+const recalculateSubsequentBalances = async (contactId, contactType, fromDate, branchId = null, transaction) => {
+  // Get ALL entries for this contact, sorted chronologically
+  const where = {
+    contact_id: contactId,
+    contact_type: contactType
+  };
+
+  if (branchId) {
+    where.branch_id = branchId;
+  }
+
+  const allEntries = await LedgerEntry.findAll({
+    where,
+    include: [
+      {
+        model: Payment,
+        as: 'payment',
+        required: false,
+        attributes: ['status']
+      }
+    ],
+    order: [['transaction_date', 'ASC'], ['created_at', 'ASC']],
+    transaction
+  });
+
+  // Recalculate running balances from the start
+  let runningBalance = 0;
+  for (const entry of allEntries) {
+    // Skip pending payments from balance calculation
+    // But we still update their running_balance field (with current runningBalance)
+    // so they sit "in between" confirmed entries without affecting the flow
+    if (entry.transaction_type === 'PAYMENT' && entry.payment?.status !== 'confirmed') {
+      // For pending payments, we just set the current running balance without modification
+      if (parseFloat(entry.running_balance) !== runningBalance) {
+        entry.running_balance = runningBalance;
+        await entry.save({ transaction });
+      }
+      continue;
+    }
+
+    const debit = parseFloat(entry.debit_amount || 0);
+    const credit = parseFloat(entry.credit_amount || 0);
+    runningBalance = runningBalance + debit - credit;
+
+    // Only update if the balance has actually changed (optimization)
+    if (parseFloat(entry.running_balance) !== runningBalance) {
+      entry.running_balance = runningBalance;
+      await entry.save({ transaction });
+    }
+  }
+
+  // Update the contact's final ledger_balance
+  if (contactType === 'customer') {
+    const customer = await Customer.findByPk(contactId, { transaction });
+    if (customer && parseFloat(customer.ledger_balance) !== runningBalance) {
+      customer.ledger_balance = runningBalance;
+      await customer.save({ transaction });
+    }
+  } else {
+    const supplier = await Supplier.findByPk(contactId, { transaction });
+    if (supplier && parseFloat(supplier.ledger_balance) !== runningBalance) {
+      supplier.ledger_balance = runningBalance;
+      await supplier.save({ transaction });
+    }
   }
 
   return runningBalance;
@@ -99,19 +190,8 @@ export const createLedgerEntry = async (contactId, contactType, transactionData,
     throw new Error('Either debit_amount or credit_amount must be greater than zero');
   }
 
-  // Calculate running balance (pass transaction for consistency)
-  const runningBalance = await calculateRunningBalance(
-    contactId,
-    contactType,
-    transaction_date,
-    branch_id,
-    transaction
-  );
-
-  // Add current transaction to running balance
-  const finalBalance = runningBalance + parseFloat(debit_amount) - parseFloat(credit_amount);
-
-  // Create ledger entry (within transaction if provided)
+  // Create ledger entry with a placeholder balance first
+  // The balance will be correctly set by recalculateSubsequentBalances
   const ledgerEntry = await LedgerEntry.create({
     contact_id: contactId,
     contact_type: contactType,
@@ -121,25 +201,24 @@ export const createLedgerEntry = async (contactId, contactType, transactionData,
     description,
     debit_amount: parseFloat(debit_amount),
     credit_amount: parseFloat(credit_amount),
-    running_balance: finalBalance,
+    running_balance: 0, // Placeholder, will be recalculated
     branch_id,
     created_by
   }, { transaction });
 
-  // Update contact's ledger_balance (within transaction if provided)
-  if (contactType === 'customer') {
-    const customer = await Customer.findByPk(contactId, { transaction });
-    if (customer) {
-      customer.ledger_balance = finalBalance;
-      await customer.save({ transaction });
-    }
-  } else {
-    const supplier = await Supplier.findByPk(contactId, { transaction });
-    if (supplier) {
-      supplier.ledger_balance = finalBalance;
-      await supplier.save({ transaction });
-    }
-  }
+  // Recalculate ALL balances for this contact from the beginning.
+  // This correctly handles backdated entries by ensuring all subsequent
+  // entries also get their running_balance updated.
+  await recalculateSubsequentBalances(
+    contactId,
+    contactType,
+    transaction_date,
+    branch_id,
+    transaction
+  );
+
+  // Reload the entry to get the correct running_balance
+  await ledgerEntry.reload({ transaction });
 
   return ledgerEntry;
 };
@@ -534,3 +613,40 @@ export const backfillHistoricalLedger = async () => {
   }
 };
 
+/**
+ * Repair all ledger balances for all customers and suppliers.
+ * This function recalculates running balances from scratch for every contact.
+ * Use this to fix data corruption from backdated entries.
+ */
+export const repairAllLedgerBalances = async () => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    console.log('Starting ledger balance repair...');
+
+    // Get all customers
+    const customers = await Customer.findAll({ transaction });
+    for (const customer of customers) {
+      console.log(`Repairing ledger for customer: ${customer.name}`);
+      await recalculateSubsequentBalances(customer.id, 'customer', null, null, transaction);
+    }
+
+    // Get all suppliers
+    const suppliers = await Supplier.findAll({ transaction });
+    for (const supplier of suppliers) {
+      console.log(`Repairing ledger for supplier: ${supplier.name}`);
+      await recalculateSubsequentBalances(supplier.id, 'supplier', null, null, transaction);
+    }
+
+    await transaction.commit();
+    console.log('Ledger balance repair completed successfully!');
+    return { success: true, message: 'All ledger balances have been recalculated' };
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error during ledger repair:', error);
+    throw error;
+  }
+};
+
+// Export the recalculation function for administrative use
+export { recalculateSubsequentBalances };

@@ -6,7 +6,6 @@ import Customer from './Customer.js';
 import Supplier from './Supplier.js';
 import Product from './Product.js';
 import ProductBrand from './ProductBrand.js';
-import ProductStockSummary from './ProductStockSummary.js';
 import InventoryBatch from './InventoryBatch.js';
 import StockTransfer from './StockTransfer.js';
 import StockAdjustment from './StockAdjustment.js';
@@ -45,6 +44,8 @@ import CategoryBatchType from './CategoryBatchType.js';
 import LedgerEntry from './LedgerEntry.js';
 import ActivityLog from './ActivityLog.js';
 import ProductBusinessLocation from './ProductBusinessLocation.js';
+import ProductVariationAssignment from './ProductVariationAssignment.js';
+import ProductVariant from './ProductVariant.js';
 
 // Define all associations
 export const associateModels = () => {
@@ -800,6 +801,43 @@ export const associateModels = () => {
     as: 'variation'
   });
 
+  // Product - ProductVariationAssignment (One-to-Many)
+  Product.hasMany(ProductVariationAssignment, {
+    foreignKey: 'product_id',
+    as: 'variation_assignments',
+    onDelete: 'CASCADE'
+  });
+  ProductVariationAssignment.belongsTo(Product, {
+    foreignKey: 'product_id',
+    as: 'product'
+  });
+  ProductVariationAssignment.belongsTo(ProductVariation, {
+    foreignKey: 'variation_id',
+    as: 'variation'
+  });
+
+  // Product - ProductVariant (Parent -> Children Links)
+  Product.hasMany(ProductVariant, {
+    foreignKey: 'parent_product_id',
+    as: 'variants',
+    onDelete: 'CASCADE'
+  });
+  ProductVariant.belongsTo(Product, {
+    foreignKey: 'parent_product_id',
+    as: 'parent'
+  });
+
+  // Product - ProductVariant (Child -> Parent Link)
+  Product.hasOne(ProductVariant, {
+    foreignKey: 'product_id',
+    as: 'variant_details',
+    onDelete: 'CASCADE'
+  });
+  ProductVariant.belongsTo(Product, {
+    foreignKey: 'product_id',
+    as: 'child'
+  });
+
   // Unit - Unit (Self-referential: Base Unit)
   Unit.belongsTo(Unit, {
     foreignKey: 'base_unit_id',
@@ -938,6 +976,13 @@ export const associateModels = () => {
     as: 'ledger_entries'
   });
 
+  // LedgerEntry - Payment (Many-to-One, for filtering pending payments)
+  LedgerEntry.belongsTo(Payment, {
+    foreignKey: 'transaction_id',
+    constraints: false,
+    as: 'payment'
+  });
+
   // ActivityLog - User (Many-to-One)
   ActivityLog.belongsTo(User, {
     foreignKey: 'user_id',
@@ -970,7 +1015,6 @@ export {
   Product,
   ProductBrand,
   ProductBusinessLocation,
-  ProductStockSummary,
   InventoryBatch,
   StockTransfer,
   StockAdjustment,
@@ -1007,6 +1051,8 @@ export {
   BatchType,
   CategoryBatchType,
   LedgerEntry,
-  ActivityLog
+  ActivityLog,
+  ProductVariant,
+  ProductVariationAssignment
 };
 

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
+import { sortData } from '../utils/sortUtils';
+import SortIndicator from '../components/common/SortIndicator';
 import ListToolbar from '../components/common/ListToolbar';
 import ExportModal from '../components/import/ExportModal';
 import { Users as UsersIcon, Plus, Edit, Trash2, X, Shield, Building2, UserCheck, UserX } from 'lucide-react';
@@ -36,6 +38,19 @@ const Users = () => {
     branch: true,
     status: true
   });
+
+  // Sorting
+  const [sortField, setSortField] = useState('full_name');
+  const [sortDirection, setSortDirection] = useState('asc');
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
   // Export modal
   const [showExportModal, setShowExportModal] = useState(false);
@@ -175,7 +190,7 @@ const Users = () => {
     }
 
     const submitData = { ...formData };
-    
+
     // Don't send empty password on update
     if (selectedUser && !submitData.password) {
       delete submitData.password;
@@ -239,7 +254,7 @@ const Users = () => {
     );
   }
 
-  const users = data?.users || [];
+  const users = sortData(data?.users || [], sortField, sortDirection);
   const roles = rolesData || [];
   const branches = branchesData || [];
 
@@ -315,16 +330,28 @@ const Users = () => {
           <thead className="bg-gray-50">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                User
+                <button onClick={() => handleSort('full_name')} className="flex items-center gap-1">
+                  User
+                  <SortIndicator field="full_name" sortField={sortField} sortDirection={sortDirection} />
+                </button>
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Role
+                <button onClick={() => handleSort('role.name')} className="flex items-center gap-1">
+                  Role
+                  <SortIndicator field="role.name" sortField={sortField} sortDirection={sortDirection} />
+                </button>
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Branch
+                <button onClick={() => handleSort('branch.name')} className="flex items-center gap-1">
+                  Branch
+                  <SortIndicator field="branch.name" sortField={sortField} sortDirection={sortDirection} />
+                </button>
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Status
+                <button onClick={() => handleSort('is_active')} className="flex items-center gap-1">
+                  Status
+                  <SortIndicator field="is_active" sortField={sortField} sortDirection={sortDirection} />
+                </button>
               </th>
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Actions
@@ -577,8 +604,8 @@ const Users = () => {
                   {createMutation.isPending || updateMutation.isPending
                     ? 'Saving...'
                     : selectedUser
-                    ? 'Update'
-                    : 'Create'}
+                      ? 'Update'
+                      : 'Create'}
                 </button>
               </div>
             </form>

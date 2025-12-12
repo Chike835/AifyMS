@@ -125,12 +125,15 @@ const BalanceSheet = () => {
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Assets</h3>
                 <div className="space-y-2">
-                  {balanceSheetData.assets?.map((asset, idx) => (
+                  {(Array.isArray(balanceSheetData.assets) ? balanceSheetData.assets : []).map((asset, idx) => (
                     <div key={idx} className="flex justify-between py-2 border-b border-gray-100">
                       <span className="text-gray-700">{asset.account}</span>
                       <span className="font-medium text-gray-900">{formatCurrency(asset.amount)}</span>
                     </div>
                   ))}
+                  {(Array.isArray(balanceSheetData.assets) ? balanceSheetData.assets : []).length === 0 && (
+                    <div className="text-sm text-gray-500 italic">No assets found</div>
+                  )}
                   <div className="flex justify-between py-2 border-t-2 border-gray-300 mt-2 font-bold">
                     <span>Total Assets</span>
                     <span>{formatCurrency(balanceSheetData.total_assets)}</span>
@@ -142,18 +145,22 @@ const BalanceSheet = () => {
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Liabilities & Equity</h3>
                 <div className="space-y-2">
-                  {balanceSheetData.liabilities?.map((liability, idx) => (
+                  {(Array.isArray(balanceSheetData.liabilities) ? balanceSheetData.liabilities : []).map((liability, idx) => (
                     <div key={idx} className="flex justify-between py-2 border-b border-gray-100">
                       <span className="text-gray-700">{liability.account}</span>
                       <span className="font-medium text-gray-900">{formatCurrency(liability.amount)}</span>
                     </div>
                   ))}
-                  {balanceSheetData.equity?.map((equity, idx) => (
+                  {(Array.isArray(balanceSheetData.equity) ? balanceSheetData.equity : []).map((equity, idx) => (
                     <div key={idx} className="flex justify-between py-2 border-b border-gray-100">
                       <span className="text-gray-700">{equity.account}</span>
                       <span className="font-medium text-gray-900">{formatCurrency(equity.amount)}</span>
                     </div>
                   ))}
+                  {(Array.isArray(balanceSheetData.liabilities) ? balanceSheetData.liabilities : []).length === 0 &&
+                    (Array.isArray(balanceSheetData.equity) ? balanceSheetData.equity : []).length === 0 && (
+                      <div className="text-sm text-gray-500 italic">No liabilities or equity found</div>
+                    )}
                   <div className="flex justify-between py-2 border-t-2 border-gray-300 mt-2 font-bold">
                     <span>Total Liabilities & Equity</span>
                     <span>{formatCurrency(balanceSheetData.total_liabilities_equity)}</span>
@@ -174,6 +181,7 @@ const BalanceSheet = () => {
 };
 
 export default BalanceSheet;
+
 
 
 

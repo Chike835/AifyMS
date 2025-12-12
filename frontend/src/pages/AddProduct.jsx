@@ -153,7 +153,8 @@ const productTypes = [
   { value: 'standard', label: 'Single' },
   { value: 'compound', label: 'Combo' },
   { value: 'raw_tracked', label: 'Raw (Tracked)' },
-  { value: 'manufactured_virtual', label: 'Manufactured' }
+  { value: 'manufactured_virtual', label: 'Manufactured' },
+  { value: 'variable', label: 'Variable' }
 ];
 
 const sellingPriceTaxTypes = [
@@ -168,6 +169,100 @@ const AddProduct = () => {
   const isEditMode = !!id;
   const queryClient = useQueryClient();
   const { user } = useAuth();
+
+  const [previewVariants, setPreviewVariants] = useState([]);
+  const [selectedPreviewSuffixes, setSelectedPreviewSuffixes] = useState(new Set());
+
+  const generateVariantsMutation = useMutation({
+    mutationFn: async ({ isDryRun = true, allowedSuffixes = null }) => {
+      // Validation
+      if (productType !== 'variable') {
+        throw new Error('Product must be a variable product to generate variants.');
+      }
+      if (selectedVariations.length === 0) {
+        throw new Error('No variations selected. Please select at least one variation.');
+      }
+
+      // Build config for selective generation
+      const variationConfigs = selectedVariations.map(varId => ({
+        variationId: varId,
+        valueIds: selectedVariationValues[varId] || []
+      }));
+
+      console.log(`[generateVariantsMutation] Generating variants (dryRun=${isDryRun})`);
+      const payload = {
+        variation_ids: selectedVariations,
+        variation_configs: variationConfigs
+      };
+
+      if (allowedSuffixes) {
+        payload.allowed_sku_suffixes = allowedSuffixes;
+      }
+
+      const response = await api.post(`/products/${id}/generate-variants?dry_run=${isDryRun}`, payload);
+      return { ...response.data, isDryRun };
+    },
+    onSuccess: async (data) => {
+      if (data.isDryRun) {
+        setPreviewVariants(data.variants || []);
+        // Default select all
+        const allSuffixes = (data.variants || []).map(v => v.sku_suffix);
+        setSelectedPreviewSuffixes(new Set(allSuffixes));
+        console.log(`[generateVariantsMutation] ${data.variants?.length} variants set for preview`);
+      } else {
+        setPreviewVariants([]); // Clear preview on save
+        setSelectedPreviewSuffixes(new Set());
+        console.log(`[generateVariantsMutation] Success: ${data.message || 'Variants generated successfully'}`);
+        queryClient.invalidateQueries({ queryKey: ['products'] }); // Refetch list
+        try {
+          await new Promise(resolve => setTimeout(resolve, 200));
+          await loadProductData(true);
+          console.log(`[generateVariantsMutation] Product data reloaded after variant generation`);
+          setTimeout(() => {
+            alert(data.message || 'Variants generated successfully');
+          }, 100);
+        } catch (error) {
+          console.error(`[generateVariantsMutation] Error reloading product data:`, error);
+        }
+      }
+    },
+    onError: (error) => {
+      console.error(`[generateVariantsMutation] Error:`, error);
+      console.log(`[generateVariantsMutation] Current product type state: ${productType}`);
+
+      const errorMessage = error.response?.data?.error || error.message || 'Failed to generate variants';
+      alert(errorMessage);
+
+      // If we get a type mismatch error, try to sync state
+      if (errorMessage.includes('not a variable product') || (error.response?.status === 400 && productType !== 'variable')) {
+        console.log('[generateVariantsMutation] Attempting to refresh product data due to type mismatch');
+        loadProductData(true);
+      }
+    }
+  });
+
+
+  // ... (inside the table render)
+
+  // Helper to toggle selection
+  const togglePreviewSelection = (suffix) => {
+    const newSet = new Set(selectedPreviewSuffixes);
+    if (newSet.has(suffix)) {
+      newSet.delete(suffix);
+    } else {
+      newSet.add(suffix);
+    }
+    setSelectedPreviewSuffixes(newSet);
+  };
+
+  const toggleAllPreviewSelection = (e) => {
+    if (e.target.checked) {
+      const allSuffixes = previewVariants.map(v => v.sku_suffix);
+      setSelectedPreviewSuffixes(new Set(allSuffixes));
+    } else {
+      setSelectedPreviewSuffixes(new Set());
+    }
+  };
 
   // Page-level toggles
   const [manageStock, setManageStock] = useState(false);
@@ -185,6 +280,16 @@ const AddProduct = () => {
   const [weight, setWeight] = useState('');
   const [reorderQuantity, setReorderQuantity] = useState('');
   const [attributeValues, setAttributeValues] = useState({});
+  const [selectedVariations, setSelectedVariations] = useState([]);
+  const [selectedVariationValues, setSelectedVariationValues] = useState({}); // { variationId: [valueId, ...] }
+
+  const { data: variationsData } = useQuery({
+    queryKey: ['variations'],
+    queryFn: async () => {
+      const response = await api.get('/variations');
+      return response.data.variations;
+    }
+  });
 
   // Pricing
   const [isTaxable, setIsTaxable] = useState(false);
@@ -202,6 +307,8 @@ const AddProduct = () => {
   // Submitting state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
+  // Full product object (for access to non-form fields like variants in render)
+  const [product, setProduct] = useState(null);
 
   // Fetch reference data
   const { data: unitsData } = useQuery({
@@ -362,60 +469,132 @@ const AddProduct = () => {
   }, [purchasePriceExcTax, taxRateId, isTaxable, taxRatesData]);
 
   // Load product data if in edit mode
-  useEffect(() => {
-    const loadProduct = async () => {
-      if (!isEditMode) return;
+  const loadProductData = useCallback(async (forceRefresh = false) => {
+    if (!isEditMode) {
+      console.log(`[loadProductData] Not in edit mode, skipping`);
+      return;
+    }
 
-      let product = location.state?.editProduct;
+    console.log(`[loadProductData] Loading product data for id: ${id}`);
+    let productData = location.state?.editProduct;
 
-      if (!product) {
-        try {
-          const res = await api.get(`/products/${id}`);
-          product = res.data.product || res.data;
-        } catch (err) {
-          console.error('Failed to fetch product', err);
-          setSubmitError('Failed to load product details');
-          return;
+    // Fetch if:
+    // 1. We are forcing a refresh
+    // 2. No local state data
+    // 3. Local state data is missing variants (incomplete data from list view)
+    const shouldFetch = forceRefresh || !productData || !Array.isArray(productData.variants);
+
+    if (shouldFetch) {
+      try {
+        console.log(`[loadProductData] Fetching product from API...`);
+        const res = await api.get(`/products/${id}`);
+        console.log(`[loadProductData] API response received:`, {
+          hasProduct: !!res.data.product,
+          hasData: !!res.data,
+          variantsType: typeof (res.data.product?.variants || res.data?.variants),
+          variantsLength: res.data.product?.variants?.length || res.data?.variants?.length || 0
+        });
+        productData = res.data.product || res.data;
+        console.log(`[loadProductData] Raw API Response keys:`, Object.keys(res.data));
+        if (res.data.product) {
+          console.log(`[loadProductData] res.data.product keys:`, Object.keys(res.data.product));
+          console.log(`[loadProductData] res.data.product.variants type:`, typeof res.data.product.variants);
+          if (Array.isArray(res.data.product.variants)) {
+            console.log(`[loadProductData] res.data.product.variants length:`, res.data.product.variants.length);
+          }
+        }
+      } catch (err) {
+        console.error('[loadProductData] Failed to fetch product:', err);
+        setSubmitError('Failed to load product details');
+        return;
+      }
+    } else {
+      console.log(`[loadProductData] Using product data from location.state`);
+    }
+
+    if (productData) {
+      // Ensure variants is always an array (defensive check)
+      if (!Array.isArray(productData.variants)) {
+        console.warn(`[loadProductData] Product variants is not an array (type: ${typeof productData.variants}), defaulting to empty array`);
+        productData.variants = [];
+      }
+
+      // Debug logging for variants
+      console.log(`[loadProductData] Product has ${productData.variants.length} variants`);
+      if (productData.variants.length > 0) {
+        const variantsWithChild = productData.variants.filter(v => v?.child).length;
+        const variantsWithoutChild = productData.variants.length - variantsWithChild;
+        console.log(`[loadProductData] Variants with child: ${variantsWithChild}, without child: ${variantsWithoutChild}`);
+        if (variantsWithoutChild > 0) {
+          console.warn(`[loadProductData] Warning: ${variantsWithoutChild} variants missing child relationship`);
+        }
+        // Log first variant structure for debugging
+        if (productData.variants[0]) {
+          console.log(`[loadProductData] First variant structure:`, {
+            id: productData.variants[0].id,
+            hasChild: !!productData.variants[0].child,
+            childId: productData.variants[0].child?.id,
+            childSku: productData.variants[0].child?.sku
+          });
+        }
+      } else {
+        console.log(`[loadProductData] Product has no variants (empty array)`);
+      }
+      setProduct(productData);
+      setProductName(productData.name || '');
+      setSku(productData.sku || '');
+      setProductType(productData.type || 'standard');
+      setUnitId(productData.unit_id || productData.unit?.id || '');
+      setBrandId(productData.brand_id || productData.brandAttribute?.id || '');
+      setCategoryId(productData.category_id || productData.categoryRef?.id || '');
+      setSubCategoryId(productData.sub_category_id || '');
+      setBusinessLocationIds(productData.business_location_ids || productData.business_locations?.map(bl => bl.id) || []);
+      setWeight(productData.weight || '');
+      setReorderQuantity(productData.reorder_quantity || '');
+      setManageStock(!!productData.manage_stock);
+      setNotForSelling(!!productData.not_for_selling);
+
+      // Pricing
+      setIsTaxable(!!productData.is_taxable);
+      setTaxRateId(productData.tax_rate_id || '');
+      setSellingPriceTaxType(productData.selling_price_tax_type || 'exclusive');
+      setPurchasePriceExcTax(productData.cost_price || '');
+      setPurchasePriceIncTax(productData.cost_price_inc_tax || '');
+      setProfitMargin(productData.profit_margin || '25.00');
+      setSellingPriceExcTax(productData.sale_price || '');
+
+      // Attributes
+      if (productData.attribute_values) {
+        setAttributeValues(productData.attribute_values);
+      }
+
+      if (productData.type === 'variable') {
+        const variationIds = [];
+
+        if (Array.isArray(productData.variation_assignments)) {
+          productData.variation_assignments.forEach(va => variationIds.push(va.variation_id));
+        }
+        // REMOVED: Incorrect fallback to use product IDs as variation IDs
+        // else if (Array.isArray(productData.variations)) {
+        //   productData.variations.forEach(v => variationIds.push(v.id));
+        // }
+
+        if (variationIds.length > 0) {
+          const uniqueIds = [...new Set(variationIds)];
+          setSelectedVariations(uniqueIds);
         }
       }
 
-      if (product) {
-        setProductName(product.name || '');
-        setSku(product.sku || '');
-        setProductType(product.type || 'standard');
-        setUnitId(product.unit_id || product.unit?.id || '');
-        setBrandId(product.brand_id || product.brandAttribute?.id || '');
-        setCategoryId(product.category_id || product.categoryRef?.id || '');
-        setSubCategoryId(product.sub_category_id || '');
-        setBusinessLocationIds(product.business_location_ids || product.business_locations?.map(bl => bl.id) || []);
-        setWeight(product.weight || '');
-        setReorderQuantity(product.reorder_quantity || '');
-        setManageStock(!!product.manage_stock);
-        setNotForSelling(!!product.not_for_selling);
-
-        // Pricing
-        setIsTaxable(!!product.is_taxable);
-        setTaxRateId(product.tax_rate_id || '');
-        setSellingPriceTaxType(product.selling_price_tax_type || 'exclusive');
-        setPurchasePriceExcTax(product.cost_price || '');
-        setPurchasePriceIncTax(product.cost_price_inc_tax || '');
-        setProfitMargin(product.profit_margin || '25.00');
-        setSellingPriceExcTax(product.sale_price || '');
-
-        // Attributes
-        if (product.attribute_values) {
-          setAttributeValues(product.attribute_values);
-        }
-
-        // Image
-        if (product.image_url) {
-          setImagePreview(product.image_url);
-        }
+      // Image
+      if (productData.image_url) {
+        setImagePreview(productData.image_url);
       }
-    };
-
-    loadProduct();
+    }
   }, [id, isEditMode, location.state]);
+
+  useEffect(() => {
+    loadProductData();
+  }, [loadProductData]);
 
   // Handle image selection
   const handleImageChange = (e) => {
@@ -502,7 +681,8 @@ const AddProduct = () => {
         manage_stock: manageStock,
         not_for_selling: notForSelling,
         business_location_ids: businessLocationIds,
-        attribute_default_values: Object.keys(attributeValues).length > 0 ? attributeValues : undefined
+        attribute_default_values: Object.keys(attributeValues).length > 0 ? attributeValues : undefined,
+        variation_ids: productType === 'variable' ? selectedVariations : []
       };
 
       let response;
@@ -587,6 +767,83 @@ const AddProduct = () => {
               onChange={setProductType}
               placeholder="Select Type"
             />
+
+            {productType === 'variable' && (
+              <div className="md:col-span-2 bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Select Variations</label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {variationsData?.map((variation) => (
+                    <div key={variation.id} className="md:col-span-2 space-y-2">
+                      <label className="flex items-center space-x-2 cursor-pointer font-medium">
+                        <input
+                          type="checkbox"
+                          className="rounded border-gray-300 text-primary-600 shadow-sm focus:border-primary-300 focus:ring focus:ring-primary-200 focus:ring-opacity-50"
+                          checked={selectedVariations.includes(variation.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedVariations([...selectedVariations, variation.id]);
+                              // Default: select all values
+                              const allValueIds = variation.values?.map(v => v.id) || [];
+                              setSelectedVariationValues(prev => ({
+                                ...prev,
+                                [variation.id]: allValueIds
+                              }));
+                            } else {
+                              setSelectedVariations(selectedVariations.filter(id => id !== variation.id));
+                              // Remove from selected values
+                              const newValues = { ...selectedVariationValues };
+                              delete newValues[variation.id];
+                              setSelectedVariationValues(newValues);
+                            }
+                          }}
+                        />
+                        <span className="text-sm text-gray-700">{variation.name}</span>
+                      </label>
+
+                      {/* Show values if variation is selected */}
+                      {selectedVariations.includes(variation.id) && (
+                        <div className="ml-6 flex flex-wrap gap-2">
+                          {variation.values?.map(val => (
+                            <label key={val.id} className={`
+                                      inline-flex items-center px-2 py-1 rounded-md text-xs border cursor-pointer select-none
+                                      ${selectedVariationValues[variation.id]?.includes(val.id)
+                                ? 'bg-primary-50 border-primary-200 text-primary-700'
+                                : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}
+                                  `}>
+                              <input
+                                type="checkbox"
+                                className="sr-only"
+                                checked={selectedVariationValues[variation.id]?.includes(val.id) || false}
+                                onChange={(e) => {
+                                  const currentSelected = selectedVariationValues[variation.id] || [];
+                                  let newSelected;
+                                  if (e.target.checked) {
+                                    newSelected = [...currentSelected, val.id];
+                                  } else {
+                                    newSelected = currentSelected.filter(id => id !== val.id);
+                                  }
+                                  setSelectedVariationValues(prev => ({
+                                    ...prev,
+                                    [variation.id]: newSelected
+                                  }));
+                                }}
+                              />
+                              {val.value}
+                            </label>
+                          ))}
+                          {(!variation.values || variation.values.length === 0) && (
+                            <span className="text-xs text-red-500">No values defined</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {(!variationsData || variationsData.length === 0) && (
+                    <span className="text-sm text-gray-500 italic">No variations found. Create them in Settings.</span>
+                  )}
+                </div>
+              </div>
+            )}
             <FormSelect
               label="Unit"
               required
@@ -709,6 +966,162 @@ const AddProduct = () => {
             </div>
           )}
         </CollapsibleSection>
+
+        {/* Variants Management Section (Variable Product Edit Mode) */}
+        {isEditMode && productType === 'variable' && (
+          <CollapsibleSection title="Product Variants">
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-sm text-gray-500">
+                    Selected Variations: {selectedVariations.length}.
+                    Click preview to see combinations.
+                  </p>
+                  {previewVariants.length > 0 && (
+                    <p className="text-sm text-amber-600 font-semibold mt-1">
+                      Previewing {previewVariants.length} variants ({selectedPreviewSuffixes.size} selected for creation)
+                    </p>
+                  )}
+                  {product && Array.isArray(product.variants) && previewVariants.length === 0 && (
+                    <p className="text-sm text-gray-600 mt-1">
+                      Variants in database: {product.variants.length}
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  {previewVariants.length > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPreviewVariants([]);
+                          setSelectedPreviewSuffixes(new Set());
+                        }}
+                        className="px-3 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (selectedPreviewSuffixes.size === 0) {
+                            alert('Please select at least one variant to create.');
+                            return;
+                          }
+                          generateVariantsMutation.mutate({
+                            isDryRun: false,
+                            allowedSuffixes: Array.from(selectedPreviewSuffixes)
+                          });
+                        }}
+                        disabled={generateVariantsMutation.isPending || selectedPreviewSuffixes.size === 0}
+                        className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+                      >
+                        {generateVariantsMutation.isPending ? 'Saving...' : `Confirm & Save (${selectedPreviewSuffixes.size})`}
+                      </button>
+                    </>
+                  )}
+                  {previewVariants.length === 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (productType !== 'variable') {
+                          alert('Please set Product Type to "Variable" before previewing variants.');
+                          return;
+                        }
+                        generateVariantsMutation.mutate({ isDryRun: true });
+                      }}
+                      disabled={generateVariantsMutation.isPending || selectedVariations.length === 0}
+                      className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 disabled:opacity-50"
+                    >
+                      {generateVariantsMutation.isPending ? 'Generating...' : 'Preview Variants'}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Variants List */}
+              {(previewVariants.length > 0 || (product && Array.isArray(product.variants) && product.variants.length > 0)) ? (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        {previewVariants.length > 0 && (
+                          <th className="px-6 py-3 text-left">
+                            <input
+                              type="checkbox"
+                              checked={previewVariants.length > 0 && selectedPreviewSuffixes.size === previewVariants.length}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  const allSuffixes = previewVariants.map(v => v.sku_suffix);
+                                  setSelectedPreviewSuffixes(new Set(allSuffixes));
+                                } else {
+                                  setSelectedPreviewSuffixes(new Set());
+                                }
+                              }}
+                              className="rounded border-gray-300 text-primary-600 shadow-sm focus:border-primary-300 focus:ring focus:ring-primary-200 focus:ring-opacity-50"
+                            />
+                          </th>
+                        )}
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SKU</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stock</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {previewVariants.length > 0 ? (
+                        // Render Preview Variants (Flat Object)
+                        previewVariants.map((variant, idx) => (
+                          <tr key={`preview-${idx}`} className={selectedPreviewSuffixes.has(variant.sku_suffix) ? "bg-amber-50" : "bg-gray-50 opacity-50"}>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <input
+                                type="checkbox"
+                                checked={selectedPreviewSuffixes.has(variant.sku_suffix)}
+                                onChange={() => {
+                                  const newSet = new Set(selectedPreviewSuffixes);
+                                  if (newSet.has(variant.sku_suffix)) {
+                                    newSet.delete(variant.sku_suffix);
+                                  } else {
+                                    newSet.add(variant.sku_suffix);
+                                  }
+                                  setSelectedPreviewSuffixes(newSet);
+                                }}
+                                className="rounded border-gray-300 text-primary-600 shadow-sm focus:border-primary-300 focus:ring focus:ring-primary-200 focus:ring-opacity-50"
+                              />
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{variant.sku || '-'}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{variant.name || '-'}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{variant.sale_price || '-'}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">0 (New)</td>
+                          </tr>
+                        ))
+                      ) : (
+                        // Render Saved Variants (Nested .child Object)
+                        product.variants
+                          .filter(variant => variant?.child)
+                          .map((variant) => (
+                            <tr key={variant.id}>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{variant.child?.sku || '-'}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{variant.child?.name || '-'}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{variant.child?.sale_price || '-'}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{variant.child?.current_stock ?? '-'}</td>
+                            </tr>
+                          ))
+                      )}
+                    </tbody>
+                  </table>
+                  {product && product.variants && product.variants.filter(v => !v?.child).length > 0 && previewVariants.length === 0 && (
+                    <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
+                      Warning: {product.variants.filter(v => !v?.child).length} variant(s) are missing child product data and were not displayed.
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500 italic mt-4">No variants generated yet.</p>
+              )}
+            </div>
+          </CollapsibleSection>
+        )}
 
         {/* Pricing Section */}
         <CollapsibleSection title="Pricing">

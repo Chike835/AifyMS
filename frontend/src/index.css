@@ -3,7 +3,8 @@
 @tailwind utilities;
 
 /* Ensure body and root are visible even if Tailwind fails to load */
-html, body {
+html,
+body {
   margin: 0;
   padding: 0;
   height: 100vh;
@@ -13,13 +14,16 @@ html, body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #f9fafb; /* Fallback background color */
-  color: #111827; /* Fallback text color */
+  background-color: #f9fafb;
+  /* Fallback background color */
+  color: #111827;
+  /* Fallback text color */
 }
 
 #root {
   height: 100vh;
-  display: block; /* Ensure root is visible */
+  display: block;
+  /* Ensure root is visible */
   overflow: hidden;
 }
 
@@ -55,6 +59,7 @@ code {
 
 /* Print Media Queries */
 @media print {
+
   /* Hide sidebar, navigation, and action buttons */
   aside,
   nav,
@@ -90,4 +95,3 @@ code {
     color: black !important;
   }
 }
-

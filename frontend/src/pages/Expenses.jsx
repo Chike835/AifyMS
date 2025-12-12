@@ -4,6 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import ListToolbar from '../components/common/ListToolbar';
 import ExportModal from '../components/import/ExportModal';
+import { sortData } from '../utils/sortUtils';
+import SortIndicator from '../components/common/SortIndicator';
 import { Receipt, Plus, Edit, Trash2, X, Calendar, Tag } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
@@ -24,6 +26,19 @@ const Expenses = () => {
     expense_date: new Date().toISOString().split('T')[0]
   });
   const [formError, setFormError] = useState('');
+
+  // Sorting
+  const [sortField, setSortField] = useState('expense_date');
+  const [sortDirection, setSortDirection] = useState('desc');
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -233,7 +248,7 @@ const Expenses = () => {
     );
   }
 
-  const expenses = data?.expenses || [];
+  const expenses = sortData(data?.expenses || [], sortField, sortDirection);
   const categories = categoriesData || [];
   const pagination = data?.pagination || { total: data?.total_count || 0, page: 1, limit: 25, total_pages: 1 };
 
@@ -337,32 +352,50 @@ const Expenses = () => {
             <tr>
               {visibleColumns.date && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
+                  <button onClick={() => handleSort('expense_date')} className="flex items-center gap-1">
+                    Date
+                    <SortIndicator field="expense_date" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.category && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Category
+                  <button onClick={() => handleSort('category.name')} className="flex items-center gap-1">
+                    Category
+                    <SortIndicator field="category.name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.description && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Description
+                  <button onClick={() => handleSort('description')} className="flex items-center gap-1">
+                    Description
+                    <SortIndicator field="description" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.branch && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Branch
+                  <button onClick={() => handleSort('branch.name')} className="flex items-center gap-1">
+                    Branch
+                    <SortIndicator field="branch.name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.created_by && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Created By
+                  <button onClick={() => handleSort('creator.full_name')} className="flex items-center gap-1">
+                    Created By
+                    <SortIndicator field="creator.full_name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.amount && (
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Amount
+                  <button onClick={() => handleSort('amount')} className="flex items-center gap-1 justify-end w-full">
+                    Amount
+                    <SortIndicator field="amount" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -590,8 +623,8 @@ const Expenses = () => {
                   {createMutation.isPending || updateMutation.isPending
                     ? 'Saving...'
                     : selectedExpense
-                    ? 'Update'
-                    : 'Create'}
+                      ? 'Update'
+                      : 'Create'}
                 </button>
               </div>
             </form>

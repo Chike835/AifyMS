@@ -9,7 +9,13 @@ import { logActivitySync } from '../middleware/activityLogger.js';
 export const getCustomers = async (req, res) => {
   try {
     const { search, page = 1, limit = 50 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    let queryLimit = parseInt(limit);
+    let offset = (parseInt(page) - 1) * queryLimit;
+
+    if (queryLimit < 1) {
+      queryLimit = null;
+      offset = null;
+    }
 
     // Build where clause for search
     const whereClause = {};
@@ -24,7 +30,7 @@ export const getCustomers = async (req, res) => {
     const { count, rows: customers } = await Customer.findAndCountAll({
       where: whereClause,
       order: [['created_at', 'DESC']],
-      limit: parseInt(limit),
+      limit: queryLimit,
       offset
     });
 
@@ -33,8 +39,8 @@ export const getCustomers = async (req, res) => {
       pagination: {
         total: count,
         page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(count / parseInt(limit))
+        limit: queryLimit,
+        totalPages: queryLimit ? Math.ceil(count / queryLimit) : 1
       }
     });
   } catch (error) {
@@ -278,6 +284,11 @@ export const getCustomerOrders = async (req, res) => {
   try {
     const { id } = req.params;
     const { limit = 50, offset = 0 } = req.query;
+    let queryLimit = parseInt(limit);
+
+    if (queryLimit < 1) {
+      queryLimit = null;
+    }
 
     const customer = await Customer.findByPk(id);
     if (!customer) {
@@ -297,7 +308,7 @@ export const getCustomerOrders = async (req, res) => {
         { model: Branch, as: 'branch', attributes: ['id', 'name'] }
       ],
       order: [['created_at', 'DESC']],
-      limit: parseInt(limit),
+      limit: queryLimit,
       offset: parseInt(offset)
     });
 
@@ -328,11 +339,11 @@ export const getCustomerBalance = async (req, res) => {
     }
 
     const totalSales = await SalesOrder.sum('total_amount', { where });
-    const totalPayments = await Payment.sum('amount', { 
-      where: { 
+    const totalPayments = await Payment.sum('amount', {
+      where: {
         customer_id: id,
         status: 'confirmed'
-      } 
+      }
     });
 
     return res.json({
@@ -340,7 +351,7 @@ export const getCustomerBalance = async (req, res) => {
       ledger_balance: parseFloat(customer.ledger_balance || 0),
       total_sales: parseFloat(totalSales || 0),
       total_payments: parseFloat(totalPayments || 0),
-      outstanding_balance: parseFloat(customer.ledger_balance || 0)
+      outstanding_balance: parseFloat(totalSales || 0) - parseFloat(totalPayments || 0)
     });
   } catch (error) {
     console.error('Error fetching customer balance:', error);

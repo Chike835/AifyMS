@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
+import { sortData } from '../utils/sortUtils';
+import SortIndicator from '../components/common/SortIndicator';
 import { RotateCcw, Plus, Eye, Check, X, Search } from 'lucide-react';
 import ListToolbar from '../components/common/ListToolbar';
 import ExportModal from '../components/import/ExportModal';
@@ -25,6 +27,19 @@ const PurchaseReturns = () => {
   const [selectedReturn, setSelectedReturn] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+
+  // Sorting
+  const [sortField, setSortField] = useState('created_at');
+  const [sortDirection, setSortDirection] = useState('desc');
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
   // Create return form state
   const [returnForm, setReturnForm] = useState({
@@ -162,7 +177,7 @@ const PurchaseReturns = () => {
 
   const handleSubmitReturn = (e) => {
     e.preventDefault();
-    
+
     const itemsToReturn = returnForm.items
       .filter(item => item.return_quantity > 0)
       .map(item => ({
@@ -202,7 +217,7 @@ const PurchaseReturns = () => {
   const returns = data?.returns || [];
 
   // Filter by search term
-  const filteredReturns = returns.filter(ret => {
+  const filteredReturns = sortData(returns.filter(ret => {
     if (!searchTerm) return true;
     const search = searchTerm.toLowerCase();
     return (
@@ -210,7 +225,7 @@ const PurchaseReturns = () => {
       ret.purchase?.purchase_number?.toLowerCase().includes(search) ||
       ret.supplier?.name?.toLowerCase().includes(search)
     );
-  });
+  }), sortField, sortDirection);
 
   return (
     <div>
@@ -270,32 +285,50 @@ const PurchaseReturns = () => {
             <tr>
               {visibleColumns.return_number && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Return #
+                  <button onClick={() => handleSort('return_number')} className="flex items-center gap-1">
+                    Return #
+                    <SortIndicator field="return_number" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.original_po && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Original PO
+                  <button onClick={() => handleSort('purchase.purchase_number')} className="flex items-center gap-1">
+                    Original PO
+                    <SortIndicator field="purchase.purchase_number" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.supplier && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Supplier
+                  <button onClick={() => handleSort('supplier.name')} className="flex items-center gap-1">
+                    Supplier
+                    <SortIndicator field="supplier.name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.amount && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Amount
+                  <button onClick={() => handleSort('total_amount')} className="flex items-center gap-1">
+                    Amount
+                    <SortIndicator field="total_amount" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.status && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
+                  <button onClick={() => handleSort('status')} className="flex items-center gap-1">
+                    Status
+                    <SortIndicator field="status" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.date && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
+                  <button onClick={() => handleSort('created_at')} className="flex items-center gap-1">
+                    Date
+                    <SortIndicator field="created_at" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.actions && (

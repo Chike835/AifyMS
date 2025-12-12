@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
+import { sortData } from '../utils/sortUtils';
+import SortIndicator from '../components/common/SortIndicator';
 import { FileEdit, Eye, Trash2, ArrowRight, Search, X, Plus } from 'lucide-react';
 import ManufacturedItemSelector from '../components/sales/ManufacturedItemSelector';
 import ListToolbar from '../components/common/ListToolbar';
@@ -29,6 +31,19 @@ const Drafts = () => {
   const [deleteId, setDeleteId] = useState(null);
   const [showCoilSelector, setShowCoilSelector] = useState(false);
   const [draftToConvert, setDraftToConvert] = useState(null);
+
+  // Sorting
+  const [sortField, setSortField] = useState('created_at');
+  const [sortDirection, setSortDirection] = useState('desc');
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
   // Fetch drafts
   const { data, isLoading, error } = useQuery({
@@ -96,7 +111,7 @@ const Drafts = () => {
   const handleConvertToInvoice = (draft) => {
     // Check if draft has manufactured products that need coil selection
     const hasManufactured = draft.items?.some(item => item.product?.type === 'manufactured_virtual');
-    
+
     if (hasManufactured) {
       // Show coil selection modal for manufactured items
       setDraftToConvert(draft);
@@ -110,9 +125,9 @@ const Drafts = () => {
 
   const handleCoilSelectionConfirm = (itemAssignments) => {
     if (draftToConvert) {
-      convertMutation.mutate({ 
-        id: draftToConvert.id, 
-        item_assignments: itemAssignments 
+      convertMutation.mutate({
+        id: draftToConvert.id,
+        item_assignments: itemAssignments
       });
     }
     setShowCoilSelector(false);
@@ -143,14 +158,14 @@ const Drafts = () => {
   const drafts = data?.drafts || [];
 
   // Filter by search term
-  const filteredDrafts = drafts.filter(draft => {
+  const filteredDrafts = sortData(drafts.filter(draft => {
     if (!searchTerm) return true;
     const search = searchTerm.toLowerCase();
     return (
       draft.invoice_number?.toLowerCase().includes(search) ||
       draft.customer?.name?.toLowerCase().includes(search)
     );
-  });
+  }), sortField, sortDirection);
 
   return (
     <div>
@@ -198,12 +213,18 @@ const Drafts = () => {
             <tr>
               {visibleColumns.draft_number && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Draft #
+                  <button onClick={() => handleSort('invoice_number')} className="flex items-center gap-1">
+                    Draft #
+                    <SortIndicator field="invoice_number" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.customer && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Customer
+                  <button onClick={() => handleSort('customer.name')} className="flex items-center gap-1">
+                    Customer
+                    <SortIndicator field="customer.name" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.items && (
@@ -213,12 +234,18 @@ const Drafts = () => {
               )}
               {visibleColumns.total && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Total
+                  <button onClick={() => handleSort('total_amount')} className="flex items-center gap-1">
+                    Total
+                    <SortIndicator field="total_amount" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.created && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Created
+                  <button onClick={() => handleSort('created_at')} className="flex items-center gap-1">
+                    Created
+                    <SortIndicator field="created_at" sortField={sortField} sortDirection={sortDirection} />
+                  </button>
                 </th>
               )}
               {visibleColumns.actions && (

@@ -7,7 +7,8 @@ export const PRODUCT_TYPES = {
     STANDARD: 'standard',
     COMPOUND: 'compound',
     RAW_TRACKED: 'raw_tracked',
-    MANUFACTURED_VIRTUAL: 'manufactured_virtual'
+    MANUFACTURED_VIRTUAL: 'manufactured_virtual',
+    VARIABLE: 'variable'
 };
 
 export const VALID_PRODUCT_TYPES = Object.values(PRODUCT_TYPES);

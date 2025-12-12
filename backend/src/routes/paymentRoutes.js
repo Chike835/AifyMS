@@ -1,13 +1,14 @@
 import express from 'express';
-import { 
-  createPayment, 
-  confirmPayment, 
+import {
+  createPayment,
+  confirmPayment,
   getPayments,
   getPendingPayments,
   getRecentPayments,
   addAdvance,
   confirmAdvancePayment,
-  processRefund
+  processRefund,
+  declinePayment
 } from '../controllers/paymentController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { requirePermission } from '../middleware/permissionMiddleware.js';
@@ -31,6 +32,9 @@ router.post('/', requirePermission('payment_receive'), createPayment);
 
 // PUT /api/payments/:id/confirm - Confirm payment (requires payment_confirm)
 router.put('/:id/confirm', requirePermission('payment_confirm'), confirmPayment);
+
+// PUT /api/payments/:id/decline - Decline payment (requires payment_confirm)
+router.put('/:id/decline', requirePermission('payment_confirm'), declinePayment);
 
 // POST /api/payments/advance - Create advance payment (requires payment_receive)
 router.post('/advance', requirePermission('payment_receive'), addAdvance);

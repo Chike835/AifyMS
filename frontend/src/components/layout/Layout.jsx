@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import Sidebar from './Sidebar';
-import { Menu, X } from 'lucide-react';
+import TopBar from './TopBar';
 
 const Layout = ({ children }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -15,20 +15,13 @@ const Layout = ({ children }) => {
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
-      {/* Mobile toggle button */}
-      <button
-        onClick={toggleSidebar}
-        className="fixed top-4 left-4 z-50 lg:hidden p-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
-        aria-label="Toggle sidebar"
-      >
-        {isSidebarOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-      </button>
+      {/* TopBar */}
+      <TopBar toggleSidebar={toggleSidebar} />
 
       {/* Sidebar */}
       <div
-        className={`${
-          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } fixed lg:static inset-y-0 left-0 z-40 w-64 bg-gray-900 text-white transition-transform duration-300 ease-in-out lg:translate-x-0 flex-shrink-0 h-full overflow-y-auto`}
+        className={`${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          } fixed lg:static inset-y-0 left-0 z-40 w-64 bg-gray-900 text-white transition-transform duration-300 ease-in-out lg:translate-x-0 flex-shrink-0 h-full overflow-y-auto`}
       >
         <Sidebar isCollapsed={false} onToggle={closeSidebar} />
       </div>
@@ -42,7 +35,7 @@ const Layout = ({ children }) => {
       )}
 
       {/* Main content */}
-      <main className="flex-1 h-full overflow-y-auto p-4 lg:p-8">{children}</main>
+      <main className="flex-1 h-full overflow-y-auto px-4 pb-4 pt-20 lg:px-8 lg:pb-8 lg:pt-24">{children}</main>
     </div>
   );
 };

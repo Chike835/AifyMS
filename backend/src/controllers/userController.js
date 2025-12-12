@@ -11,11 +11,17 @@ export const getUsers = async (req, res, next) => {
     const { branch_id, role_name } = req.user;
     const { page = 1, limit = 20, search, role_id, is_active } = req.query;
 
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    let queryLimit = parseInt(limit);
+    let queryOffset = (parseInt(page) - 1) * queryLimit;
+
+    if (queryLimit < 1) {
+      queryLimit = null;
+      queryOffset = null;
+    }
 
     // Build where clause with branch filtering
     let whereClause = {};
-    
+
     // Non-Super Admin can only see users in their branch
     const canViewGlobal = req.user?.permissions?.includes('user_view_global');
     if (!canViewGlobal && role_name !== 'Super Admin') {
@@ -50,13 +56,14 @@ export const getUsers = async (req, res, next) => {
       ],
       attributes: { exclude: ['password_hash'] },
       order: [['full_name', 'ASC']],
-      limit: parseInt(limit),
-      offset
+      limit: queryLimit,
+      offset: queryOffset,
     });
 
     res.status(200).json({
       total_count: count,
-      total_pages: Math.ceil(count / parseInt(limit)),
+      limit: queryLimit || count, // if no limit, effectively count is the limit for this page
+      total_pages: queryLimit ? Math.ceil(count / queryLimit) : 1,
       current_page: parseInt(page),
       users
     });
@@ -77,9 +84,9 @@ export const getUserById = async (req, res, next) => {
 
     const user = await User.findByPk(id, {
       include: [
-        { 
-          model: Role, 
-          as: 'role', 
+        {
+          model: Role,
+          as: 'role',
           attributes: ['id', 'name'],
           include: [
             { model: Permission, as: 'permissions', attributes: ['id', 'slug', 'group_name'] }
@@ -238,11 +245,11 @@ export const updateUser = async (req, res, next) => {
         return res.status(400).json({ error: 'Invalid email format' });
       }
 
-      const existingUser = await User.findOne({ 
-        where: { 
+      const existingUser = await User.findOne({
+        where: {
           email: email.toLowerCase(),
           id: { [Op.ne]: id }
-        } 
+        }
       });
       if (existingUser) {
         return res.status(409).json({ error: 'A user with this email already exists' });

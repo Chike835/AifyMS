@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
-import { Check, Clock, Plus, DollarSign, Search } from 'lucide-react';
+import { Check, Clock, Plus, DollarSign, Search, X } from 'lucide-react';
 
 const Payments = () => {
   const { hasPermission, user } = useAuth();
   const queryClient = useQueryClient();
+  const location = useLocation();
   const [activeTab, setActiveTab] = useState('form'); // 'form', 'recent', 'pending'
   const [formData, setFormData] = useState({
     customer_id: '',
@@ -106,11 +108,37 @@ const Payments = () => {
     onError: (error) => {
       alert(error.response?.data?.error || 'Failed to confirm payment');
     },
+
+  });
+
+  // Decline payment mutation
+  const declinePaymentMutation = useMutation({
+    mutationFn: async (paymentId) => {
+      const response = await api.put(`/payments/${paymentId}/decline`);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pendingPayments'] });
+      queryClient.invalidateQueries({ queryKey: ['recentPayments'] }); // It might show up as voided if we list all
+      alert('Payment declined successfully!');
+    },
+    onError: (error) => {
+      alert(error.response?.data?.error || 'Failed to decline payment');
+    },
   });
 
   const isCreateDisabled = createPaymentMutation.isPending || noAccountsAvailable;
   const recentPayments = recentPaymentsData || [];
   const pendingPayments = pendingPaymentsData || [];
+
+  // Check for status query param
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const statusParam = params.get('status');
+    if (statusParam === 'pending_confirmation' && hasPermission('payment_confirm')) {
+      setActiveTab('pending');
+    }
+  }, [location.search, hasPermission]);
 
   useEffect(() => {
     if (paymentAccounts.length === 0) {
@@ -192,6 +220,12 @@ const Payments = () => {
     }
   };
 
+  const handleDecline = (payment) => {
+    if (window.confirm('Are you sure you want to DECLINE this payment? This action cannot be undone.')) {
+      declinePaymentMutation.mutate(payment.id);
+    }
+  };
+
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
@@ -230,8 +264,8 @@ const Payments = () => {
             <button
               onClick={() => setActiveTab('form')}
               className={`py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'form'
-                  ? 'border-primary-500 text-primary-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                ? 'border-primary-500 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
             >
               <Plus className="h-4 w-4 inline mr-2" />
@@ -242,8 +276,8 @@ const Payments = () => {
             <button
               onClick={() => setActiveTab('recent')}
               className={`py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'recent'
-                  ? 'border-primary-500 text-primary-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                ? 'border-primary-500 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
             >
               <DollarSign className="h-4 w-4 inline mr-2" />
@@ -254,8 +288,8 @@ const Payments = () => {
             <button
               onClick={() => setActiveTab('pending')}
               className={`py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'pending'
-                  ? 'border-primary-500 text-primary-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                ? 'border-primary-500 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
             >
               <Clock className="h-4 w-4 inline mr-2" />
@@ -484,10 +518,10 @@ const Payments = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${payment.status === 'confirmed'
-                            ? 'bg-green-100 text-green-800'
-                            : payment.status === 'voided'
-                              ? 'bg-red-100 text-red-800'
-                              : 'bg-yellow-100 text-yellow-800'
+                          ? 'bg-green-100 text-green-800'
+                          : payment.status === 'voided'
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-yellow-100 text-yellow-800'
                           }`}>
                           {payment.status === 'pending_confirmation' ? 'Pending' : payment.status}
                         </span>
@@ -561,6 +595,7 @@ const Payments = () => {
                   {pendingPayments.map((payment) => {
                     const resolvedAccountId = payment.payment_account?.id || pendingAccountSelections[payment.id];
                     const confirmDisabled = confirmPaymentMutation.isPending || !resolvedAccountId || paymentAccounts.length === 0;
+                    const declineDisabled = declinePaymentMutation.isPending;
                     return (
                       <tr key={payment.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -617,6 +652,14 @@ const Payments = () => {
                           >
                             <Check className="h-4 w-4" />
                             <span>Confirm</span>
+                          </button>
+                          <button
+                            onClick={() => handleDecline(payment)}
+                            disabled={declineDisabled}
+                            className="inline-flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            <X className="h-4 w-4" />
+                            <span>Decline</span>
                           </button>
                         </td>
                       </tr>

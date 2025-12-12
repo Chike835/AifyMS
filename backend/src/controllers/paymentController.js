@@ -1,6 +1,6 @@
 import sequelize from '../config/db.js';
 import { Op } from 'sequelize';
-import { Payment, Customer, User, SalesOrder, PaymentAccount, AccountTransaction } from '../models/index.js';
+import { Payment, Customer, User, SalesOrder, PaymentAccount, AccountTransaction, Branch, LedgerEntry } from '../models/index.js';
 import { logActivitySync } from '../middleware/activityLogger.js';
 import { createLedgerEntry, calculateAdvanceBalance } from '../services/ledgerService.js';
 import { getLocale, getCurrency } from '../config/locale.js';
@@ -121,6 +121,31 @@ export const createPayment = async (req, res, next) => {
       payment.id
     );
 
+    // Resolve Branch ID (Robust Fallback)
+    let branchId = req.user.branch_id;
+    if (!branchId) {
+      // Try to find a default branch or the first available one
+      const defaultBranch = await Branch.findOne({ order: [['id', 'ASC']] });
+      branchId = defaultBranch?.id;
+    }
+
+    // Create Ledger Entry (Pending)
+    // This will be visible in the ledger but excluded from balance calculations until confirmed
+    await createLedgerEntry(
+      payment.customer_id,
+      'customer',
+      {
+        transaction_date: payment.created_at,
+        transaction_type: 'PAYMENT',
+        transaction_id: payment.id,
+        description: `Payment ${payment.method} (Pending)`,
+        debit_amount: 0,
+        credit_amount: parseFloat(payment.amount),
+        branch_id: branchId,
+        created_by: req.user.id
+      }
+    );
+
     res.status(201).json({
       message: 'Payment logged successfully. Awaiting confirmation.',
       payment: paymentWithDetails
@@ -211,30 +236,66 @@ export const confirmPayment = async (req, res, next) => {
     customer.ledger_balance = parseFloat(customer.ledger_balance) - parseFloat(payment.amount);
     await customer.save({ transaction });
 
-    // Create ledger entry (within transaction - must succeed or entire payment rolls back)
-    // Get branch from customer's most recent sale or use user's branch
+    // Link Ledger Entry
+    // Check if an entry already exists (created during createPayment)
+    const existingEntry = await LedgerEntry.findOne({
+      where: {
+        transaction_id: payment.id,
+        transaction_type: 'PAYMENT',
+        contact_id: payment.customer_id,
+        contact_type: 'customer'
+      },
+      transaction
+    });
+
+    // Get robust branch ID
+    // Try recent sale, payment account branch, user branch, or fallback to any branch
     const recentSale = await SalesOrder.findOne({
       where: { customer_id: payment.customer_id },
       order: [['created_at', 'DESC']],
       transaction
     });
-    const branchId = recentSale?.branch_id || paymentAccount?.branch_id || req.user.branch_id;
 
-    await createLedgerEntry(
-      payment.customer_id,
-      'customer',
-      {
-        transaction_date: payment.created_at || new Date(),
-        transaction_type: 'PAYMENT',
-        transaction_id: payment.id,
-        description: `Payment ${payment.method}`,
-        debit_amount: 0,
-        credit_amount: parseFloat(payment.amount),
-        branch_id: branchId,
-        created_by: req.user.id
-      },
-      transaction
-    );
+    let branchId = recentSale?.branch_id || paymentAccount?.branch_id || req.user.branch_id;
+    if (!branchId) {
+      const anyBranch = await Branch.findOne({ transaction });
+      branchId = anyBranch?.id;
+    }
+
+    if (existingEntry) {
+      // Update existing entry
+      existingEntry.description = `Payment ${payment.method}`; // Remove (Pending)
+      existingEntry.transaction_date = payment.confirmed_at || new Date(); // Update date to confirmation? Or keep creation? usually confirmation
+      existingEntry.branch_id = branchId; // Ensure correct branch
+      await existingEntry.save({ transaction });
+
+      // Trigger recalculation since we updated the entry and the payment status is now confirmed
+      // The service filter check (status != confirmed) will now pass, so it will be included
+      await recalculateSubsequentBalances(
+        payment.customer_id,
+        'customer',
+        existingEntry.transaction_date,
+        branchId,
+        transaction
+      );
+    } else {
+      // Create new if missing (legacy support or direct creation)
+      await createLedgerEntry(
+        payment.customer_id,
+        'customer',
+        {
+          transaction_date: payment.created_at || new Date(),
+          transaction_type: 'PAYMENT',
+          transaction_id: payment.id,
+          description: `Payment ${payment.method}`,
+          debit_amount: 0,
+          credit_amount: parseFloat(payment.amount),
+          branch_id: branchId,
+          created_by: req.user.id
+        },
+        transaction
+      );
+    }
 
     // Record deposit into payment account
     await AccountTransaction.create({
@@ -284,12 +345,86 @@ export const confirmPayment = async (req, res, next) => {
 };
 
 /**
+ * PUT /api/payments/:id/decline
+ * Decline (void) a pending payment
+ */
+export const declinePayment = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+
+    const payment = await Payment.findByPk(id, {
+      lock: transaction.LOCK.UPDATE,
+      transaction
+    });
+
+    if (!payment) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+
+    if (payment.status !== 'pending_confirmation') {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Only pending payments can be declined' });
+    }
+
+    // Void the payment
+    payment.status = 'voided';
+    await payment.save({ transaction });
+
+    // We don't need to delete the ledger entry because our filter in ledgerService
+    // excludes payments where status != 'confirmed'.
+    // Optionally we could update the description to say (Declined)
+    const entry = await LedgerEntry.findOne({
+      where: {
+        transaction_id: payment.id,
+        transaction_type: 'PAYMENT'
+      },
+      transaction
+    });
+
+    if (entry) {
+      entry.description = `${entry.description} (Declined)`;
+      await entry.save({ transaction });
+    }
+
+    await logActivitySync(
+      'DECLINE',
+      'payments',
+      `Declined payment of ${formatCurrency(payment.amount)}`,
+      req,
+      'payment',
+      payment.id
+    );
+
+    await transaction.commit();
+
+    res.json({ message: 'Payment declined successfully', payment });
+
+  } catch (error) {
+    await transaction.rollback();
+    next(error);
+  }
+};
+
+/**
  * GET /api/payments
  * List payments with filtering and pagination
  */
 export const getPayments = async (req, res, next) => {
   try {
     const { customer_id, status, branch_id, limit = 100, offset = 0 } = req.query;
+    let queryLimit = parseInt(limit);
+    let queryOffset = parseInt(offset);
+
+    if (queryLimit < 1) {
+      queryLimit = null;
+      // If limit is removed, offset typically makes no sense or should be 0, but let's keep it safe
+      // If offset < 0 it will be invalid in SQL usually
+    }
+    if (queryOffset < 0) queryOffset = 0;
+
     const where = {};
 
     if (customer_id) {
@@ -330,8 +465,8 @@ export const getPayments = async (req, res, next) => {
         { model: PaymentAccount, as: 'payment_account', attributes: ['id', 'name', 'account_type'] }
       ],
       order: [['created_at', 'DESC']],
-      limit: parseInt(limit),
-      offset: parseInt(offset)
+      limit: queryLimit,
+      offset: queryOffset
     });
 
     const total = await Payment.count({ where });
@@ -339,8 +474,8 @@ export const getPayments = async (req, res, next) => {
     res.json({
       payments,
       total,
-      limit: parseInt(limit),
-      offset: parseInt(offset)
+      limit: queryLimit,
+      offset: queryOffset
     });
   } catch (error) {
     next(error);
