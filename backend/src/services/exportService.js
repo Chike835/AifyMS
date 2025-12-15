@@ -1,4 +1,4 @@
-import { Product, InventoryBatch, SalesOrder, Customer, Branch, Purchase, PurchaseItem, Supplier } from '../models/index.js';
+import { Product, InventoryBatch, SalesOrder, Customer, Branch, Purchase, PurchaseItem, Supplier, PaymentAccount } from '../models/index.js';
 import { Op } from 'sequelize';
 
 /**
@@ -265,6 +265,41 @@ export const exportPurchases = async (filters = {}) => {
     'product_sku', 'product_name', 'quantity', 'unit_cost', 'subtotal',
     'instance_code', 'purchase_unit', 'purchased_quantity', 'conversion_factor'
   ];
+  return arrayToCSV(csvData, headers);
+};
+
+/**
+ * Export payment accounts to CSV
+ */
+export const exportPaymentAccounts = async (filters = {}) => {
+  const where = {};
+
+  // Branch filtering (except for Super Admin - handled in controller via user context)
+  if (filters.branch_id) {
+    where.branch_id = filters.branch_id;
+  }
+
+  const accounts = await PaymentAccount.findAll({
+    where,
+    include: [
+      { model: Branch, as: 'branch', attributes: ['id', 'name', 'code'] }
+    ],
+    order: [['name', 'ASC']]
+  });
+
+  const csvData = accounts.map(account => ({
+    name: account.name,
+    account_type: account.account_type,
+    account_number: account.account_number || '',
+    bank_name: account.bank_name || '',
+    opening_balance: account.opening_balance || 0,
+    current_balance: account.current_balance || 0,
+    branch_name: account.branch?.name || '',
+    is_active: account.is_active ? 'true' : 'false',
+    created_at: account.created_at
+  }));
+
+  const headers = ['name', 'account_type', 'account_number', 'bank_name', 'opening_balance', 'current_balance', 'branch_name', 'is_active', 'created_at'];
   return arrayToCSV(csvData, headers);
 };
 

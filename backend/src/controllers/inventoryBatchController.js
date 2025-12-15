@@ -1,6 +1,7 @@
 import { InventoryBatch, Product, Branch, Category, BatchType, CategoryBatchType, SalesItem, ItemAssignment, User } from '../models/index.js';
 import { Op } from 'sequelize';
 import sequelize from '../config/db.js';
+import { safeRollback } from '../utils/transactionUtils.js';
 
 const isSuperAdmin = (req) => req.user?.role_name === 'Super Admin';
 
@@ -393,13 +394,13 @@ export const updateBatch = async (req, res, next) => {
     // Get the batch
     const batch = await InventoryBatch.findByPk(id, { transaction });
     if (!batch) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Inventory batch not found' });
     }
 
     // Check permissions - user must have access to batch's branch
-    if (req.user.role_name !== 'Super Admin' && req.user.branch_id !== batch.branch_id) {
-      await transaction.rollback();
+    if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id !== batch.branch_id) {
+      await safeRollback(transaction);
       return res.status(403).json({ error: 'You do not have permission to update this batch' });
     }
 
@@ -413,7 +414,7 @@ export const updateBatch = async (req, res, next) => {
         const category = await Category.findByPk(category_id, { transaction });
         const categoryAccessError = buildCategoryAccessError(req, category, batch.branch_id);
         if (categoryAccessError) {
-          await transaction.rollback();
+          await safeRollback(transaction);
           return res.status(categoryAccessError.status).json({ error: categoryAccessError.message });
         }
       }
@@ -428,7 +429,7 @@ export const updateBatch = async (req, res, next) => {
           transaction
         });
         if (existingBatch) {
-          await transaction.rollback();
+          await safeRollback(transaction);
           return res.status(409).json({ error: 'Instance code already exists' });
         }
       }
@@ -439,11 +440,11 @@ export const updateBatch = async (req, res, next) => {
       // Verify batch type exists and is active
       const batchType = await BatchType.findByPk(batch_type_id);
       if (!batchType) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(404).json({ error: 'Batch type not found' });
       }
       if (!batchType.is_active) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(400).json({ error: 'Cannot assign inactive batch type' });
       }
 
@@ -454,7 +455,7 @@ export const updateBatch = async (req, res, next) => {
           transaction
         });
         if (!assignment) {
-          await transaction.rollback();
+          await safeRollback(transaction);
           return res.status(400).json({
             error: `Batch type "${batchType.name}" is not assigned to this category. Please assign it in Batch Settings first.`
           });
@@ -470,7 +471,7 @@ export const updateBatch = async (req, res, next) => {
       if (!grouped) {
         batch.instance_code = null;
       } else if (!batch.instance_code) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(400).json({ error: 'instance_code is required when grouped is true' });
       }
     }
@@ -485,14 +486,14 @@ export const updateBatch = async (req, res, next) => {
         const category = await Category.findByPk(batch.category_id, { transaction });
         const categoryAccessError = buildCategoryAccessError(req, category, batch.branch_id);
         if (categoryAccessError) {
-          await transaction.rollback();
+          await safeRollback(transaction);
           return res.status(categoryAccessError.status).json({ error: categoryAccessError.message });
         }
         if (category?.attribute_schema && Array.isArray(category.attribute_schema)) {
           const requiredAttrs = category.attribute_schema.filter(attr => attr.required);
           for (const attr of requiredAttrs) {
             if (!attribute_data[attr.name]) {
-              await transaction.rollback();
+              await safeRollback(transaction);
               return res.status(400).json({
                 error: `Required attribute '${attr.name}' is missing`
               });
@@ -542,13 +543,13 @@ export const deleteBatch = async (req, res, next) => {
     // Get the batch
     const batch = await InventoryBatch.findByPk(id, { transaction });
     if (!batch) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Inventory batch not found' });
     }
 
     // Check permissions
-    if (req.user.role_name !== 'Super Admin' && req.user.branch_id !== batch.branch_id) {
-      await transaction.rollback();
+    if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id !== batch.branch_id) {
+      await safeRollback(transaction);
       return res.status(403).json({ error: 'You do not have permission to delete this batch' });
     }
 
@@ -559,7 +560,7 @@ export const deleteBatch = async (req, res, next) => {
     });
 
     if (linkedSalesItems > 0) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(403).json({
         error: 'Cannot delete batch: Linked to sales transactions. This prevents theft tracking. Archive the batch instead by setting status to "scrapped".'
       });
@@ -572,7 +573,7 @@ export const deleteBatch = async (req, res, next) => {
     });
 
     if (linkedAssignments > 0) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(403).json({
         error: 'Cannot delete batch: Has historical assignments. Archive the batch instead by setting status to "scrapped".'
       });

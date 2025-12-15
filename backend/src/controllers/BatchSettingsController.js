@@ -1,6 +1,7 @@
 import { BatchType, Category, CategoryBatchType, InventoryBatch, User } from '../models/index.js';
 import { Op } from 'sequelize';
 import sequelize from '../config/db.js';
+import { safeRollback } from '../utils/transactionUtils.js';
 
 /**
  * GET /api/settings/batches/types
@@ -400,12 +401,12 @@ export const setDefaultBatchType = async (req, res, next) => {
     // Verify batch type exists and is active
     const batchType = await BatchType.findByPk(id, { transaction });
     if (!batchType) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Batch type not found' });
     }
 
     if (!batchType.is_active) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Cannot set inactive batch type as default' });
     }
 

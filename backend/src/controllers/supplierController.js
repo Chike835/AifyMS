@@ -21,7 +21,7 @@ export const getSuppliers = async (req, res) => {
     const whereClause = {};
 
     // Branch filtering for non-Super Admin users
-    if (req.user.role_name !== 'Super Admin' && req.user.branch_id) {
+    if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id) {
       whereClause.branch_id = req.user.branch_id;
     }
 
@@ -72,7 +72,7 @@ export const getSupplierById = async (req, res) => {
 
     // Build where clause with branch filter
     const whereClause = { id };
-    if (req.user.role_name !== 'Super Admin' && req.user.branch_id) {
+    if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id) {
       whereClause.branch_id = req.user.branch_id;
     }
 
@@ -106,8 +106,14 @@ export const createSupplier = async (req, res) => {
   try {
     const { name, phone, email, address, branch_id } = req.body;
 
+    // Sanitize inputs
+    const sanitizedName = name?.trim();
+    const sanitizedPhone = phone?.trim() || null;
+    const sanitizedEmail = email?.trim()?.toLowerCase() || null;
+    const sanitizedAddress = address?.trim() || null;
+
     // Validate required fields
-    if (!name || name.trim() === '') {
+    if (!sanitizedName) {
       return res.status(400).json({ error: 'Supplier name is required' });
     }
 
@@ -115,15 +121,15 @@ export const createSupplier = async (req, res) => {
     const supplierBranchId = branch_id || req.user.branch_id;
 
     // Non-Super Admin users can only create suppliers for their own branch
-    if (req.user.role_name !== 'Super Admin' && req.user.branch_id) {
+    if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id) {
       if (supplierBranchId && supplierBranchId !== req.user.branch_id) {
         return res.status(403).json({ error: 'Cannot create supplier for another branch' });
       }
     }
 
     // Check for unique email within the branch if provided
-    if (email) {
-      const emailWhere = { email };
+    if (sanitizedEmail) {
+      const emailWhere = { email: sanitizedEmail };
       if (supplierBranchId) {
         emailWhere.branch_id = supplierBranchId;
       }
@@ -134,8 +140,8 @@ export const createSupplier = async (req, res) => {
     }
 
     // Check for unique phone within the branch if provided
-    if (phone) {
-      const phoneWhere = { phone };
+    if (sanitizedPhone) {
+      const phoneWhere = { phone: sanitizedPhone };
       if (supplierBranchId) {
         phoneWhere.branch_id = supplierBranchId;
       }
@@ -146,10 +152,10 @@ export const createSupplier = async (req, res) => {
     }
 
     const supplier = await Supplier.create({
-      name: name.trim(),
-      phone: phone?.trim() || null,
-      email: email?.trim()?.toLowerCase() || null,
-      address: address?.trim() || null,
+      name: sanitizedName,
+      phone: sanitizedPhone,
+      email: sanitizedEmail,
+      address: sanitizedAddress,
       branch_id: supplierBranchId || null,
       ledger_balance: 0
     });
@@ -181,7 +187,7 @@ export const createSupplier = async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating supplier:', error);
-    if (error.name === 'SequelizeValidationError') {
+    if (error.name === 'SequelizeValidationError' || error.name === 'SequelizeUniqueConstraintError') {
       return res.status(400).json({ error: error.errors?.[0]?.message || 'Validation error' });
     }
     return res.status(500).json({ error: 'Failed to create supplier' });
@@ -197,9 +203,16 @@ export const updateSupplier = async (req, res) => {
     const { id } = req.params;
     const { name, phone, email, address, branch_id } = req.body;
 
+    // Sanitize inputs
+    // Note: checks for undefined to allow partial updates
+    const sanitizedName = name !== undefined ? name?.trim() : undefined;
+    const sanitizedPhone = phone !== undefined ? (phone?.trim() || null) : undefined;
+    const sanitizedEmail = email !== undefined ? (email?.trim()?.toLowerCase() || null) : undefined;
+    const sanitizedAddress = address !== undefined ? (address?.trim() || null) : undefined;
+
     // Build where clause with branch filter
     const whereClause = { id };
-    if (req.user.role_name !== 'Super Admin' && req.user.branch_id) {
+    if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id) {
       whereClause.branch_id = req.user.branch_id;
     }
 
@@ -209,7 +222,7 @@ export const updateSupplier = async (req, res) => {
     }
 
     // Validate required fields
-    if (name !== undefined && (!name || name.trim() === '')) {
+    if (sanitizedName !== undefined && (!sanitizedName || sanitizedName === '')) {
       return res.status(400).json({ error: 'Supplier name cannot be empty' });
     }
 
@@ -221,9 +234,9 @@ export const updateSupplier = async (req, res) => {
     const targetBranchId = branch_id !== undefined ? branch_id : supplier.branch_id;
 
     // Check for unique email if provided and changed
-    if (email && email !== supplier.email) {
+    if (sanitizedEmail && sanitizedEmail !== supplier.email) {
       const emailWhere = {
-        email,
+        email: sanitizedEmail,
         id: { [Op.ne]: id }
       };
       if (targetBranchId) {
@@ -236,9 +249,9 @@ export const updateSupplier = async (req, res) => {
     }
 
     // Check for unique phone if provided and changed
-    if (phone && phone !== supplier.phone) {
+    if (sanitizedPhone && sanitizedPhone !== supplier.phone) {
       const phoneWhere = {
-        phone,
+        phone: sanitizedPhone,
         id: { [Op.ne]: id }
       };
       if (targetBranchId) {
@@ -252,11 +265,11 @@ export const updateSupplier = async (req, res) => {
 
     // Update fields
     await supplier.update({
-      name: name !== undefined ? name.trim() : supplier.name,
-      phone: phone !== undefined ? (phone?.trim() || null) : supplier.phone,
-      email: email !== undefined ? (email?.trim()?.toLowerCase() || null) : supplier.email,
-      address: address !== undefined ? (address?.trim() || null) : supplier.address,
-      branch_id: req.user.role_name === 'Super Admin' && branch_id !== undefined ? branch_id : supplier.branch_id
+      name: sanitizedName !== undefined ? sanitizedName : supplier.name,
+      phone: sanitizedPhone !== undefined ? sanitizedPhone : supplier.phone,
+      email: sanitizedEmail !== undefined ? sanitizedEmail : supplier.email,
+      address: sanitizedAddress !== undefined ? sanitizedAddress : supplier.address,
+      branch_id: req.user?.role_name === 'Super Admin' && branch_id !== undefined ? branch_id : supplier.branch_id
     });
 
     // Fetch updated supplier with branch info
@@ -286,7 +299,7 @@ export const updateSupplier = async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating supplier:', error);
-    if (error.name === 'SequelizeValidationError') {
+    if (error.name === 'SequelizeValidationError' || error.name === 'SequelizeUniqueConstraintError') {
       return res.status(400).json({ error: error.errors?.[0]?.message || 'Validation error' });
     }
     return res.status(500).json({ error: 'Failed to update supplier' });
@@ -303,7 +316,7 @@ export const deleteSupplier = async (req, res) => {
 
     // Build where clause with branch filter
     const whereClause = { id };
-    if (req.user.role_name !== 'Super Admin' && req.user.branch_id) {
+    if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id) {
       whereClause.branch_id = req.user.branch_id;
     }
 
@@ -425,7 +438,7 @@ export const getSupplierLedger = async (req, res) => {
 
     // Build where clause with branch filter
     const whereClause = { id };
-    if (req.user.role_name !== 'Super Admin' && req.user.branch_id) {
+    if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id) {
       whereClause.branch_id = req.user.branch_id;
     }
 
@@ -466,4 +479,3 @@ export const getSupplierLedger = async (req, res) => {
     return res.status(500).json({ error: 'Failed to fetch supplier ledger' });
   }
 };
-

@@ -10,7 +10,7 @@ const ExpenseCategories = () => {
   const queryClient = useQueryClient();
   const [showModal, setShowModal] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
-  const [formData, setFormData] = useState({ name: '', branch_id: '' });
+  const [formData, setFormData] = useState({ name: '' });
   const [formError, setFormError] = useState('');
 
   // Fetch expense categories
@@ -22,15 +22,7 @@ const ExpenseCategories = () => {
     }
   });
 
-  // Fetch branches for Super Admin
-  const { data: branchesData } = useQuery({
-    queryKey: ['branches'],
-    queryFn: async () => {
-      const response = await api.get('/branches');
-      return response.data.branches || [];
-    },
-    enabled: user?.role_name === 'Super Admin'
-  });
+  // Categories are now global, no branch selection needed
 
   // Create mutation
   const createMutation = useMutation({
@@ -78,7 +70,7 @@ const ExpenseCategories = () => {
 
   const openCreateModal = () => {
     setSelectedCategory(null);
-    setFormData({ name: '', branch_id: '' });
+    setFormData({ name: '' });
     setFormError('');
     setShowModal(true);
   };
@@ -86,8 +78,7 @@ const ExpenseCategories = () => {
   const openEditModal = (category) => {
     setSelectedCategory(category);
     setFormData({
-      name: category.name || '',
-      branch_id: category.branch_id || ''
+      name: category.name || ''
     });
     setFormError('');
     setShowModal(true);
@@ -96,7 +87,7 @@ const ExpenseCategories = () => {
   const closeModal = () => {
     setShowModal(false);
     setSelectedCategory(null);
-    setFormData({ name: '', branch_id: '' });
+    setFormData({ name: '' });
     setFormError('');
   };
 
@@ -110,9 +101,6 @@ const ExpenseCategories = () => {
     }
 
     const submitData = { name: formData.name.trim() };
-    if (formData.branch_id) {
-      submitData.branch_id = formData.branch_id;
-    }
 
     if (selectedCategory) {
       updateMutation.mutate({ id: selectedCategory.id, data: submitData });
@@ -143,7 +131,7 @@ const ExpenseCategories = () => {
     );
   }
 
-  const branches = branchesData || [];
+
 
   return (
     <div>
@@ -200,9 +188,6 @@ const ExpenseCategories = () => {
                   </div>
                   <div>
                     <h3 className="font-semibold text-gray-900">{category.name}</h3>
-                    {category.branch && (
-                      <p className="text-sm text-gray-500">{category.branch.name}</p>
-                    )}
                   </div>
                 </div>
                 {hasPermission('expense_category_manage') && (
@@ -269,29 +254,6 @@ const ExpenseCategories = () => {
                 />
               </div>
 
-              {/* Branch selector for Super Admin (only on create) */}
-              {user?.role_name === 'Super Admin' && branches.length > 0 && !selectedCategory && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Branch
-                  </label>
-                  <select
-                    value={formData.branch_id || ''}
-                    onChange={(e) => setFormData({ ...formData, branch_id: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  >
-                    <option value="">Select Branch</option>
-                    {branches.map((branch) => (
-                      <option key={branch.id} value={branch.id}>
-                        {branch.name} ({branch.code})
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Categories are branch-specific. Select the branch this category belongs to.
-                  </p>
-                </div>
-              )}
 
               <div className="flex space-x-4 pt-4">
                 <button
@@ -309,8 +271,8 @@ const ExpenseCategories = () => {
                   {createMutation.isPending || updateMutation.isPending
                     ? 'Saving...'
                     : selectedCategory
-                    ? 'Update'
-                    : 'Create'}
+                      ? 'Update'
+                      : 'Create'}
                 </button>
               </div>
             </form>

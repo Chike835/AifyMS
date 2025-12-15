@@ -13,7 +13,10 @@ import {
   getProductBatches,
   addProductBatch,
   generateVariants,
-  getVariantLedger
+  getVariantLedger,
+  getProductInstanceCodes,
+  deleteVariant,
+  bulkDeleteVariants
 } from '../controllers/productController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { requirePermission } from '../middleware/permissionMiddleware.js';
@@ -123,7 +126,36 @@ router.post(
   generateVariants
 );
 
+// DELETE /api/products/:id/variants/:variantId - Delete variant (requires product_edit)
+router.delete(
+  '/:id/variants/:variantId',
+  requirePermission('product_edit'),
+  activityLogger(
+    'DELETE',
+    'products',
+    (req, data) => `Deleted variant ${req.params.variantId} from product ${req.params.id}`,
+    (req) => ({ reference_type: 'product', reference_id: req.params.id })
+  ),
+  deleteVariant
+);
+
+// POST /api/products/:id/variants/bulk-delete - Bulk delete variants (requires product_edit)
+router.post(
+  '/:id/variants/bulk-delete',
+  requirePermission('product_edit'),
+  activityLogger(
+    'DELETE',
+    'products',
+    (req, data) => `Bulk deleted variants from product ID: ${req.params.id}`,
+    (req) => ({ reference_type: 'product', reference_id: req.params.id })
+  ),
+  bulkDeleteVariants
+);
+
 // GET /api/products/:id/variant-ledger - Get ledger for variant (requires product_view)
 router.get('/:id/variant-ledger', requirePermission('product_view'), getVariantLedger);
+
+// GET /api/products/:id/instance-codes - Get instance codes (requires product_view)
+router.get('/:id/instance-codes', requirePermission('product_view'), getProductInstanceCodes);
 
 export default router;

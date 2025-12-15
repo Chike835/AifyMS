@@ -19,6 +19,8 @@ export const login = async (req, res, next) => {
 
     // Find user with role and branch
 
+    console.log(`[DEBUG] Login attempt for: ${email}`);
+
     const user = await User.findOne({
       where: { email: email.toLowerCase() },
       include: [
@@ -41,21 +43,22 @@ export const login = async (req, res, next) => {
       ]
     });
 
-
     if (!user) {
-
+      console.log('[DEBUG] User not found');
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     if (!user.is_active) {
-
+      console.log('[DEBUG] User inactive');
       return res.status(401).json({ error: 'Account is inactive' });
     }
 
     // Check password
     let isValidPassword = false;
     try {
+      console.log(`[DEBUG] Checking password for ${user.email}. Hash starts with: ${user.password_hash?.substring(0, 10)}...`);
       isValidPassword = await user.checkPassword(password);
+      console.log(`[DEBUG] Password valid: ${isValidPassword}`);
     } catch (error) {
       console.error('Password verification error:', error);
       return res.status(500).json({ error: 'Authentication service error' });

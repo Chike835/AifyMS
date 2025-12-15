@@ -10,8 +10,18 @@ const Payments = () => {
   const queryClient = useQueryClient();
   const location = useLocation();
   const [activeTab, setActiveTab] = useState('form'); // 'form', 'recent', 'pending'
+  const [paymentType, setPaymentType] = useState('customer'); // 'customer', 'supplier'
+
+  // Reset payment type to customer if user doesn't have supplier_payment permission
+  useEffect(() => {
+    if (paymentType === 'supplier' && !hasPermission('supplier_payment')) {
+      setPaymentType('customer');
+      setFormData(prev => ({ ...prev, supplier_id: '', customer_id: '' }));
+    }
+  }, [paymentType, hasPermission]);
   const [formData, setFormData] = useState({
     customer_id: '',
+    supplier_id: '',
     amount: '',
     method: 'cash',
     reference_note: '',
@@ -19,9 +29,9 @@ const Payments = () => {
   });
   const [formError, setFormError] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
+  const [supplierSearch, setSupplierSearch] = useState('');
   const [pendingAccountSelections, setPendingAccountSelections] = useState({});
 
-  // Fetch customers for payment form
   const { data: customersData } = useQuery({
     queryKey: ['customers', customerSearch],
     queryFn: async () => {
@@ -29,7 +39,20 @@ const Payments = () => {
       if (customerSearch) params.append('search', customerSearch);
       const response = await api.get(`/customers?${params.toString()}`);
       return response.data.customers || [];
-    }
+    },
+    enabled: paymentType === 'customer'
+  });
+
+  // Fetch suppliers for payment form
+  const { data: suppliersData } = useQuery({
+    queryKey: ['suppliers', supplierSearch],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (supplierSearch) params.append('search', supplierSearch);
+      const response = await api.get(`/suppliers?${params.toString()}`);
+      return response.data.suppliers || [];
+    },
+    enabled: paymentType === 'supplier'
   });
 
   // Fetch recent payments
@@ -74,12 +97,14 @@ const Payments = () => {
       queryClient.invalidateQueries({ queryKey: ['pendingPayments'] });
       setFormData({
         customer_id: '',
+        supplier_id: '',
         amount: '',
         method: 'cash',
         reference_note: '',
         payment_account_id: paymentAccounts[0]?.id || ''
       });
       setCustomerSearch('');
+      setSupplierSearch('');
       setFormError('');
       alert('Payment logged successfully! Awaiting confirmation.');
       setActiveTab('recent');
@@ -182,8 +207,13 @@ const Payments = () => {
     e.preventDefault();
     setFormError('');
 
-    if (!formData.customer_id) {
+    if (paymentType === 'customer' && !formData.customer_id) {
       setFormError('Please select a customer');
+      return;
+    }
+
+    if (paymentType === 'supplier' && !formData.supplier_id) {
+      setFormError('Please select a supplier');
       return;
     }
 
@@ -197,13 +227,20 @@ const Payments = () => {
       return;
     }
 
-    createPaymentMutation.mutate({
-      customer_id: formData.customer_id,
+    const payload = {
       amount: parseFloat(formData.amount),
       method: formData.method,
       reference_note: formData.reference_note || null,
       payment_account_id: formData.payment_account_id
-    });
+    };
+
+    if (paymentType === 'customer') {
+      payload.customer_id = formData.customer_id;
+    } else {
+      payload.supplier_id = formData.supplier_id;
+    }
+
+    createPaymentMutation.mutate(payload);
   };
 
   const handleConfirm = (payment) => {
@@ -312,52 +349,140 @@ const Payments = () => {
             </div>
           )}
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Customer Selection */}
+            {/* Payment Type Toggle */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Customer <span className="text-red-500">*</span>
-              </label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search customer by name or phone..."
-                  value={customerSearch}
-                  onChange={(e) => setCustomerSearch(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                />
+              <label className="block text-sm font-medium text-gray-700 mb-2">Payment Type</label>
+              <div className="flex space-x-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentType('customer');
+                    setFormData({ ...formData, supplier_id: '' });
+                  }}
+                  className={`flex-1 py-2 px-4 rounded-lg border text-sm font-medium transition-colors ${paymentType === 'customer'
+                      ? 'bg-primary-50 border-primary-500 text-primary-700'
+                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                    }`}
+                >
+                  Customer Payment (Income)
+                </button>
+                {hasPermission('supplier_payment') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPaymentType('supplier');
+                      setFormData({ ...formData, customer_id: '' });
+                    }}
+                    className={`flex-1 py-2 px-4 rounded-lg border text-sm font-medium transition-colors ${paymentType === 'supplier'
+                        ? 'bg-primary-50 border-primary-500 text-primary-700'
+                        : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                      }`}
+                  >
+                    Supplier Payment (Expense)
+                  </button>
+                )}
               </div>
-              {customerSearch && customersData && (
-                <div className="mt-2 border border-gray-200 rounded-lg max-h-48 overflow-y-auto">
-                  {customersData.length === 0 ? (
-                    <div className="p-3 text-sm text-gray-500">No customers found</div>
-                  ) : (
-                    customersData.map((customer) => (
-                      <button
-                        key={customer.id}
-                        type="button"
-                        onClick={() => {
-                          setFormData({ ...formData, customer_id: customer.id });
-                          setCustomerSearch(customer.name);
-                        }}
-                        className={`w-full text-left px-4 py-2 hover:bg-gray-50 ${formData.customer_id === customer.id ? 'bg-primary-50' : ''
-                          }`}
-                      >
-                        <div className="font-medium text-gray-900">{customer.name}</div>
-                        {customer.phone && (
-                          <div className="text-sm text-gray-500">{customer.phone}</div>
-                        )}
-                      </button>
-                    ))
-                  )}
-                </div>
-              )}
-              {formData.customer_id && (
-                <div className="mt-2 text-sm text-gray-600">
-                  Selected: {customersData?.find(c => c.id === formData.customer_id)?.name}
-                </div>
+              {!hasPermission('supplier_payment') && (
+                <p className="text-xs text-gray-500 mt-2">
+                  Supplier payments require the "supplier_payment" permission. Contact your administrator to enable this feature.
+                </p>
               )}
             </div>
+
+            {/* Customer/Supplier Selection */}
+            {paymentType === 'customer' ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Customer <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search customer by name or phone..."
+                    value={customerSearch}
+                    onChange={(e) => setCustomerSearch(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+                {customerSearch && customersData && (
+                  <div className="mt-2 border border-gray-200 rounded-lg max-h-48 overflow-y-auto">
+                    {customersData.length === 0 ? (
+                      <div className="p-3 text-sm text-gray-500">No customers found</div>
+                    ) : (
+                      customersData.map((customer) => (
+                        <button
+                          key={customer.id}
+                          type="button"
+                          onClick={() => {
+                            setFormData({ ...formData, customer_id: customer.id });
+                            setCustomerSearch(customer.name);
+                          }}
+                          className={`w-full text-left px-4 py-2 hover:bg-gray-50 ${formData.customer_id === customer.id ? 'bg-primary-50' : ''
+                            }`}
+                        >
+                          <div className="font-medium text-gray-900">{customer.name}</div>
+                          {customer.phone && (
+                            <div className="text-sm text-gray-500">{customer.phone}</div>
+                          )}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+                {formData.customer_id && (
+                  <div className="mt-2 text-sm text-gray-600">
+                    Selected: {customersData?.find(c => c.id === formData.customer_id)?.name}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Supplier <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search supplier by name or phone..."
+                    value={supplierSearch}
+                    onChange={(e) => setSupplierSearch(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+                {supplierSearch && suppliersData && (
+                  <div className="mt-2 border border-gray-200 rounded-lg max-h-48 overflow-y-auto">
+                    {suppliersData.length === 0 ? (
+                      <div className="p-3 text-sm text-gray-500">No suppliers found</div>
+                    ) : (
+                      suppliersData.map((supplier) => (
+                        <button
+                          key={supplier.id}
+                          type="button"
+                          onClick={() => {
+                            setFormData({ ...formData, supplier_id: supplier.id });
+                            setSupplierSearch(supplier.name);
+                          }}
+                          className={`w-full text-left px-4 py-2 hover:bg-gray-50 ${formData.supplier_id === supplier.id ? 'bg-primary-50' : ''
+                            }`}
+                        >
+                          <div className="font-medium text-gray-900">{supplier.name}</div>
+                          {supplier.phone && (
+                            <div className="text-sm text-gray-500">{supplier.phone}</div>
+                          )}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+                {formData.supplier_id && (
+                  <div className="mt-2 text-sm text-gray-600">
+                    Selected: {suppliersData?.find(s => s.id === formData.supplier_id)?.name}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Amount */}
             <div>
@@ -467,7 +592,7 @@ const Payments = () => {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Customer
+                      Contact
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Amount
@@ -497,11 +622,14 @@ const Payments = () => {
                     <tr key={payment.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-gray-900">
-                          {payment.customer?.name || 'N/A'}
+                          {payment.customer?.name || payment.supplier?.name || 'N/A'}
                         </div>
-                        {payment.customer?.phone && (
-                          <div className="text-sm text-gray-500">{payment.customer.phone}</div>
+                        {(payment.customer?.phone || payment.supplier?.phone) && (
+                          <div className="text-sm text-gray-500">{payment.customer?.phone || payment.supplier?.phone}</div>
                         )}
+                        <span className={`text-xs ml-2 px-1 rounded ${payment.customer ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}`}>
+                          {payment.customer ? 'Customer' : 'Supplier'}
+                        </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-gray-900">
@@ -566,7 +694,7 @@ const Payments = () => {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Customer
+                      Contact
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Amount
@@ -600,11 +728,14 @@ const Payments = () => {
                       <tr key={payment.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-medium text-gray-900">
-                            {payment.customer?.name || 'N/A'}
+                            {payment.customer?.name || payment.supplier?.name || 'N/A'}
                           </div>
-                          {payment.customer?.phone && (
-                            <div className="text-sm text-gray-500">{payment.customer.phone}</div>
+                          {(payment.customer?.phone || payment.supplier?.phone) && (
+                            <div className="text-sm text-gray-500">{payment.customer?.phone || payment.supplier?.phone}</div>
                           )}
+                          <span className={`text-xs ml-2 px-1 rounded ${payment.customer ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}`}>
+                            {payment.customer ? 'Customer' : 'Supplier'}
+                          </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-medium text-gray-900">

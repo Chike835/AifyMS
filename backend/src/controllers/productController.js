@@ -3,6 +3,7 @@ import * as variantService from '../services/variantService.js';
 import { Op } from 'sequelize';
 import sequelize from '../config/db.js';
 import { VALID_PRODUCT_TYPES } from '../utils/constants.js';
+import { safeRollback } from '../utils/transactionUtils.js';
 
 const isSuperAdmin = (req) => req.user?.role_name === 'Super Admin';
 
@@ -64,7 +65,7 @@ export const createProduct = async (req, res, next) => {
 
     // Validation
     if (!sku || !name || !type || !base_unit || sale_price === undefined) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({
         error: 'Missing required fields: sku, name, type, base_unit, sale_price'
       });
@@ -72,7 +73,7 @@ export const createProduct = async (req, res, next) => {
 
     // Validate product type using shared constants
     if (!VALID_PRODUCT_TYPES.includes(type)) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({
         error: `Invalid product type. Must be one of: ${VALID_PRODUCT_TYPES.join(', ')}`
       });
@@ -80,7 +81,7 @@ export const createProduct = async (req, res, next) => {
 
     // Validate selling price tax type if provided
     if (selling_price_tax_type && !['inclusive', 'exclusive'].includes(selling_price_tax_type)) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({
         error: 'Invalid selling_price_tax_type. Must be one of: inclusive, exclusive'
       });
@@ -89,7 +90,7 @@ export const createProduct = async (req, res, next) => {
     // Check if SKU already exists
     const existingProduct = await Product.findOne({ where: { sku }, transaction });
     if (existingProduct) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(409).json({ error: 'Product with this SKU already exists' });
     }
 
@@ -100,7 +101,7 @@ export const createProduct = async (req, res, next) => {
         await ensureCategoryAccess(req, sub_category_id, transaction);
       }
     } catch (categoryError) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(categoryError.statusCode || 500).json({ error: categoryError.message });
     }
 
@@ -113,7 +114,7 @@ export const createProduct = async (req, res, next) => {
         // Validate each attribute in schema
         for (const attr of schema) {
           if (attr.required && providedAttributes[attr.name] === undefined) {
-            await transaction.rollback();
+            await safeRollback(transaction);
             return res.status(400).json({
               error: `Required attribute "${attr.name}" is missing`
             });
@@ -123,7 +124,7 @@ export const createProduct = async (req, res, next) => {
           if (providedAttributes[attr.name] !== undefined) {
             if (attr.type === 'select' && attr.options) {
               if (!attr.options.includes(providedAttributes[attr.name])) {
-                await transaction.rollback();
+                await safeRollback(transaction);
                 return res.status(400).json({
                   error: `Invalid value for attribute "${attr.name}". Must be one of: ${attr.options.join(', ')}`
                 });
@@ -247,31 +248,23 @@ export const getProducts = async (req, res, next) => {
       ];
     }
 
-    // Exclude variant children from the main list (unless specifically searching by ID or something specific, but for general list we hide them)
-    // We want to show ONLY parent products (variable) or standalone products (standard/compound/etc)
-    // A product is a variant child if it exists in the 'product_id' column of ProductVariant table?? 
-    // Wait, ProductVariant table structure: id, product_id (parent), variation_value_id, child_product_id?
-    // Let's check the schema.
-    // Based on previous ViewFile: 
-    // ProductVariant belongsTo Product (as child)
-    // We need to exclude products that ARE the 'child' in a ProductVariant relationship.
-    // However, the relationship might be defined differently. 
-    // In getProductById: { model: ProductVariant, as: 'variants', include: [{ model: Product, as: 'child' }] }
-    // This implies ProductVariant has a 'child_product_id' or similar that points to the child Product.
-    // Let's assume standard normalization: ProductVariant links Parent -> Child.
+    // Optimized filtering using is_variant_child column
+    // This avoids fetching all variant IDs into memory
+    where.is_variant_child = false;
 
-    // Efficient way: Subquery to get all child_product_ids
+    /* REMOVED: Inefficient subquery logic
     const childProductIds = await ProductVariant.findAll({
       attributes: ['product_id'],
-      where: {
-        product_id: { [Op.ne]: null }
-      },
       raw: true
-    }).then(items => items.map(i => i.product_id));
+    }).then(items => {
+      const ids = items.map(i => i.product_id).filter(id => id !== null);
+      return [...new Set(ids)]; // Remove duplicates
+    });
 
     if (childProductIds.length > 0) {
       where.id = { [Op.notIn]: childProductIds };
     }
+    */
 
     // Category filter
     if (category_id) {
@@ -589,7 +582,7 @@ export const updateProduct = async (req, res, next) => {
 
     const product = await Product.findByPk(id, { transaction });
     if (!product) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Product not found' });
     }
 
@@ -597,7 +590,7 @@ export const updateProduct = async (req, res, next) => {
     if (sku && sku !== product.sku) {
       const existingProduct = await Product.findOne({ where: { sku }, transaction });
       if (existingProduct) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(409).json({ error: 'Product with this SKU already exists' });
       }
     }
@@ -639,7 +632,7 @@ export const updateProduct = async (req, res, next) => {
         await ensureCategoryAccess(req, sub_category_id, transaction);
       }
     } catch (categoryError) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(categoryError.statusCode || 500).json({ error: categoryError.message });
     }
     const incomingAttributeDefaults = req.body.attribute_default_values;
@@ -654,7 +647,7 @@ export const updateProduct = async (req, res, next) => {
 
         for (const attr of schema) {
           if (attr.required && providedAttributes[attr.name] === undefined) {
-            await transaction.rollback();
+            await safeRollback(transaction);
             return res.status(400).json({
               error: `Required attribute "${attr.name}" is missing`
             });
@@ -663,7 +656,7 @@ export const updateProduct = async (req, res, next) => {
           if (providedAttributes[attr.name] !== undefined) {
             if (attr.type === 'select' && attr.options) {
               if (!attr.options.includes(providedAttributes[attr.name])) {
-                await transaction.rollback();
+                await safeRollback(transaction);
                 return res.status(400).json({
                   error: `Invalid value for attribute "${attr.name}". Must be one of: ${attr.options.join(', ')}`
                 });
@@ -752,7 +745,7 @@ export const deleteProduct = async (req, res, next) => {
 
     const product = await Product.findByPk(id, { transaction });
     if (!product) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Product not found' });
     }
 
@@ -763,7 +756,7 @@ export const deleteProduct = async (req, res, next) => {
     });
 
     if (batchCount > 0) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({
         error: 'Cannot delete product with existing inventory batches. Deactivate it instead.'
       });
@@ -781,6 +774,68 @@ export const deleteProduct = async (req, res, next) => {
     await transaction.commit();
 
     res.json({ message: 'Product deleted successfully' });
+  } catch (error) {
+    await transaction.rollback();
+    next(error);
+  }
+};
+
+/**
+ * DELETE /api/products/:id/variants/:variantId
+ * Delete a specific variant
+ */
+export const deleteVariant = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { id, variantId } = req.params;
+
+    // Check if variant exists
+    // ProductVariant links Parent (product_id) to Child (child via some FK, likely internal or child_id?)
+    // Based on getProductById include: model: ProductVariant, as: 'variants', include: [{ model: Product, as: 'child' }]
+    const variant = await ProductVariant.findByPk(variantId, {
+      include: [{ model: Product, as: 'child' }],
+      transaction
+    });
+
+    if (!variant) {
+      await safeRollback(transaction);
+      return res.status(404).json({ error: 'Variant not found' });
+    }
+
+    // Verify parent product relationship
+    // parent_product_id is the parent (variable product), product_id is the child (variant product)
+    if (String(variant.parent_product_id) !== String(id)) {
+      await safeRollback(transaction);
+      return res.status(400).json({ error: 'Variant does not belong to the specified product' });
+    }
+
+    // Check stock of the child product if it exists
+    if (variant.child) {
+      // Use InventoryBatch to check stock
+      const stock = await InventoryBatch.sum('remaining_quantity', {
+        where: {
+          product_id: variant.child.id,
+          status: 'in_stock'
+        },
+        transaction
+      });
+
+      if ((parseFloat(stock) || 0) > 0) {
+        await safeRollback(transaction);
+        return res.status(400).json({ error: 'Cannot delete variant with existing stock.' });
+      }
+    }
+
+    // Delete the variant linkage
+    await variant.destroy({ transaction });
+
+    // Optionally: could delete the child product here if it's an orphan, 
+    // but without strict confirmation, we'll leave it as is or handle it via a cleanup job.
+    // The variant link contains the variation info, so deleting it removes the "variant-ness".
+
+    await transaction.commit();
+    res.json({ message: 'Variant deleted successfully' });
+
   } catch (error) {
     await transaction.rollback();
     next(error);
@@ -868,12 +923,12 @@ export const addProductBatch = async (req, res, next) => {
     // Validate product
     const product = await Product.findByPk(id, { transaction });
     if (!product) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Product not found' });
     }
 
     if (product.type !== 'raw_tracked') {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({
         error: 'Only raw_tracked products can have inventory batches'
       });
@@ -881,20 +936,20 @@ export const addProductBatch = async (req, res, next) => {
 
     // Validation
     if (!branch_id || initial_quantity === undefined) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({
         error: 'Missing required fields: branch_id, initial_quantity'
       });
     }
 
     if (initial_quantity <= 0) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'initial_quantity must be greater than 0' });
     }
 
     // If grouped, instance_code is required
     if (grouped && !instance_code) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({
         error: 'instance_code is required when grouped is true'
       });
@@ -903,19 +958,19 @@ export const addProductBatch = async (req, res, next) => {
     // Verify branch exists
     const branch = await Branch.findByPk(branch_id, { transaction });
     if (!branch) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Branch not found' });
     }
 
     // Verify batch_type_id
     if (!batch_type_id) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'batch_type_id is required' });
     }
 
     const batchType = await BatchType.findByPk(batch_type_id, { transaction });
     if (!batchType || !batchType.is_active) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Invalid or inactive batch type' });
     }
 
@@ -926,7 +981,7 @@ export const addProductBatch = async (req, res, next) => {
         transaction
       });
       if (existingBatch) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(409).json({ error: 'Instance code already exists' });
       }
     }
@@ -982,13 +1037,13 @@ export const updateProductPrice = async (req, res, next) => {
     // Find product
     const product = await Product.findByPk(id, { transaction });
     if (!product) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Product not found' });
     }
 
     // Validate at least one price is being updated
     if (sale_price === undefined && cost_price === undefined) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'At least one price (sale_price or cost_price) must be provided' });
     }
 
@@ -1001,7 +1056,7 @@ export const updateProductPrice = async (req, res, next) => {
     const costChanged = cost_price !== undefined && parseFloat(cost_price) !== parseFloat(oldCostPrice || 0);
 
     if (!saleChanged && !costChanged) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'No price changes detected' });
     }
 
@@ -1088,7 +1143,7 @@ export const bulkUpdatePrices = async (req, res, next) => {
     // updates: [{ product_id, sale_price?, cost_price? }]
 
     if (!updates || !Array.isArray(updates) || updates.length === 0) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'updates array is required' });
     }
 
@@ -1318,15 +1373,55 @@ export const generateVariants = async (req, res, next) => {
     const { id } = req.params;
     const { variation_ids, variation_configs, allowed_sku_suffixes } = req.body;
 
+    console.log('[generateVariants] Request received:', {
+      productId: id,
+      variationIds: variation_ids,
+      variationConfigsCount: variation_configs?.length,
+      dryRun: req.query.dry_run
+    });
+
     const product = await Product.findByPk(id, { transaction });
     if (!product) {
-      await transaction.rollback();
-      return res.status(404).json({ error: 'Product not found' });
+      await safeRollback(transaction);
+      console.error('[generateVariants] Product not found:', id);
+      return res.status(404).json({ error: `Product with ID ${id} not found` });
     }
 
     if (product.type !== 'variable') {
-      await transaction.rollback();
-      return res.status(400).json({ error: 'Product is not a variable product' });
+      await safeRollback(transaction);
+      console.error('[generateVariants] Product is not variable type:', { productId: id, productType: product.type });
+      return res.status(400).json({ 
+        error: `Product is not a variable product. Current type: ${product.type}`,
+        productId: id,
+        productType: product.type
+      });
+    }
+
+    // Validate variation_configs if provided
+    if (variation_configs && Array.isArray(variation_configs)) {
+      const invalidConfigs = [];
+      for (const config of variation_configs) {
+        if (!config.variationId) {
+          invalidConfigs.push({ config, reason: 'Missing variationId' });
+        } else if (!config.valueIds || !Array.isArray(config.valueIds) || config.valueIds.length === 0) {
+          invalidConfigs.push({ 
+            config, 
+            reason: `No valueIds provided or valueIds is empty for variationId: ${config.variationId}` 
+          });
+        }
+      }
+
+      if (invalidConfigs.length > 0) {
+        await safeRollback(transaction);
+        console.error('[generateVariants] Invalid variation configs:', invalidConfigs);
+        return res.status(400).json({ 
+          error: 'Invalid variation configurations provided',
+          details: invalidConfigs.map(ic => ({
+            variationId: ic.config.variationId,
+            reason: ic.reason
+          }))
+        });
+      }
     }
 
     let targetVariationIds = variation_ids;
@@ -1345,11 +1440,22 @@ export const generateVariants = async (req, res, next) => {
     }
 
     if (!targetVariationIds || targetVariationIds.length === 0) {
-      await transaction.rollback();
-      return res.status(400).json({ error: 'No variations assigned to this product' });
+      await safeRollback(transaction);
+      console.error('[generateVariants] No variations assigned to product:', id);
+      return res.status(400).json({ 
+        error: 'No variations assigned to this product. Please assign variations before generating variants.',
+        productId: id
+      });
     }
 
     const dryRun = req.query.dry_run === 'true';
+
+    console.log('[generateVariants] Calling variantService.generateVariants:', {
+      productId: id,
+      targetVariationIds,
+      variationConfigsCount: variation_configs?.length,
+      dryRun
+    });
 
     const variants = await variantService.generateVariants(id, targetVariationIds, {
       transaction,
@@ -1360,12 +1466,20 @@ export const generateVariants = async (req, res, next) => {
 
     await transaction.commit();
 
+    console.log('[generateVariants] Successfully generated variants:', variants.length);
+
     res.json({
       message: `Successfully generated ${variants.length} variants`,
       variants
     });
   } catch (error) {
     await transaction.rollback();
+    console.error('[generateVariants] Error:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+      productId: req.params.id
+    });
     next(error);
   }
 };
@@ -1390,10 +1504,16 @@ export const getVariantLedger = async (req, res, next) => {
         {
           model: Purchase,
           as: 'purchase',
-          attributes: ['id', 'purchase_number', 'purchase_date', 'status']
+          attributes: ['id', 'purchase_number', 'created_at', 'status']
+        },
+        {
+          model: InventoryBatch,
+          as: 'inventory_batch',
+          attributes: ['id', 'instance_code', 'batch_identifier'],
+          required: false
         }
       ],
-      order: [[{ model: Purchase, as: 'purchase' }, 'purchase_date', 'DESC']]
+      order: [[{ model: Purchase, as: 'purchase' }, 'created_at', 'DESC']]
     });
 
     // 2. Fetch Sales
@@ -1403,10 +1523,10 @@ export const getVariantLedger = async (req, res, next) => {
         {
           model: SalesOrder,
           as: 'order',
-          attributes: ['id', 'invoice_number', 'order_date', 'status']
+          attributes: ['id', 'invoice_number', 'created_at', 'status']
         }
       ],
-      order: [[{ model: SalesOrder, as: 'order' }, 'order_date', 'DESC']]
+      order: [[{ model: SalesOrder, as: 'order' }, 'created_at', 'DESC']]
     });
 
     // 3. Fetch Batches (Inventory)
@@ -1435,14 +1555,19 @@ export const getVariantLedger = async (req, res, next) => {
       ledger.push({
         id: `PUR-${item.id}`,
         type: 'purchase',
-        date: item.purchase?.purchase_date || item.created_at,
+        date: item.purchase?.created_at || item.created_at,
         reference: item.purchase?.purchase_number || 'N/A',
         reference_id: item.purchase?.id,
         quantity: quantity,
         unit_amount: cost,
         total_amount: subtotal,
-        status: item.purchase?.status,
-        details: `Purchased in batch` // Could link to specific batch if tracked
+        status: item.purchase?.status || 'confirmed',
+        batch: item.inventory_batch ? {
+          id: item.inventory_batch.id,
+          instance_code: item.inventory_batch.instance_code,
+          batch_identifier: item.inventory_batch.batch_identifier
+        } : null,
+        details: item.inventory_batch ? `Batch: ${item.inventory_batch.instance_code || item.inventory_batch.batch_identifier || 'N/A'}` : 'Purchased'
       });
     });
 
@@ -1460,14 +1585,19 @@ export const getVariantLedger = async (req, res, next) => {
       ledger.push({
         id: `SALE-${item.id}`,
         type: 'sale',
-        date: item.order?.order_date || item.created_at,
+        date: item.order?.created_at || item.created_at,
         reference: item.order?.invoice_number || 'N/A',
         reference_id: item.order?.id,
         quantity: quantity, // Sold quantity
         unit_amount: price,
         total_amount: subtotal,
-        status: item.order?.status,
-        details: `Sold`
+        status: item.order?.status || 'completed',
+        batch: item.inventory_batch ? {
+          id: item.inventory_batch.id,
+          instance_code: item.inventory_batch.instance_code,
+          batch_identifier: item.inventory_batch.batch_identifier
+        } : null,
+        details: item.inventory_batch ? `Batch: ${item.inventory_batch.instance_code || item.inventory_batch.batch_identifier || 'N/A'}` : 'Sold'
       });
     });
 
@@ -1502,6 +1632,106 @@ export const getVariantLedger = async (req, res, next) => {
     });
 
   } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/products/:id/instance-codes
+ * Get instance codes used for a product (variant)
+ */
+export const getProductInstanceCodes = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // Find all batches for this product with non-null instance_code
+    const batches = await InventoryBatch.findAll({
+      where: {
+        product_id: id,
+        instance_code: { [Op.ne]: null }
+      },
+      attributes: [[sequelize.fn('DISTINCT', sequelize.col('instance_code')), 'instance_code'], 'created_at'],
+      order: [['created_at', 'DESC']],
+      limit: 50
+    });
+
+    // Extract codes
+    const codes = batches.map(b => b.instance_code).filter(c => c);
+
+    res.json({ codes });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/products/:id/variants/bulk-delete
+ * Delete multiple variants at once
+ */
+export const bulkDeleteVariants = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { id } = req.params;
+    const { variantIds } = req.body;
+
+    if (!variantIds || !Array.isArray(variantIds) || variantIds.length === 0) {
+      await safeRollback(transaction);
+      return res.status(400).json({ error: 'No variant IDs provided' });
+    }
+
+    // Check strict parent-child ownership
+    const variants = await ProductVariant.findAll({
+      where: {
+        id: variantIds,
+        parent_product_id: id
+      },
+      include: [{ model: Product, as: 'child' }],
+      transaction
+    });
+
+    if (variants.length !== variantIds.length) {
+      await safeRollback(transaction);
+      return res.status(400).json({ error: 'Some variants were not found or do not belong to this product' });
+    }
+
+    // Check stock for ALL variants before deleting any
+    const childProductIds = variants.map(v => v.child?.id).filter(Boolean);
+
+    if (childProductIds.length > 0) {
+      // Check stock
+      const stockCounts = await InventoryBatch.findAll({
+        attributes: ['product_id', [sequelize.fn('SUM', sequelize.col('remaining_quantity')), 'total_stock']],
+        where: {
+          product_id: childProductIds,
+          status: 'in_stock'
+        },
+        group: ['product_id'],
+        raw: true,
+        transaction
+      });
+
+      const variantsWithStock = stockCounts.filter(s => parseFloat(s.total_stock) > 0);
+      if (variantsWithStock.length > 0) {
+        await safeRollback(transaction);
+        return res.status(400).json({
+          error: `Cannot delete variants because some have existing stock (${variantsWithStock.length} variants impacted).`
+        });
+      }
+    }
+
+    // Delete variants
+    await ProductVariant.destroy({
+      where: {
+        id: variantIds
+      },
+      transaction
+    });
+
+    await transaction.commit();
+    res.json({ message: `Successfully deleted ${variantIds.length} variants` });
+
+  } catch (error) {
+    await transaction.rollback();
     next(error);
   }
 };

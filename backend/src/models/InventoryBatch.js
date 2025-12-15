@@ -182,71 +182,9 @@ const InventoryBatch = sequelize.define('InventoryBatch', {
               }
             }
 
-            // Special handling for gauge_mm if enabled for this category
-            const categoryName = category.name || '';
-            const normalizeCategoryName = (name) => {
-              return name.toLowerCase().replace(/\s+/g, '_');
-            };
-
-            // Fetch gauge_enabled_categories setting
-            let gaugeEnabledCategories = [];
-            if (BusinessSetting && categoryName) {
-              const gaugeSetting = await BusinessSetting.findOne({
-                where: { setting_key: 'gauge_enabled_categories' },
-                ...(options?.transaction ? { transaction: options.transaction } : {})
-              });
-
-              if (gaugeSetting && gaugeSetting.setting_type === 'json') {
-                try {
-                  const parsedValue = typeof gaugeSetting.setting_value === 'string'
-                    ? JSON.parse(gaugeSetting.setting_value)
-                    : gaugeSetting.setting_value;
-                  gaugeEnabledCategories = Array.isArray(parsedValue) ? parsedValue : [];
-                } catch (e) {
-                  // If parsing fails, default to empty array
-                  gaugeEnabledCategories = [];
-                }
-              }
-            }
-
-            const normalizedCategoryName = normalizeCategoryName(categoryName);
-            const isGaugeEnabled = gaugeEnabledCategories.includes(normalizedCategoryName);
-
-            // Validate and normalize gauge_mm if category is enabled for gauge input
-            if (isGaugeEnabled && attributeData.gauge_mm !== undefined && attributeData.gauge_mm !== null) {
-              if (typeof attributeData.gauge_mm !== 'number') {
-                throw new Error(`Gauge (gauge_mm) must be a number for category "${categoryName}"`);
-              }
-
-              // Fetch gauge min/max from business settings
-              let gaugeMin = 0.10; // Default fallback
-              let gaugeMax = 1.00; // Default fallback
-
-              if (BusinessSetting) {
-                const gaugeMinSetting = await BusinessSetting.findOne({
-                  where: { setting_key: 'gauge_min_value' },
-                  ...(options?.transaction ? { transaction: options.transaction } : {})
-                });
-                const gaugeMaxSetting = await BusinessSetting.findOne({
-                  where: { setting_key: 'gauge_max_value' },
-                  ...(options?.transaction ? { transaction: options.transaction } : {})
-                });
-
-                if (gaugeMinSetting && gaugeMinSetting.setting_value) {
-                  gaugeMin = parseFloat(gaugeMinSetting.setting_value);
-                }
-                if (gaugeMaxSetting && gaugeMaxSetting.setting_value) {
-                  gaugeMax = parseFloat(gaugeMaxSetting.setting_value);
-                }
-              }
-
-              // Validate against configured range
-              if (attributeData.gauge_mm < gaugeMin || attributeData.gauge_mm > gaugeMax) {
-                throw new Error(`Gauge (gauge_mm) must be between ${gaugeMin} and ${gaugeMax} mm for category "${categoryName}"`);
-              }
-              // Round to 2 decimal places
-              attributeData.gauge_mm = Math.round(attributeData.gauge_mm * 100) / 100;
-            }
+            // NOTE: Gauge validation block REMOVED - feature deprecated in favor of variations system
+            // The gauge_mm field can still exist in attribute_data for legacy data,
+            // but no special validation is applied anymore.
           }
         }
       }

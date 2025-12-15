@@ -155,6 +155,10 @@ export const associateModels = () => {
     foreignKey: 'customer_id',
     as: 'customer'
   });
+  Payment.belongsTo(Supplier, {
+    foreignKey: 'supplier_id',
+    as: 'supplier'
+  });
   Payment.belongsTo(PaymentAccount, {
     foreignKey: 'payment_account_id',
     as: 'payment_account'
@@ -470,15 +474,7 @@ export const associateModels = () => {
     as: 'purchase_items'
   });
 
-  // ExpenseCategory - Branch (Many-to-One)
-  ExpenseCategory.belongsTo(Branch, {
-    foreignKey: 'branch_id',
-    as: 'branch'
-  });
-  Branch.hasMany(ExpenseCategory, {
-    foreignKey: 'branch_id',
-    as: 'expense_categories'
-  });
+  // ExpenseCategory is now global (no branch association)
 
   // Expense - ExpenseCategory (Many-to-One)
   Expense.belongsTo(ExpenseCategory, {

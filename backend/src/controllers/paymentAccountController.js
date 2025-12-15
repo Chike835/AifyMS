@@ -1,6 +1,7 @@
 import sequelize from '../config/db.js';
 import { Op, fn, col, literal } from 'sequelize';
 import { PaymentAccount, AccountTransaction, Branch, User } from '../models/index.js';
+import { safeRollback } from '../utils/transactionUtils.js';
 
 /**
  * GET /api/payment-accounts
@@ -276,7 +277,7 @@ export const recordDeposit = async (req, res, next) => {
     const { amount, notes } = req.body;
 
     if (!amount || amount <= 0) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Amount must be greater than 0' });
     }
 
@@ -286,14 +287,14 @@ export const recordDeposit = async (req, res, next) => {
     });
 
     if (!account) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Payment account not found' });
     }
 
     // Branch access check
     if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
       if (account.branch_id !== req.user.branch_id) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(403).json({ error: 'Access denied' });
       }
     }
@@ -342,7 +343,7 @@ export const recordWithdrawal = async (req, res, next) => {
     const { amount, notes } = req.body;
 
     if (!amount || amount <= 0) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Amount must be greater than 0' });
     }
 
@@ -352,21 +353,21 @@ export const recordWithdrawal = async (req, res, next) => {
     });
 
     if (!account) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Payment account not found' });
     }
 
     // Branch access check
     if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
       if (account.branch_id !== req.user.branch_id) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(403).json({ error: 'Access denied' });
       }
     }
 
     // Check sufficient balance
     if (parseFloat(account.current_balance) < parseFloat(amount)) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Insufficient balance' });
     }
 
@@ -413,14 +414,14 @@ export const transferBetweenAccounts = async (req, res, next) => {
     const { from_account_id, to_account_id, amount, notes } = req.body;
 
     if (!from_account_id || !to_account_id || !amount || amount <= 0) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({
         error: 'Missing required fields: from_account_id, to_account_id, amount'
       });
     }
 
     if (from_account_id === to_account_id) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Cannot transfer to the same account' });
     }
 
@@ -435,21 +436,21 @@ export const transferBetweenAccounts = async (req, res, next) => {
     });
 
     if (!fromAccount || !toAccount) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'One or both accounts not found' });
     }
 
     // Branch access check
     if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
       if (fromAccount.branch_id !== req.user.branch_id || toAccount.branch_id !== req.user.branch_id) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(403).json({ error: 'Access denied' });
       }
     }
 
     // Check sufficient balance
     if (parseFloat(fromAccount.current_balance) < parseFloat(amount)) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Insufficient balance in source account' });
     }
 

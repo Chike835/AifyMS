@@ -3,6 +3,7 @@ import csv from 'csv-parser';
 import { Readable } from 'stream';
 import * as importService from '../services/importService.js';
 import * as exportService from '../services/exportService.js';
+import * as settingsImportExportService from '../services/settingsImportExportService.js';
 
 // Configure multer for file uploads
 const storage = multer.memoryStorage();
@@ -94,7 +95,7 @@ export const importData = async (req, res, next) => {
   try {
     // CRITICAL: Validate entity FIRST (fail fast - before any file processing)
     const { entity } = req.params;
-    const validEntities = ['products', 'inventory', 'customers', 'suppliers', 'categories', 'units', 'purchases'];
+    const validEntities = ['products', 'inventory', 'customers', 'suppliers', 'categories', 'units', 'purchases', 'payment_accounts'];
 
     if (!entity || !validEntities.includes(entity)) {
       console.error('[Import] Invalid entity:', entity);
@@ -128,7 +129,7 @@ export const importData = async (req, res, next) => {
         data = await parseCSV(req.file.buffer);
       }
       console.log('[Import] Parsed rows:', data.length);
-      
+
       // Debug: Log raw headers from first row
       if (data && data.length > 0) {
         console.log('[Import] Raw headers from first row:', Object.keys(data[0]));
@@ -136,8 +137,8 @@ export const importData = async (req, res, next) => {
       }
     } catch (parseError) {
       console.error('[Import] Parse error:', parseError);
-      return res.status(400).json({ 
-        error: `Failed to parse file: ${parseError.message}` 
+      return res.status(400).json({
+        error: `Failed to parse file: ${parseError.message}`
       });
     }
 
@@ -180,6 +181,9 @@ export const importData = async (req, res, next) => {
         case 'purchases':
           results = await importService.importPurchases(data, req.user);
           break;
+        case 'payment_accounts':
+          results = await importService.importPaymentAccounts(data, req.user);
+          break;
         default:
           return res.status(400).json({ error: 'Invalid entity type' });
       }
@@ -210,7 +214,7 @@ export const importData = async (req, res, next) => {
 export const exportData = async (req, res, next) => {
   try {
     const { entity } = req.params;
-    const validEntities = ['products', 'inventory', 'sales', 'customers', 'purchases'];
+    const validEntities = ['products', 'inventory', 'sales', 'customers', 'purchases', 'categories', 'variations', 'units', 'brands', 'warranties', 'payment_accounts'];
 
     if (!validEntities.includes(entity)) {
       return res.status(400).json({
@@ -256,6 +260,131 @@ export const exportData = async (req, res, next) => {
       case 'purchases':
         csvContent = await exportService.exportPurchases(filters);
         filename = `purchases_${new Date().toISOString().split('T')[0]}.csv`;
+        break;
+      case 'categories': {
+        const Category = (await import('../models/index.js')).Category;
+        const csvData = await settingsImportExportService.exportToCsv(
+          Category,
+          ['name', 'parent_id', 'description', 'is_active'],
+          {},
+          {
+            include: [
+              {
+                model: Category,
+                as: 'parent',
+                attributes: ['id', 'name'],
+                required: false
+              }
+            ],
+            transformRow: (row, record) => {
+              return {
+                name: row.name,
+                parent_name: record.parent ? record.parent.name : '',
+                parent_id: row.parent_id || '',
+                description: row.description || '',
+                is_active: row.is_active ? 'true' : 'false'
+              };
+            },
+            order: [['name', 'ASC']]
+          }
+        );
+        csvContent = csvData;
+        filename = `categories_${new Date().toISOString().split('T')[0]}.csv`;
+        break;
+      }
+      case 'variations': {
+        const { ProductVariation, ProductVariationValue } = await import('../models/index.js');
+        const variations = await ProductVariation.findAll({
+          include: [
+            {
+              model: ProductVariationValue,
+              as: 'values',
+              attributes: ['value'],
+              order: [['display_order', 'ASC']],
+              required: false
+            }
+          ],
+          order: [['name', 'ASC']]
+        });
+        const headers = ['name', 'description', 'values', 'is_active'];
+        const csvRows = [headers.join(',')];
+        for (const variation of variations) {
+          const values = variation.values 
+            ? variation.values.map(v => v.value).join(',')
+            : '';
+          const row = [
+            `"${(variation.name || '').replace(/"/g, '""')}"`,
+            `"${(variation.description || '').replace(/"/g, '""')}"`,
+            `"${values.replace(/"/g, '""')}"`,
+            variation.is_active ? 'true' : 'false'
+          ];
+          csvRows.push(row.join(','));
+        }
+        csvContent = csvRows.join('\n');
+        filename = `variations_${new Date().toISOString().split('T')[0]}.csv`;
+        break;
+      }
+      case 'units': {
+        const { Unit } = await import('../models/index.js');
+        csvContent = await settingsImportExportService.exportToCsv(
+          Unit,
+          ['name', 'abbreviation', 'base_unit_id', 'conversion_factor', 'is_base_unit', 'is_active'],
+          {},
+          {
+            include: [
+              {
+                model: Unit,
+                as: 'base_unit',
+                attributes: ['id', 'name', 'abbreviation'],
+                required: false
+              }
+            ],
+            transformRow: (row, record) => {
+              return {
+                name: row.name,
+                abbreviation: row.abbreviation,
+                base_unit_name: record.base_unit ? record.base_unit.name : '',
+                base_unit_id: row.base_unit_id || '',
+                conversion_factor: row.conversion_factor || '1',
+                is_base_unit: row.is_base_unit ? 'true' : 'false',
+                is_active: row.is_active ? 'true' : 'false'
+              };
+            },
+            order: [['name', 'ASC']]
+          }
+        );
+        filename = `units_${new Date().toISOString().split('T')[0]}.csv`;
+        break;
+      }
+      case 'warranties': {
+        const { Warranty } = await import('../models/index.js');
+        csvContent = await settingsImportExportService.exportToCsv(
+          Warranty,
+          ['name', 'duration_months', 'description', 'is_active'],
+          {},
+          {
+            order: [['name', 'ASC']]
+          }
+        );
+        filename = `warranties_${new Date().toISOString().split('T')[0]}.csv`;
+        break;
+      }
+      case 'brands': {
+        const { ProductBrand } = await import('../models/index.js');
+        csvContent = await settingsImportExportService.exportToCsv(
+          ProductBrand,
+          ['name'],
+          {},
+          {
+            order: [['name', 'ASC']]
+          }
+        );
+        filename = `brands_${new Date().toISOString().split('T')[0]}.csv`;
+        break;
+      }
+      case 'payment_accounts':
+        csvContent = await exportService.exportPaymentAccounts(filters);
+        filename = `payment_accounts_${new Date().toISOString().split('T')[0]}.csv`;
         break;
       default:
         return res.status(400).json({ error: 'Invalid entity type' });

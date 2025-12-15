@@ -11,8 +11,12 @@ import {
   ArrowLeftRight,
   X,
   Search,
-  Building2
+  Building2,
+  Upload,
+  Download
 } from 'lucide-react';
+import ImportModal from '../components/import/ImportModal';
+import ExportModal from '../components/import/ExportModal';
 
 const PaymentAccounts = () => {
   const { user, hasPermission } = useAuth();
@@ -24,6 +28,8 @@ const PaymentAccounts = () => {
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [showWithdrawalModal, setShowWithdrawalModal] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
 
@@ -317,15 +323,35 @@ const PaymentAccounts = () => {
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Payment Accounts</h1>
           <p className="text-gray-600">Manage bank accounts, cash registers, and payment methods</p>
         </div>
-        {hasPermission('payment_account_manage') && (
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-          >
-            <Plus className="h-5 w-5" />
-            <span>Add Account</span>
-          </button>
-        )}
+        <div className="flex items-center space-x-3">
+          {hasPermission('payment_account_view') && (
+            <button
+              onClick={() => setShowExportModal(true)}
+              className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+            >
+              <Download className="h-5 w-5" />
+              <span>Export</span>
+            </button>
+          )}
+          {hasPermission('payment_account_manage') && (
+            <>
+              <button
+                onClick={() => setShowImportModal(true)}
+                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                <Upload className="h-5 w-5" />
+                <span>Import</span>
+              </button>
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+              >
+                <Plus className="h-5 w-5" />
+                <span>Add Account</span>
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Success/Error Messages */}
@@ -904,6 +930,49 @@ const PaymentAccounts = () => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Import Modal */}
+      {showImportModal && (
+        <ImportModal
+          isOpen={showImportModal}
+          onClose={() => setShowImportModal(false)}
+          onSuccess={(data) => {
+            const results = data?.results || data || {};
+            const created = results.created || 0;
+            const updated = results.updated || 0;
+            const skipped = results.skipped || 0;
+            const errors = results.errors || [];
+
+            // Only refresh if records were actually created/updated
+            if (created > 0 || updated > 0) {
+              queryClient.invalidateQueries(['paymentAccounts']);
+
+              let message = `Import completed! ${created} created, ${updated} updated`;
+              if (skipped > 0) {
+                message += `, ${skipped} skipped`;
+              }
+              if (errors.length > 0) {
+                message += `. ${errors.length} error(s) occurred.`;
+              }
+              setFormSuccess(message);
+              setTimeout(() => setFormSuccess(''), 5000);
+            }
+            setShowImportModal(false);
+          }}
+          entity="payment_accounts"
+          title="Import Payment Accounts"
+        />
+      )}
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <ExportModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          entity="payment_accounts"
+          title="Export Payment Accounts"
+        />
       )}
     </div>
   );

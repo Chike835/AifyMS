@@ -7,7 +7,8 @@ import { downloadEntityTemplate } from '../../utils/importTemplates';
 const entityLabels = {
   products: 'Products',
   inventory: 'Inventory Instances',
-  customers: 'Customers'
+  customers: 'Customers',
+  payment_accounts: 'Payment Accounts'
 };
 
 const ImportModal = ({ isOpen, onClose, entity, title = 'Import Data', onSuccess, targetEndpoint }) => {

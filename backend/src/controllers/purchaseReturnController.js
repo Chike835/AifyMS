@@ -1,5 +1,6 @@
 import { Op } from 'sequelize';
 import sequelize from '../config/db.js';
+import { safeRollback } from '../utils/transactionUtils.js';
 import {
   PurchaseReturn,
   PurchaseReturnItem,
@@ -138,17 +139,17 @@ export const createPurchaseReturn = async (req, res, next) => {
 
     // Validation
     if (!purchase_id) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'purchase_id is required' });
     }
 
     if (!items || !Array.isArray(items) || items.length === 0) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'items array is required' });
     }
 
     if (!reason || !reason.trim()) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'reason is required' });
     }
 
@@ -169,7 +170,7 @@ export const createPurchaseReturn = async (req, res, next) => {
     });
 
     if (!purchase) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Purchase not found' });
     }
 
@@ -197,13 +198,13 @@ export const createPurchaseReturn = async (req, res, next) => {
       // Find the original purchase item
       const originalItem = purchase.items.find(i => i.id === purchase_item_id);
       if (!originalItem) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(404).json({ error: `Purchase item ${purchase_item_id} not found in order` });
       }
 
       // Validate quantity
       if (quantity <= 0 || quantity > parseFloat(originalItem.quantity)) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(400).json({ 
           error: `Invalid return quantity for ${originalItem.product?.name}. Max: ${originalItem.quantity}` 
         });
@@ -281,12 +282,12 @@ export const approvePurchaseReturn = async (req, res, next) => {
     });
 
     if (!purchaseReturn) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Purchase return not found' });
     }
 
     if (purchaseReturn.status !== 'pending') {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Only pending returns can be approved' });
     }
 

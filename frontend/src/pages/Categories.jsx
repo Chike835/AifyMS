@@ -413,7 +413,7 @@ const Categories = () => {
                   >
                     <option value="">None (Root Category)</option>
                     {categories
-                      .filter(cat => !selectedCategory || cat.id !== selectedCategory.id)
+                      .filter(cat => (!selectedCategory || cat.id !== selectedCategory.id) && !cat.parent_id)
                       .map((category) => (
                         <option key={category.id} value={category.id}>
                           {category.name}

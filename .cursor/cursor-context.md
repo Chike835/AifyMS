@@ -4,6 +4,8 @@
 **Last Updated:** 2025-01-27  
 **Purpose:** Cognitive map for LLM understanding of system architecture, data flow, and key patterns
 
+**Note:** This document reflects the current implementation with 36 route files, 49 models, 7 services, 58+ frontend pages, and 60+ permissions.
+
 ---
 
 ## System Architecture Overview
@@ -175,14 +177,19 @@ graph TB
 - Returns 403 Forbidden if permission denied
 
 **Permission Structure:**
-- 37 total permissions organized into groups:
-  - `user_management`: user_view, user_add, user_edit, etc.
-  - `inventory`: product_view, product_add, stock_adjust, etc.
-  - `sales_pos`: pos_access, sale_view_all, sale_edit_price, etc.
-  - `payments`: payment_view, payment_receive, payment_confirm, etc.
-  - `manufacturing`: recipe_view, recipe_manage, production_view_queue, etc.
-  - `data_management`: data_import, data_export_operational, etc.
-  - `reports`: report_view_register, report_view_financial, etc.
+- 60+ total permissions organized into groups:
+  - `user_management`: user_view, user_add, user_edit, user_delete, user_view_global, role_manage, agent_view, agent_add, agent_edit, agent_delete, agent_commission_view, agent_commission_manage
+  - `inventory`: product_view, product_add, product_edit, product_delete, product_view_cost, stock_add_opening, stock_adjust, stock_transfer_init, stock_transfer_approve, batch_view, batch_create, batch_edit, batch_delete
+  - `sales_pos`: pos_access, sale_view_own, sale_view_all, sale_edit_price, sale_discount, sale_credit, quote_manage, draft_manage, sale_return_view, sale_return_create, sale_return_approve, discount_view, discount_manage
+  - `payments`: payment_view, payment_receive, payment_confirm, payment_delete_unconfirmed, payment_void_confirmed, supplier_payment, payment_account_view, payment_account_manage
+  - `contacts`: customer_view, supplier_view
+  - `manufacturing`: recipe_view, recipe_manage, production_view_queue, production_update_status
+  - `data_management`: data_import, data_export_operational, data_export_financial
+  - `reports`: report_view_register, report_view_stock_value, report_view_financial, report_view_sales
+  - `expenses`: expense_view, expense_manage, expense_category_manage
+  - `payroll`: payroll_view, payroll_manage
+  - `purchases`: purchase_return_view, purchase_return_create, purchase_return_approve
+  - `settings`: settings_manage, branch_access_all
 
 ---
 
@@ -294,6 +301,117 @@ graph TB
 
 ---
 
+### 8. Variable Products & Variants Flow
+
+**Feature:** Parent variable products generate child variant products based on variation combinations
+
+**Data Flow:**
+1. **Create Variable Product:** Admin creates a product with `type = 'variable'`
+2. **Assign Variations:** Product linked to ProductVariations (e.g., Size, Color) via `ProductVariationAssignment`
+3. **Generate Variants:** `POST /api/products/:id/generate-variants` calls `variantService.generateVariants()`
+   - Fetches parent product and assigned variations with their values
+   - Calculates Cartesian product of all variation value combinations
+   - Creates child Product records with type `'standard'` for each combination
+   - Links parent-child relationship via `ProductVariant` table
+   - Generates SKU: `PARENT-SKU-VAR1-VAR2` (e.g., "TSHIRT-LG-RED")
+   - Generates Name: `Parent Name - Var1 - Var2` (e.g., "T-Shirt - Large - Red")
+4. **Variant Management:** 
+   - Each variant is a standard product with its own inventory, pricing, stock
+   - Variants can be edited, deleted individually
+   - Parent product maintains list of variants via `ProductVariant` relationships
+
+**Key Tables:**
+- `product_variations`: Variation definitions (e.g., "Size", "Color")
+- `product_variation_values`: Values for each variation (e.g., "Small", "Medium", "Large")
+- `product_variation_assignments`: Links variable products to variations
+- `product_variants`: Links parent variable product to child variant products
+- `variation_combination`: JSONB field storing combination mapping (e.g., `{"Size": "Large", "Color": "Red"}`)
+
+---
+
+### 9. Batch Settings & Category-Batch Type Assignments Flow
+
+**Feature:** Dynamic batch type system where batch types are assigned to categories, replacing hardcoded enum values
+
+**Data Flow:**
+1. **Create Batch Type:** Admin creates batch types (e.g., "Coil", "Pallet", "Carton") via `/inventory/settings/batches`
+   - Stored in `batch_types` table
+   - Can set one as default batch type
+2. **Assign to Categories:** Admin assigns batch types to categories via Category-BatchType assignments
+   - Stored in `category_batch_types` junction table
+   - Multiple batch types can be assigned to one category
+3. **Inventory Batch Creation:** When creating inventory batch:
+   - System validates `batch_type_id` is assigned to product's `category_id`
+   - Prevents creation of batches with invalid batch type-category combinations
+   - Enforces strict material typing
+
+**Key Tables:**
+- `batch_types`: Batch type definitions with `is_default` flag
+- `category_batch_types`: Many-to-many relationship between categories and batch types
+- `inventory_batches`: Uses `batch_type_id` FK instead of enum
+
+---
+
+### 10. Units Management Flow
+
+**Feature:** Hierarchical unit system with base units and derived units with conversion factors
+
+**Data Flow:**
+1. **Create Base Unit:** Admin creates base unit (e.g., "Kilogram", "Meter") with `is_base_unit = true`
+2. **Create Derived Unit:** Admin creates derived unit (e.g., "Gram", "Centimeter")
+   - Links to base unit via `base_unit_id`
+   - Sets `conversion_factor` (e.g., 1000 for Gram → Kilogram)
+   - System calculates conversions automatically
+3. **Product Assignment:** Products link to units via `unit_id` FK
+   - Supports compound unit conversions during manufacturing
+
+**Key Tables:**
+- `units`: Unit definitions with self-referential `base_unit_id`
+- `products`: Links to units via `unit_id`
+
+---
+
+### 11. Categories Management Flow
+
+**Feature:** Hierarchical category system with parent-child relationships and attribute schemas
+
+**Data Flow:**
+1. **Create Category:** Admin creates category with optional `parent_id` for hierarchy
+2. **Attribute Schema:** Categories can have `attribute_schema` JSONB field defining allowed attributes
+3. **Branch Scoping:** Categories can be branch-specific (`branch_id`) or global (`branch_id = null`)
+4. **Category Usage:** Products, InventoryBatches link to categories
+   - Gauge-enabled categories control gauge input requirement
+   - Batch type assignments are category-scoped
+
+**Key Tables:**
+- `categories`: Category definitions with `parent_id` for hierarchy, `branch_id` for scoping, `attribute_schema` for metadata
+
+---
+
+### 12. Ledger Entry Flow
+
+**Feature:** Unified ledger system tracking all financial transactions for customers and suppliers
+
+**Data Flow:**
+1. **Payment Confirmation:** When payment is confirmed:
+   - Creates `LedgerEntry` with `transaction_type = 'PAYMENT'`
+   - Links to `Payment` via `transaction_id`
+   - Updates `Customer.ledger_balance` atomically
+2. **Invoice Creation:** When sales order is created:
+   - Creates `LedgerEntry` with `transaction_type = 'INVOICE'`
+   - Updates customer balance
+3. **Returns/Adjustments:** Similar ledger entries for returns, adjustments, refunds
+4. **Ledger Queries:** 
+   - `GET /api/ledger/customer/:id` returns chronological ledger entries
+   - Supports filtering by date range, transaction type
+   - Export to CSV/PDF available
+
+**Key Tables:**
+- `ledger_entries`: All financial transactions with `contact_type` ('customer'/'supplier'), `contact_id`, `transaction_type`, `amount`, `balance_after`
+- Links to `Payment`, `SalesOrder`, etc. via polymorphic `transaction_id` pattern
+
+---
+
 ## Technology Stack
 
 ### Frontend
@@ -332,19 +450,29 @@ graph TB
 ## Key Database Models & Relationships
 
 ### Core Models
-- **User** → belongsTo Role, Branch
-- **Role** → belongsToMany Permission (through `role_permissions`)
-- **Permission** → belongsToMany Role
-- **Branch** → hasMany User, SalesOrder, InventoryInstance, Supplier, Purchase
-- **Customer** → hasMany SalesOrder, Payment (global, not branch-filtered)
-- **Supplier** → belongsTo Branch; hasMany Purchase (branch-filtered for non-Super Admin)
-- **Product** → hasMany InventoryInstance, SalesItem, Recipe, PurchaseItem; belongsToMany Branch (through `product_business_locations`); belongsTo Unit, TaxRate, Category, ProductBrand
-- **InventoryInstance** → belongsTo Product, Branch; hasMany ItemAssignment, PurchaseItem
+- **User** → belongsTo Role, Branch; hasMany SalesOrder (creator), Payment (created_by, confirmed_by), LedgerEntry (creator), ActivityLog
+- **Role** → belongsToMany Permission (through `role_permissions`); hasMany User
+- **Permission** → belongsToMany Role (through `role_permissions`)
+- **Branch** → hasMany User, SalesOrder, InventoryInstance, Supplier, Purchase, ExpenseCategory, Expense, PayrollRecord, ActivityLog; hasMany Category (branch-scoped)
+- **Customer** → hasMany SalesOrder, Payment; hasMany LedgerEntry (contact_type: 'customer') (global, not branch-filtered)
+- **Supplier** → belongsTo Branch; hasMany Purchase, LedgerEntry (contact_type: 'supplier') (branch-filtered for non-Super Admin)
+- **Product** → hasMany InventoryInstance, SalesItem, Recipe (virtual_product, raw_product), PurchaseItem, ProductVariationAssignment, ProductVariant (parent); belongsToMany Branch (through `product_business_locations`); belongsTo Unit, TaxRate, Category, ProductBrand; hasOne ProductVariant (child)
+- **ProductVariation** → hasMany ProductVariationValue, ProductVariationAssignment
+- **ProductVariationValue** → belongsTo ProductVariation
+- **ProductVariationAssignment** → belongsTo Product, ProductVariation
+- **ProductVariant** → belongsTo Product (parent_product, product)
+- **Unit** → belongsTo Unit (base_unit); hasMany Unit (derived_units), Product
+- **Category** → belongsTo Category (parent); belongsTo Branch; hasMany Category (children), InventoryBatch, CategoryBatchType
+- **Warranty** → hasMany Product (through attribute_data)
+- **BatchType** → belongsTo User (creator); hasMany CategoryBatchType, InventoryBatch
+- **CategoryBatchType** → belongsTo Category, BatchType
+- **InventoryBatch** → belongsTo Product, Branch, Category, BatchType; hasMany InventoryInstance
+- **InventoryInstance** → belongsTo Product, Branch, InventoryBatch; hasMany ItemAssignment, PurchaseItem, StockTransfer, StockAdjustment, Wastage
 - **SalesOrder** → belongsTo Customer, Branch, User; hasMany SalesItem
 - **SalesItem** → belongsTo SalesOrder, Product; hasMany ItemAssignment
 - **ItemAssignment** → belongsTo SalesItem, InventoryInstance
 - **Recipe** → belongsTo Product (virtual_product, raw_product)
-- **Payment** → belongsTo Customer, User (created_by, confirmed_by)
+- **Payment** → belongsTo Customer, User (created_by, confirmed_by); hasMany LedgerEntry
 - **Purchase** → belongsTo Supplier, Branch, User; hasMany PurchaseItem
 - **PurchaseItem** → belongsTo Purchase, Product, InventoryInstance (for raw_tracked)
 - **StockTransfer** → belongsTo InventoryInstance, Branch (from/to), User
@@ -353,12 +481,15 @@ graph TB
 - **ExpenseCategory** → belongsTo Branch; hasMany Expense
 - **Expense** → belongsTo ExpenseCategory, Branch, User (creator)
 - **PayrollRecord** → belongsTo Branch, User (employee)
+- **LedgerEntry** → belongsTo Customer/Supplier (contact_id with contact_type), User (creator), Payment (transaction_id)
+- **ActivityLog** → belongsTo User, Branch
 
 ### Product Types (Enum)
 - `standard`: Regular products
 - `compound`: Products with compound units
 - `raw_tracked`: Raw materials tracked by instance (coils/pallets)
 - `manufactured_virtual`: Virtual products created from recipes
+- `variable`: Parent products that generate variant child products based on variation combinations
 
 ### Production Status (Enum)
 - `queue`: Waiting for production
@@ -494,11 +625,77 @@ Request → authenticate → requirePermission → Controller
 - `PUT /api/expenses/categories/:id` - Update expense category
 - `DELETE /api/expenses/categories/:id` - Delete expense category
 
+**Variations:**
+- `GET /api/variations` - List product variations
+- `POST /api/variations` - Create variation (requires `product_add`)
+- `GET /api/variations/:id` - Get variation by ID
+- `PUT /api/variations/:id` - Update variation (requires `product_edit`)
+- `DELETE /api/variations/:id` - Delete variation (requires `product_delete`)
+- `POST /api/variations/import` - Import variations from CSV/Excel
+- `GET /api/variations/export` - Export variations to CSV
+
+**Units:**
+- `GET /api/units` - List units
+- `POST /api/units` - Create unit (requires `product_add`)
+- `GET /api/units/:id` - Get unit by ID
+- `PUT /api/units/:id` - Update unit (requires `product_edit`)
+- `DELETE /api/units/:id` - Delete unit (requires `product_delete`)
+- `POST /api/units/import` - Import units from CSV/Excel
+- `GET /api/units/export` - Export units to CSV
+
+**Categories:**
+- `GET /api/categories` - List categories (branch-scoped)
+- `POST /api/categories` - Create category (requires `product_add`)
+- `GET /api/categories/:id` - Get category by ID
+- `PUT /api/categories/:id` - Update category (requires `product_edit`)
+- `DELETE /api/categories/:id` - Delete category (requires `product_delete`)
+- `POST /api/categories/import` - Import categories from CSV/Excel
+- `GET /api/categories/export` - Export categories to CSV
+
+**Warranties:**
+- `GET /api/warranties` - List warranties
+- `POST /api/warranties` - Create warranty (requires `product_add`)
+- `GET /api/warranties/:id` - Get warranty by ID
+- `PUT /api/warranties/:id` - Update warranty (requires `product_edit`)
+- `DELETE /api/warranties/:id` - Delete warranty (requires `product_delete`)
+- `POST /api/warranties/import` - Import warranties from CSV/Excel
+- `GET /api/warranties/export` - Export warranties to CSV
+
+**Batch Settings:**
+- `GET /api/settings/batches/types` - List batch types (requires `settings_manage`)
+- `POST /api/settings/batches/types` - Create batch type (requires `settings_manage`)
+- `PUT /api/settings/batches/types/:id` - Update batch type (requires `settings_manage`)
+- `DELETE /api/settings/batches/types/:id` - Delete batch type (requires `settings_manage`)
+- `GET /api/settings/batches/types/default` - Get default batch type
+- `PUT /api/settings/batches/types/:id/set-default` - Set default batch type (requires `settings_manage`)
+- `GET /api/settings/batches/types/category/:categoryId` - Get batch types by category
+- `GET /api/settings/batches/assignments` - Get category-batch type assignments (requires `settings_manage`)
+- `POST /api/settings/batches/assignments` - Assign batch type to category (requires `settings_manage`)
+- `DELETE /api/settings/batches/assignments` - Remove batch type from category (requires `settings_manage`)
+
+**Ledger:**
+- `GET /api/ledger/customer/:id` - Get customer ledger entries (requires `payment_view`)
+- `GET /api/ledger/customer/:id/summary` - Get customer ledger summary (requires `payment_view`)
+- `GET /api/ledger/supplier/:id` - Get supplier ledger entries (requires `product_view`)
+- `GET /api/ledger/export/:type/:id` - Export ledger to CSV/PDF
+- `POST /api/ledger/backfill` - Trigger historical ledger backfill (requires `settings_manage`)
+
+**Production:**
+- `POST /api/production/assign-material` - Assign material to sales item (requires `production_update_status`)
+- `GET /api/production/assignments/:sales_item_id` - Get material assignments for sales item (requires `production_view_queue`)
+
+**Products (Variable Products):**
+- `POST /api/products/:id/generate-variants` - Generate variants for variable product (requires `product_edit`)
+- `DELETE /api/products/:id/variants/:variantId` - Delete variant (requires `product_edit`)
+- `GET /api/products/:id/variant-ledger` - Get ledger for variant (requires `product_view`)
+- `GET /api/products/:id/instance-codes` - Get instance codes for product
+
 **Import/Export:**
-- Products, Inventory, Customers, Suppliers, Categories, Units, Purchases
+- Products, Inventory, Customers, Suppliers, Categories, Units, Variations, Warranties, Purchases
 - Purchase import/export uses flattened format (one row per purchase item with purchase-level fields repeated)
 - `POST /api/import/products` - Import products from CSV/Excel
 - `GET /api/export/products` - Export products to CSV/Excel
+- Similar import/export endpoints for variations, units, categories, warranties
 
 ---
 
@@ -536,13 +733,20 @@ src/
 ### Backend (`backend/src/`)
 ```
 src/
-├── config/             # Configuration (db.js, env.js)
-├── controllers/        # Request handlers
-├── models/             # Sequelize models
-├── routes/             # Express route definitions
+├── config/             # Configuration (db.js, env.js, locale.js)
+├── controllers/        # Request handlers (36 controllers)
+├── models/             # Sequelize models (49 models)
+├── routes/             # Express route definitions (36 route files)
 ├── middleware/         # Auth and permission middleware
-├── services/           # Business logic services
-├── utils/              # Utilities (passwordUtils.js)
+├── services/           # Business logic services (7 services)
+│   ├── exportService.js
+│   ├── importService.js
+│   ├── inventoryService.js
+│   ├── ledgerService.js
+│   ├── pdfService.js
+│   ├── settingsImportExportService.js
+│   └── variantService.js
+├── utils/              # Utilities (passwordUtils.js, constants.js, logger.js, mathUtils.js, authHelpers.js)
 └── server.js           # Express app entry point
 ```
 
@@ -656,15 +860,61 @@ const menuItems = [
 2. **Dashboard** (`/`) - Main dashboard with stats
 3. **POS** (`/pos`) - Point of Sale interface
 4. **Inventory** (`/inventory`) - Inventory management
-5. **Products** (`/products`) - Product management
-6. **Payments** (`/payments`) - Payment processing
-7. **Customers** (`/customers`) - Customer management with ledger view
-8. **Suppliers** (`/suppliers`) - Supplier management (branch-filtered)
-9. **Purchases** (`/purchases`) - Purchase order list and details
-10. **Add Purchase** (`/purchases/add`) - Create purchase with inventory integration
-11. **Settings** (`/settings`) - System settings
-12. **Production Queue** (`/production-queue`) - Manufacturing queue
-13. **Shipments** (`/shipments`) - Shipment tracking
+5. **Inventory Batches** (`/inventory/batches`) - Inventory batch management
+6. **Inventory Import** (`/inventory/import`) - Import products
+7. **Stock Transfer** (`/inventory/stock-transfer`) - Transfer stock between branches
+8. **Stock Adjustment** (`/inventory/stock-adjustment`) - Adjust stock with reasons
+9. **Print Labels** (`/inventory/print-labels`) - Print labels for inventory instances
+10. **Variations Settings** (`/inventory/settings/variations`) - Product variations management
+11. **Units Settings** (`/inventory/settings/units`) - Units management
+12. **Categories Settings** (`/inventory/settings/categories`) - Categories management
+13. **Batch Settings** (`/inventory/settings/batches`) - Batch type and category-batch assignments
+14. **Gauges & Colors Settings** (`/inventory/settings/gauges-colors`) - Gauge-enabled categories and color management
+15. **Warranties Settings** (`/inventory/settings/warranties`) - Warranties management
+16. **Products** (`/products`) - Product management
+17. **Add Product** (`/products/add`) - Create new product
+18. **Edit Product** (`/products/:id/edit`) - Edit existing product
+19. **Update Price** (`/products/update-price`) - Bulk price update
+20. **Payments** (`/payments`) - Payment processing
+21. **Customers** (`/customers`) - Customer management
+22. **Customer Ledger** (`/customers/:id/ledger`) - Customer ledger view
+23. **Suppliers** (`/suppliers`) - Supplier management (branch-filtered)
+24. **Supplier Ledger** (`/suppliers/:id/ledger`) - Supplier ledger view
+25. **Import Contacts** (`/import-contacts`) - Import customers/suppliers
+26. **Purchases** (`/purchases`) - Purchase order list and details
+27. **Add Purchase** (`/purchases/add`) - Create purchase with inventory integration
+28. **Purchase Returns** (`/purchases/returns`) - Purchase returns management
+29. **Sales** (`/sales`) - Sales list
+30. **Add Sale** (`/sales/add`) - Create new sale
+31. **POS List** (`/sales/pos-list`) - POS transactions list
+32. **Drafts** (`/sales/drafts`) - Draft sales management
+33. **Quotations** (`/sales/quotations`) - Quotations management
+34. **Sales Returns** (`/sales/returns`) - Sales returns management
+35. **Discounts** (`/discounts`) - Discounts management
+36. **Delivery Notes** (`/delivery-notes`) - Custom delivery note templates
+37. **Shipments** (`/shipments`) - Shipment tracking
+38. **Production Queue** (`/production-queue`) - Manufacturing queue
+39. **Manufacturing Status** (`/manufacturing/status`) - Production status tracking
+40. **Recipes** (`/manufacturing/recipes`) - Recipe management
+41. **Expenses** (`/expenses`) - Expenses management
+42. **Expense Categories** (`/expenses/categories`) - Expense categories
+43. **Payroll** (`/payroll`) - Payroll management
+44. **Users** (`/users`) - User management
+45. **Roles** (`/roles`) - Roles & permissions management
+46. **Agents** (`/agents`) - Sales commission agents
+47. **Reports** (`/reports` or `/accounts/reports`) - Comprehensive reports dashboard
+48. **Payment Accounts** (`/accounts/payment-accounts`) - Payment accounts management
+49. **Balance Sheet** (`/accounts/payment-accounts/balance-sheet`) - Balance sheet financial statement
+50. **Trial Balance** (`/accounts/payment-accounts/trial-balance`) - Trial balance financial statement
+51. **Cash Flow** (`/accounts/payment-accounts/cash-flow`) - Cash flow financial statement
+52. **Payment Account Report** (`/accounts/payment-accounts/report/:accountId`) - Individual account report
+53. **Settings** (`/settings`) - General settings
+54. **Business Settings** (`/settings/business`) - Business configuration
+55. **Business Locations** (`/settings/locations`) - Multi-branch management
+56. **Invoice Settings** (`/settings/invoice`) - Invoice configuration
+57. **Barcode Settings** (`/settings/barcode`) - Barcode configuration
+58. **Receipt Printers** (`/settings/receipt-printers`) - Receipt printer configuration
+59. **Tax Rates** (`/settings/tax`) - Tax rates management
 
 **Route Protection:**
 - `ProtectedRoute` component checks authentication

@@ -38,7 +38,9 @@ export const generateVariants = async (parentProductId, variationIds, options = 
         transaction
     });
 
-    if (variations.length === 0) throw new Error('No variations found');
+    if (variations.length === 0) {
+        throw new Error(`No variations found for IDs: ${variationIds.join(', ')}`);
+    }
 
     // 3. Prepare data for cartesian product
     // We need an array of arrays of values.
@@ -55,7 +57,15 @@ export const generateVariants = async (parentProductId, variationIds, options = 
         }
 
         if (valuesToUse.length === 0) {
-            throw new Error(`No values selected for variation "${v.name}"`);
+            const availableValues = (v.values || []).map(val => `${val.value} (ID: ${val.id})`).join(', ');
+            const configInfo = config 
+                ? `Config provided with ${config.valueIds.length} valueIds, but none matched available values.`
+                : 'No config provided and variation has no values.';
+            throw new Error(
+                `No values selected for variation "${v.name}" (ID: ${v.id}). ` +
+                `${configInfo} ` +
+                `Available values: ${availableValues || 'None'}`
+            );
         }
 
         return valuesToUse.map(val => ({
@@ -108,6 +118,7 @@ export const generateVariants = async (parentProductId, variationIds, options = 
                 cost_price: parentProduct.cost_price,
                 current_stock: 0, // Placeholder
                 sku_suffix: skuSuffix,
+                is_variant_child: true,
                 variation_combination: variationCombination
             });
             continue;
@@ -166,6 +177,7 @@ export const generateVariants = async (parentProductId, variationIds, options = 
             manage_stock: parentProduct.manage_stock,
             not_for_selling: false, // Usually variants are for selling
             attribute_default_values: parentProduct.attribute_default_values,
+            is_variant_child: true
         }, { transaction });
 
         // Link in ProductVariants

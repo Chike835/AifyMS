@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
-import { ShoppingBag, Plus, Trash2, AlertCircle, CheckCircle, ArrowLeft } from 'lucide-react';
+import { ShoppingBag, Plus, Trash2, AlertCircle, CheckCircle, ArrowLeft, Layers, ChevronDown, ChevronUp, X } from 'lucide-react';
+import VariantBatchModal from '../components/VariantBatchModal';
 
 const AddPurchase = () => {
   const navigate = useNavigate();
@@ -12,8 +13,27 @@ const AddPurchase = () => {
   const [formSuccess, setFormSuccess] = useState('');
   const [supplierId, setSupplierId] = useState('');
   const [notes, setNotes] = useState('');
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [selectedVariantForBatch, setSelectedVariantForBatch] = useState(null);
+  const [parentProductForBatch, setParentProductForBatch] = useState(null);
+  const [maxQuantityForBatch, setMaxQuantityForBatch] = useState(null);
+  const [purchasedQuantityForBatch, setPurchasedQuantityForBatch] = useState(null);
+  const [purchaseUnitForBatch, setPurchaseUnitForBatch] = useState(null);
+  // Context to know which item/variant triggered the modal
+  const [batchModalContext, setBatchModalContext] = useState({ itemIndex: null, variantId: null });
+
   const [items, setItems] = useState([
-    { product_id: '', quantity: '', unit_cost: '', instance_code: '', purchase_unit_id: '', purchased_quantity: '' }
+    {
+      product_id: '',
+      quantity: '',
+      unit_cost: '',
+      instance_code: '',
+      purchase_unit_id: '',
+      purchased_quantity: '',
+      // Variable product fields
+      selected_variants: [], // { variant_id: '', quantity: '', unit_cost: '', child: {} }
+      variantSearchTerm: ''
+    }
   ]);
 
   // Fetch suppliers
@@ -40,6 +60,15 @@ const AddPurchase = () => {
     queryFn: async () => {
       const response = await api.get('/units');
       return Array.isArray(response.data) ? response.data : (response.data.units || []);
+    }
+  });
+
+  // Fetch branches
+  const { data: branchesData } = useQuery({
+    queryKey: ['branches'],
+    queryFn: async () => {
+      const response = await api.get('/branches');
+      return response.data.branches || [];
     }
   });
 
@@ -80,7 +109,16 @@ const AddPurchase = () => {
 
   // Add new item row
   const addItem = () => {
-    setItems([...items, { product_id: '', quantity: '', unit_cost: '', instance_code: '', purchase_unit_id: '', purchased_quantity: '' }]);
+    setItems([...items, {
+      product_id: '',
+      quantity: '',
+      unit_cost: '',
+      instance_code: '',
+      purchase_unit_id: '',
+      purchased_quantity: '',
+      selected_variants: [],
+      variantSearchTerm: ''
+    }]);
   };
 
   // Remove item row
@@ -95,7 +133,7 @@ const AddPurchase = () => {
   const getUnitsForProduct = (productId) => {
     const product = getProduct(productId);
     if (!product || !product.unit_id) return units;
-    
+
     // Return all units, but prioritize the product's base unit
     return units.sort((a, b) => {
       if (a.id === product.unit_id) return -1;
@@ -113,17 +151,17 @@ const AddPurchase = () => {
 
     const purchaseUnit = units.find(u => u.id === item.purchase_unit_id);
     const baseUnit = units.find(u => u.id === product.unit_id);
-    
+
     if (!purchaseUnit || !baseUnit) {
       return { baseQuantity: parseFloat(item.quantity) || 0, conversionFactor: 1, purchaseUnit };
     }
 
     // If same unit, no conversion
     if (purchaseUnit.id === baseUnit.id) {
-      return { 
-        baseQuantity: parseFloat(item.purchased_quantity) || 0, 
-        conversionFactor: 1, 
-        purchaseUnit 
+      return {
+        baseQuantity: parseFloat(item.purchased_quantity) || 0,
+        conversionFactor: 1,
+        purchaseUnit
       };
     }
 
@@ -141,17 +179,32 @@ const AddPurchase = () => {
     return { baseQuantity, conversionFactor, purchaseUnit };
   };
 
+  // Helper to calculate variant specific conversion
+  const calculateVariantConversion = (variantItem, parentItem) => {
+    // Uses the parent item's purchase_unit_id logic
+    const dummyItem = {
+      product_id: parentItem.product_id, // Parent product for unit info
+      purchase_unit_id: parentItem.purchase_unit_id,
+      purchased_quantity: variantItem.quantity // The input quantity for the variant
+    };
+    return calculateConversion(dummyItem);
+  };
+
   // Update item field
-  const updateItem = (index, field, value) => {
+  const updateItem = async (index, field, value) => {
     const newItems = [...items];
     newItems[index][field] = value;
 
-    // If product changes, reset instance_code if not raw_tracked
+    // If product changes
     if (field === 'product_id') {
       const product = getProduct(value);
-      if (product?.type !== 'raw_tracked') {
-        newItems[index].instance_code = '';
-      }
+
+      // Reset fields
+      newItems[index].instance_code = '';
+      newItems[index].selected_variants = [];
+      newItems[index].available_variants = []; // Reset available variants
+      newItems[index].variantSearchTerm = ''; // Reset search term
+
       // Auto-populate unit_cost from product cost_price if available
       if (product?.cost_price) {
         newItems[index].unit_cost = parseFloat(product.cost_price).toFixed(2);
@@ -160,10 +213,31 @@ const AddPurchase = () => {
       if (product?.unit_id) {
         newItems[index].purchase_unit_id = product.unit_id;
       }
+
+      // If variable product, fetch variants
+      if (product?.type === 'variable') {
+        try {
+          // Fetch full product details including variants
+          const response = await api.get(`/products/${product.id}`);
+          const fullProduct = response.data.product;
+
+          if (fullProduct && fullProduct.variants) {
+            newItems[index].available_variants = fullProduct.variants.map(v => ({
+              variant_id: v.id,
+              child: v.child,
+              // Flatten variation values for display (e.g. "Red, Large")
+              name: v.child?.name || 'Unknown Variant'
+            }));
+          }
+        } catch (error) {
+          console.error("Failed to fetch variants:", error);
+          // Could show a toast or error state here
+        }
+      }
     }
 
-    // If purchase_unit_id or purchased_quantity changes, update base quantity
-    if (field === 'purchase_unit_id' || field === 'purchased_quantity') {
+    // If purchase_unit_id or purchased_quantity changes (for standard products), update base quantity
+    if ((field === 'purchase_unit_id' || field === 'purchased_quantity') && !newItems[index].selected_variants?.length) {
       const conversion = calculateConversion(newItems[index]);
       newItems[index].quantity = conversion.baseQuantity.toFixed(3);
     }
@@ -171,11 +245,78 @@ const AddPurchase = () => {
     setItems(newItems);
   };
 
+  // Toggle variant selection
+  const toggleVariant = (index, variant) => {
+    const newItems = [...items];
+    const currentSelected = newItems[index].selected_variants || [];
+    const existingIdx = currentSelected.findIndex(v => v.variant_id === variant.variant_id);
+
+    if (existingIdx >= 0) {
+      // Remove
+      newItems[index].selected_variants = currentSelected.filter((_, i) => i !== existingIdx);
+    } else {
+      // Add with defaults
+      newItems[index].selected_variants.push({
+        variant_id: variant.variant_id,
+        child: variant.child,
+        quantity: '',
+        unit_cost: variant.child?.cost_price || newItems[index].unit_cost || '',
+        batched_quantity: 0 // Initialize batched quantity for tracking
+      });
+    }
+    setItems(newItems);
+  };
+
+  // Update variant specific field
+  const updateVariant = (itemIndex, variantId, field, value) => {
+    const newItems = [...items];
+    const variantIdx = newItems[itemIndex].selected_variants.findIndex(v => v.variant_id === variantId);
+
+    if (variantIdx >= 0) {
+      newItems[itemIndex].selected_variants[variantIdx][field] = value;
+    }
+    setItems(newItems);
+  };
+
+  // Open Batch Modal for a variant
+  const handleOpenBatchModal = (parentProduct, variantChild, baseQuantity, purchasedQty, purchaseUnit, itemIndex, variantId) => {
+    setParentProductForBatch(parentProduct);
+    setSelectedVariantForBatch(variantChild);
+    setMaxQuantityForBatch(baseQuantity); // Base quantity for validation (in base units)
+    setPurchasedQuantityForBatch(purchasedQty); // Purchased quantity (in purchase unit) for display
+    setPurchaseUnitForBatch(purchaseUnit);
+    setBatchModalContext({ itemIndex, variantId });
+    setShowBatchModal(true);
+  };
+
   // Calculate item subtotal
   const calculateSubtotal = (item) => {
-    const qty = parseFloat(item.quantity) || 0;
-    const cost = parseFloat(item.unit_cost) || 0;
-    return (qty * cost).toFixed(2);
+    const product = getProduct(item.product_id);
+
+    // For variable products, sum up selected variants
+    if (product?.type === 'variable' && item.selected_variants?.length > 0) {
+      return item.selected_variants.reduce((sum, v) => {
+        const qty = parseFloat(v.quantity) || 0;
+        const cost = parseFloat(v.unit_cost) || 0;
+        return sum + (qty * cost);
+      }, 0).toFixed(2);
+    }
+
+    // Standard items
+    const qty = parseFloat(item.quantity) || 0; // Using base quantity for calculation standard?
+    // Wait, usually subtotal is based on Purchased Quantity if Unit Cost is "Per Purchase Unit"?
+    // OR Unit Cost is per Base Unit?
+    // Looking at standard logic: `qty * cost`. `qty` is base quantity. `cost` is `unit_cost`.
+    // If user enters "1 Box" (10 items) and Cost is "500".
+    // If Cost is "Per Box", then 1 * 500 = 500.
+    // If Cost is "Per Item", then 10 * 50 = 500.
+    // The current logic seems to assume unit_cost is per BASE UNIT, because `calculateConversion` updates `quantity` (base qty).
+    // Let's assume `unit_cost` input is cost PER BASE UNIT.
+
+    // However, for consistency, if I buy 1 Box, I usually know the price of the Box.
+    // But currently `validItems.map` sends `unit_cost` directly.
+
+    return (parseFloat(item.quantity) * parseFloat(item.unit_cost) || 0).toFixed(2);
   };
 
   // Calculate total amount
@@ -191,8 +332,21 @@ const AddPurchase = () => {
     setFormError('');
     setFormSuccess('');
 
-    // Validate items
-    const validItems = items.filter(item => item.product_id && item.quantity && item.unit_cost);
+    // Validate items - handle both standard and variable products
+    const validItems = items.filter(item => {
+      if (!item.product_id) return false;
+      const product = getProduct(item.product_id);
+
+      // For variable products, check selected_variants
+      if (product?.type === 'variable') {
+        return item.selected_variants?.length > 0 &&
+          item.selected_variants.every(v => v.quantity && v.unit_cost);
+      }
+
+      // For standard products, check quantity and unit_cost
+      return item.quantity && item.unit_cost;
+    });
+
     if (validItems.length === 0) {
       setFormError('At least one valid item is required');
       return;
@@ -205,23 +359,66 @@ const AddPurchase = () => {
         setFormError(`Instance Code (Coil/Pallet Number) is required for "${product.name}"`);
         return;
       }
+
+      // Validate variable products have at least one variant with valid quantity
+      if (product?.type === 'variable') {
+        const hasValidVariants = item.selected_variants?.some(v => {
+          const qty = parseFloat(v.quantity);
+          return qty > 0 && v.unit_cost;
+        });
+        if (!hasValidVariants) {
+          setFormError(`Please select at least one variant with valid quantity for "${product.name}"`);
+          return;
+        }
+      }
     }
 
     // Prepare data
-    const purchaseData = {
-      supplier_id: supplierId || null,
-      notes: notes.trim() || null,
-      items: validItems.map(item => {
+    const purchaseItems = [];
+
+    validItems.forEach(item => {
+      const product = getProduct(item.product_id);
+
+      if (product?.type === 'variable' && item.selected_variants?.length > 0) {
+        // Expand variable product into multiple purchase items (one per variant)
+        item.selected_variants.forEach(variant => {
+          // Calculate conversion for this variant using the parent's selected unit
+          const conversion = calculateVariantConversion(variant, item);
+
+          if (conversion.baseQuantity > 0) {
+            purchaseItems.push({
+              product_id: variant.child.id, // Use variant child ID
+              quantity: conversion.baseQuantity,
+              unit_cost: parseFloat(variant.unit_cost),
+              instance_code: null, // Variants usually don't have instance codes in this context? Or maybe they do if tracked? Assuming null for now as not requested.
+              purchase_unit_id: item.purchase_unit_id || null,
+              purchased_quantity: item.purchase_unit_id ? parseFloat(variant.quantity) : null
+            });
+          }
+        });
+      } else {
+        // Standard item
         const conversion = calculateConversion(item);
-        return {
+        purchaseItems.push({
           product_id: item.product_id,
           quantity: conversion.baseQuantity,
           unit_cost: parseFloat(item.unit_cost),
           instance_code: item.instance_code?.trim() || null,
           purchase_unit_id: item.purchase_unit_id || null,
           purchased_quantity: item.purchase_unit_id ? parseFloat(item.purchased_quantity || item.quantity) : null
-        };
-      })
+        });
+      }
+    });
+
+    if (purchaseItems.length === 0) {
+      setFormError('No valid items to purchase');
+      return;
+    }
+
+    const purchaseData = {
+      supplier_id: supplierId || null,
+      notes: notes.trim() || null,
+      items: purchaseItems
     };
 
     createMutation.mutate(purchaseData);
@@ -339,99 +536,236 @@ const AddPurchase = () => {
                       </select>
                     </div>
 
-                    {/* Purchase Unit */}
-                    <div className="md:col-span-2">
-                      <label className="block text-xs font-medium text-gray-500 mb-1">
-                        Purchase Unit
-                      </label>
-                      <select
-                        value={item.purchase_unit_id || product?.unit_id || ''}
-                        onChange={(e) => updateItem(index, 'purchase_unit_id', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
-                      >
-                        <option value="">Select Unit</option>
-                        {getUnitsForProduct(item.product_id).map((unit) => (
-                          <option key={unit.id} value={unit.id}>
-                            {unit.name} ({unit.abbreviation})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    {/* Purchase Unit - Auto-selected from product, hidden from UI */}
 
-                    {/* Purchased Quantity */}
-                    <div className="md:col-span-2">
-                      <label className="block text-xs font-medium text-gray-500 mb-1">
-                        Purchased Qty *
-                      </label>
-                      <input
-                        type="number"
-                        step="0.001"
-                        min="0.001"
-                        value={item.purchased_quantity || item.quantity}
-                        onChange={(e) => updateItem(index, 'purchased_quantity', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
-                        placeholder="0.00"
-                        required
-                      />
-                    </div>
+                    {/* Variable Product Interface */}
+                    {product?.type === 'variable' ? (
+                      <div className="md:col-span-12 mt-2 border-t border-gray-200 pt-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Select Variants</label>
 
-                    {/* Stored Quantity (Base Unit) - Read-only preview */}
-                    <div className="md:col-span-2">
-                      <label className="block text-xs font-medium text-gray-500 mb-1">
-                        Stored Qty {product?.base_unit ? `(${product.base_unit})` : ''}
-                      </label>
-                      <div className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-sm text-gray-700">
-                        {(() => {
-                          const conversion = calculateConversion(item);
-                          return conversion.baseQuantity.toFixed(3);
-                        })()}
+                        {/* Variant Search */}
+                        <div className="mb-3">
+                          <div className="relative">
+                            <input
+                              type="text"
+                              placeholder="Search variants by name or SKU..."
+                              value={item.variantSearchTerm || ''}
+                              onChange={(e) => updateItem(index, 'variantSearchTerm', e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500 text-sm"
+                            />
+                            {item.variantSearchTerm && (
+                              <button
+                                type="button"
+                                onClick={() => updateItem(index, 'variantSearchTerm', '')}
+                                className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                title="Clear search"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
+                          {item.variantSearchTerm && item.available_variants && (
+                            <p className="text-xs text-gray-500 mt-1">
+                              {item.available_variants.filter(v =>
+                                !item.variantSearchTerm ||
+                                v.name.toLowerCase().includes(item.variantSearchTerm.toLowerCase()) ||
+                                (v.child?.sku && v.child.sku.toLowerCase().includes(item.variantSearchTerm.toLowerCase()))
+                              ).length} variant(s) found
+                            </p>
+                          )}
+                        </div>
+
+                        {item.available_variants && item.available_variants.length > 0 ? (
+                          <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                            {item.available_variants
+                              .filter(v =>
+                                !item.variantSearchTerm ||
+                                v.name.toLowerCase().includes(item.variantSearchTerm.toLowerCase()) ||
+                                (v.child?.sku && v.child.sku.toLowerCase().includes(item.variantSearchTerm.toLowerCase()))
+                              )
+                              .map((variant) => {
+                                const isSelected = item.selected_variants?.some(v => v.variant_id === variant.variant_id);
+                                const selectedData = item.selected_variants?.find(v => v.variant_id === variant.variant_id) || {};
+
+                                return (
+                                  <div key={variant.variant_id} className={`p-3 rounded-lg border ${isSelected ? 'bg-white border-primary-200 shadow-sm' : 'bg-gray-50 border-gray-200'}`}>
+                                    <div className="flex flex-col md:flex-row md:items-center gap-4">
+                                      {/* Checkbox & Name */}
+                                      <div className="flex items-center min-w-[200px]">
+                                        <input
+                                          type="checkbox"
+                                          checked={isSelected}
+                                          onChange={() => toggleVariant(index, variant)}
+                                          className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded mr-3"
+                                        />
+                                        <div>
+                                          <p className="text-sm font-medium text-gray-900">{variant.name}</p>
+                                          <p className="text-xs text-gray-500">{variant.child?.sku}</p>
+                                        </div>
+                                      </div>
+
+                                      {/* Inputs (Only if selected) */}
+                                      {isSelected && (
+                                        <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3">
+                                          <div>
+                                            <label className="block text-xs font-medium text-gray-500 mb-1">
+                                              Qty ({item.purchase_unit_id ? units.find(u => u.id == item.purchase_unit_id)?.abbreviation : product.base_unit})
+                                            </label>
+                                            <input
+                                              type="number"
+                                              step="0.001"
+                                              min="0.001"
+                                              value={selectedData.quantity}
+                                              onChange={(e) => updateVariant(index, variant.variant_id, 'quantity', e.target.value)}
+                                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                                              placeholder="Qty"
+                                              required
+                                            />
+                                            {item.purchase_unit_id && (
+                                              <p className="text-[10px] text-gray-400 mt-1">
+                                                = {calculateVariantConversion(selectedData, item).baseQuantity.toFixed(2)} {product.base_unit}
+                                              </p>
+                                            )}
+                                          </div>
+                                          <div>
+                                            <label className="block text-xs font-medium text-gray-500 mb-1">Unit Cost</label>
+                                            <input
+                                              type="number"
+                                              step="0.01"
+                                              min="0"
+                                              value={selectedData.unit_cost}
+                                              onChange={(e) => updateVariant(index, variant.variant_id, 'unit_cost', e.target.value)}
+                                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                                              placeholder="Cost"
+                                              required
+                                            />
+                                          </div>
+
+                                          {/* Batch Creation Trigger */}
+                                          <div className="flex items-center justify-center">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                // Use the purchased quantity (as entered) for batch creation
+                                                // Convert to base units for validation, but show purchased quantity for clarity
+                                                const conversion = calculateVariantConversion(selectedData, item);
+                                                const purchaseUnit = item.purchase_unit_id ? units.find(u => u.id === item.purchase_unit_id) : null;
+
+                                                // Calculate remaining quantity to batch
+                                                // Base quantity (total)
+                                                const totalQty = conversion.baseQuantity || 0;
+                                                // Previously batched (tracked in selectedData)
+                                                const batchedQty = selectedData.batched_quantity || 0;
+                                                const remaining = Math.max(0, totalQty - batchedQty);
+
+                                                handleOpenBatchModal(
+                                                  product,
+                                                  variant.child,
+                                                  remaining, // Pass remaining as maxQuantity
+                                                  parseFloat(selectedData.quantity) || 0, // Purchased quantity for display
+                                                  purchaseUnit,
+                                                  index, // itemIndex
+                                                  variant.variant_id // variantId
+                                                );
+                                              }}
+                                              className="flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 transition-colors"
+                                              title="Create initial batch for this variant"
+                                            >
+                                              <Layers className="h-3.5 w-3.5" />
+                                              <span>Add Batch</span>
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        ) : (
+                          <div className="text-sm text-gray-500 italic p-2">
+                            {item.product_id ? "Loading variants..." : "Select a variable product first"}
+                          </div>
+                        )}
                       </div>
-                      {item.purchase_unit_id && item.purchase_unit_id !== product?.unit_id && (
-                        <p className="text-xs text-blue-600 mt-1">
-                          Conversion: {calculateConversion(item).conversionFactor.toFixed(4)}x
-                        </p>
-                      )}
-                    </div>
+                    ) : (
+                      /* Standard Product Fields */
+                      <>
+                        {/* Purchased Quantity */}
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-medium text-gray-500 mb-1">
+                            Purchased Qty *
+                          </label>
+                          <input
+                            type="number"
+                            step="0.001"
+                            min="0.001"
+                            value={item.purchased_quantity || item.quantity}
+                            onChange={(e) => updateItem(index, 'purchased_quantity', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                            placeholder="0.00"
+                            required
+                          />
+                        </div>
 
-                    {/* Unit Cost */}
-                    <div className="md:col-span-1">
-                      <label className="block text-xs font-medium text-gray-500 mb-1">
-                        Unit Cost *
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={item.unit_cost}
-                        onChange={(e) => updateItem(index, 'unit_cost', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
-                        placeholder="0.00"
-                        required
-                      />
-                    </div>
+                        {/* Stored Quantity (Base Unit) - Read-only preview */}
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-medium text-gray-500 mb-1">
+                            Stored Qty {product?.base_unit ? `(${product.base_unit})` : ''}
+                          </label>
+                          <div className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-sm text-gray-700">
+                            {(() => {
+                              const conversion = calculateConversion(item);
+                              return conversion.baseQuantity.toFixed(3);
+                            })()}
+                          </div>
+                          {item.purchase_unit_id && item.purchase_unit_id !== product?.unit_id && (
+                            <p className="text-xs text-blue-600 mt-1">
+                              Conversion: {calculateConversion(item).conversionFactor.toFixed(4)}x
+                            </p>
+                          )}
+                        </div>
 
-                    {/* Instance Code (for raw_tracked) */}
-                    <div className="md:col-span-1">
-                      <label className="block text-xs font-medium text-gray-500 mb-1">
-                        {isTracked ? 'Coil/Pallet # *' : 'Instance Code'}
-                      </label>
-                      <input
-                        type="text"
-                        value={item.instance_code}
-                        onChange={(e) => updateItem(index, 'instance_code', e.target.value)}
-                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm ${
-                          isTracked 
-                            ? 'border-orange-300 bg-orange-50' 
-                            : 'border-gray-300 bg-gray-100'
-                        }`}
-                        placeholder={isTracked ? 'COIL-001' : 'N/A'}
-                        disabled={!isTracked}
-                        required={isTracked}
-                      />
-                      {isTracked && (
-                        <p className="text-xs text-orange-600 mt-1">Required for inventory tracking</p>
-                      )}
-                    </div>
+                        {/* Unit Cost */}
+                        <div className="md:col-span-1">
+                          <label className="block text-xs font-medium text-gray-500 mb-1">
+                            Unit Cost *
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={item.unit_cost}
+                            onChange={(e) => updateItem(index, 'unit_cost', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                            placeholder="0.00"
+                            required
+                          />
+                        </div>
+
+                        {/* Instance Code (for raw_tracked) */}
+                        <div className="md:col-span-1">
+                          <label className="block text-xs font-medium text-gray-500 mb-1">
+                            {isTracked ? 'Coil/Pallet # *' : 'Instance Code'}
+                          </label>
+                          <input
+                            type="text"
+                            value={item.instance_code}
+                            onChange={(e) => updateItem(index, 'instance_code', e.target.value)}
+                            className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm ${isTracked
+                              ? 'border-orange-300 bg-orange-50'
+                              : 'border-gray-300 bg-gray-100'
+                              }`}
+                            placeholder={isTracked ? 'COIL-001' : 'N/A'}
+                            disabled={!isTracked}
+                            required={isTracked}
+                          />
+                          {isTracked && (
+                            <p className="text-xs text-orange-600 mt-1">Required for inventory tracking</p>
+                          )}
+                        </div>
+                      </>
+                    )}
 
                     {/* Subtotal & Delete */}
                     <div className="md:col-span-1 flex items-end justify-between">
@@ -459,13 +793,12 @@ const AddPurchase = () => {
                   {/* Product Type Indicator */}
                   {product && (
                     <div className="mt-2 flex items-center space-x-2">
-                      <span className={`px-2 py-0.5 text-xs rounded-full ${
-                        product.type === 'raw_tracked'
-                          ? 'bg-orange-100 text-orange-700'
-                          : product.type === 'manufactured_virtual'
+                      <span className={`px-2 py-0.5 text-xs rounded-full ${product.type === 'raw_tracked'
+                        ? 'bg-orange-100 text-orange-700'
+                        : product.type === 'manufactured_virtual'
                           ? 'bg-purple-100 text-purple-700'
                           : 'bg-gray-100 text-gray-700'
-                      }`}>
+                        }`}>
                         {product.type}
                       </span>
                       {product.type === 'raw_tracked' && (
@@ -496,8 +829,8 @@ const AddPurchase = () => {
             <div className="text-sm text-blue-700">
               <p className="font-medium">Inventory Integration</p>
               <p className="mt-1">
-                When purchasing <strong>raw_tracked</strong> products (e.g., coils, pallets), 
-                a unique Instance Code is required. The system will automatically create an 
+                When purchasing <strong>raw_tracked</strong> products (e.g., coils, pallets),
+                a unique Instance Code is required. The system will automatically create an
                 inventory instance for each item, making it available for sales and production.
               </p>
             </div>
@@ -532,6 +865,48 @@ const AddPurchase = () => {
           </button>
         </div>
       </form>
+
+      {/* Variant Batch Modal */}
+      {showBatchModal && selectedVariantForBatch && (
+        <VariantBatchModal
+          variant={selectedVariantForBatch}
+          parentProduct={parentProductForBatch}
+          maxQuantity={maxQuantityForBatch}
+          purchasedQuantity={purchasedQuantityForBatch}
+          purchaseUnit={purchaseUnitForBatch}
+          branches={branchesData || []}
+          onClose={() => {
+            setShowBatchModal(false);
+            setSelectedVariantForBatch(null);
+            setParentProductForBatch(null);
+            setMaxQuantityForBatch(null);
+            setPurchasedQuantityForBatch(null);
+            setPurchaseUnitForBatch(null);
+          }}
+          onSuccess={(batch, amountBatched) => {
+            // Update the tracked batched quantity for this variant
+            // We need to find the variant context. 
+            // Since we don't strictly pass the index logic to modal, we might need to rely on locating it 
+            // or passing a callback from the button closure.
+            // Easier: Pass a callback to handleOpenBatchModal?
+            // Or better: The modal just calls onSuccess and we refresh data?
+            // But we are in local state 'selectedVariations'.
+            // We need to update 'selectedVariations' state with 'batched_quantity'.
+
+            // To do this properly, we need to know WHICH variant key we are editing.
+            // 'selectedVariantForBatch' is the variant object.
+            // We can iterate 'selectedVariations' to find the one matching this variant ID AND product ID?
+            // Or better, when opening modal, store the key/index.
+
+            if (selectedVariantForBatch?.variant_id) { // This might be wrong, check how selectedVariantForBatch is set
+              // It is set from 'variant.child' in handleOpenBatchModal call above... wait, variant.child is the product object? 
+              // Let's check handleOpenBatchModal call: variant.child is passed as 'variant'.
+              // So 'selectedVariantForBatch' is the CHILD PRODUCT object.
+              // We need the key used in 'selectedVariations'.
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

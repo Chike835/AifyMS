@@ -172,6 +172,7 @@ const AddProduct = () => {
 
   const [previewVariants, setPreviewVariants] = useState([]);
   const [selectedPreviewSuffixes, setSelectedPreviewSuffixes] = useState(new Set());
+  const [pendingVariantDeletions, setPendingVariantDeletions] = useState(new Set());
 
   const generateVariantsMutation = useMutation({
     mutationFn: async ({ isDryRun = true, allowedSuffixes = null }) => {
@@ -179,17 +180,65 @@ const AddProduct = () => {
       if (productType !== 'variable') {
         throw new Error('Product must be a variable product to generate variants.');
       }
+
+      // In edit mode, check if product type has been changed but not saved
+      if (isEditMode && product?.type) {
+        const savedProductType = product.type;
+        const currentProductType = productType;
+        
+        if (savedProductType !== 'variable' && currentProductType === 'variable') {
+          throw new Error(
+            'Please save the product with type "Variable" before generating variants. ' +
+            `The product is currently saved as "${savedProductType}" but you have changed it to "variable" in the form.`
+          );
+        }
+      }
+
       if (selectedVariations.length === 0) {
         throw new Error('No variations selected. Please select at least one variation.');
       }
 
-      // Build config for selective generation
-      const variationConfigs = selectedVariations.map(varId => ({
-        variationId: varId,
-        valueIds: selectedVariationValues[varId] || []
-      }));
+      // Validate that each selected variation has at least one value selected
+      const variationsWithoutValues = [];
+      selectedVariations.forEach(varId => {
+        const valueIds = selectedVariationValues[varId];
+        if (!valueIds || !Array.isArray(valueIds) || valueIds.length === 0) {
+          const variation = variationsData?.find(v => v.id === varId);
+          const variationName = variation?.name || `Variation ID ${varId}`;
+          variationsWithoutValues.push(variationName);
+        }
+      });
 
-      console.log(`[generateVariantsMutation] Generating variants (dryRun=${isDryRun})`);
+      if (variationsWithoutValues.length > 0) {
+        throw new Error(
+          `Please select at least one value for each variation. Missing values for: ${variationsWithoutValues.join(', ')}`
+        );
+      }
+
+      // Build config for selective generation - filter out any with empty valueIds (shouldn't happen after validation, but defensive)
+      const variationConfigs = selectedVariations
+        .map(varId => ({
+          variationId: varId,
+          valueIds: selectedVariationValues[varId] || []
+        }))
+        .filter(config => config.valueIds && Array.isArray(config.valueIds) && config.valueIds.length > 0);
+
+      if (variationConfigs.length === 0) {
+        throw new Error('No valid variation configurations. Please ensure each variation has at least one value selected.');
+      }
+
+      console.log(`[generateVariantsMutation] Generating variants (dryRun=${isDryRun})`, {
+        variationIds: selectedVariations,
+        configCount: variationConfigs.length,
+        payload: {
+          variation_ids: selectedVariations,
+          variation_configs: variationConfigs.map(c => ({
+            variationId: c.variationId,
+            valueIdsCount: c.valueIds.length
+          }))
+        }
+      });
+
       const payload = {
         variation_ids: selectedVariations,
         variation_configs: variationConfigs
@@ -228,10 +277,42 @@ const AddProduct = () => {
     },
     onError: (error) => {
       console.error(`[generateVariantsMutation] Error:`, error);
+      console.error(`[generateVariantsMutation] Error details:`, {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        url: error.config?.url,
+        method: error.config?.method,
+        payload: error.config?.data ? JSON.parse(error.config.data) : null
+      });
       console.log(`[generateVariantsMutation] Current product type state: ${productType}`);
+      console.log(`[generateVariantsMutation] Saved product type: ${product?.type}`);
+      console.log(`[generateVariantsMutation] Selected variations:`, selectedVariations);
+      console.log(`[generateVariantsMutation] Selected variation values:`, selectedVariationValues);
 
-      const errorMessage = error.response?.data?.error || error.message || 'Failed to generate variants';
-      alert(errorMessage);
+      let errorMessage = error.response?.data?.error || error.message || 'Failed to generate variants';
+      const errorDetails = error.response?.data?.details ? `\n\nDetails: ${JSON.stringify(error.response.data.details, null, 2)}` : '';
+
+      // Detect type mismatch: UI state is 'variable' but database has different type
+      if (isEditMode && product?.type) {
+        const savedProductType = product.type;
+        const currentProductType = productType;
+        const isTypeMismatch = 
+          (errorMessage.includes('not a variable product') || 
+           errorMessage.includes('Product is not a variable product')) &&
+          currentProductType === 'variable' &&
+          savedProductType !== 'variable';
+
+        if (isTypeMismatch) {
+          errorMessage = `Please save the product with type "Variable" before generating variants. ` +
+            `The product is currently saved as "${savedProductType}" but you have changed it to "variable" in the form. ` +
+            `Save the product first, then try generating variants again.`;
+          console.log('[generateVariantsMutation] Detected type mismatch - product type changed but not saved');
+        }
+      }
+
+      alert(errorMessage + errorDetails);
 
       // If we get a type mismatch error, try to sync state
       if (errorMessage.includes('not a variable product') || (error.response?.status === 400 && productType !== 'variable')) {
@@ -374,43 +455,7 @@ const AddProduct = () => {
     }
   });
 
-  // Fetch manufacturing settings (colors, designs, gauge config)
-  const { data: manufacturingSettings } = useQuery({
-    queryKey: ['manufacturingSettings'],
-    queryFn: async () => {
-      const res = await api.get('/settings', { params: { category: 'manufacturing' } });
-      return res.data.settings || {};
-    }
-  });
-
-  // Get colors/designs filtered by selected category
-  // Only show items that explicitly have this category in their category_ids array
-  const getColorsForCategory = () => {
-    const allColors = manufacturingSettings?.manufacturing_colors?.value || [];
-    if (!categoryId || !Array.isArray(allColors)) return [];
-    return allColors.filter(c =>
-      Array.isArray(c.category_ids) && c.category_ids.includes(categoryId)
-    );
-  };
-
-  const getDesignsForCategory = () => {
-    const allDesigns = manufacturingSettings?.manufacturing_design?.value || [];
-    if (!categoryId || !Array.isArray(allDesigns)) return [];
-    return allDesigns.filter(d =>
-      Array.isArray(d.category_ids) && d.category_ids.includes(categoryId)
-    );
-  };
-
-  // Check if gauge is enabled for selected category
-  const isGaugeEnabledForCategory = () => {
-    const enabledCategories = manufacturingSettings?.gauge_enabled_categories?.value || [];
-    if (!selectedCategory?.name || !Array.isArray(enabledCategories)) return false;
-    const normalizedName = selectedCategory.name.toLowerCase().replace(/\s+/g, '_');
-    return enabledCategories.includes(normalizedName);
-  };
-
-  const gaugeMin = parseFloat(manufacturingSettings?.gauge_min?.value) || 0.1;
-  const gaugeMax = parseFloat(manufacturingSettings?.gauge_max?.value) || 1.0;
+  // Manufacturing settings (colors, designs, gauge config) REMOVED - replaced by variations system
 
   // Transform data to options format
   const units = (unitsData || []).map((u) => ({
@@ -423,7 +468,7 @@ const AddProduct = () => {
     .map((c) => ({ value: c.id, label: c.name }));
 
   const subCategories = (categoriesData || [])
-    .filter((c) => c.parent_id === categoryId)
+    .filter((c) => c.parent_id === categoryId && categoryId)
     .map((c) => ({ value: c.id, label: c.name }));
 
   const brands = (brandsData || []).map((b) => ({
@@ -456,17 +501,56 @@ const AddProduct = () => {
   }, [calculateSellingPrice]);
 
   // Calculate inc tax from exc tax
-  useEffect(() => {
-    const excTax = parseFloat(purchasePriceExcTax) || 0;
+  // Bidirectional tax calculation handlers
+  // Handler for Exclusive Tax Price change
+  const handlePurchasePriceExcChange = (val) => {
+    setPurchasePriceExcTax(val);
+    const exc = parseFloat(val);
     const selectedTax = (taxRatesData || []).find((t) => t.id === taxRateId);
     const rate = selectedTax ? parseFloat(selectedTax.rate) : 0;
-    if (isTaxable && excTax > 0 && rate > 0) {
-      const incTax = excTax * (1 + rate / 100);
-      setPurchasePriceIncTax(incTax.toFixed(2));
-    } else {
-      setPurchasePriceIncTax(purchasePriceExcTax);
+
+    if (isTaxable && !isNaN(exc) && exc > 0 && rate > 0) {
+      const inc = exc * (1 + rate / 100);
+      setPurchasePriceIncTax(inc.toFixed(2));
+    } else if (!val || val === '') {
+      // Clear inc tax if exc tax is cleared
+      setPurchasePriceIncTax('');
+    } else if (!isTaxable || rate === 0) {
+      // If not taxable or no rate, inc tax equals exc tax
+      setPurchasePriceIncTax(val);
     }
-  }, [purchasePriceExcTax, taxRateId, isTaxable, taxRatesData]);
+  };
+
+  // Handler for Inclusive Tax Price change
+  const handlePurchasePriceIncChange = (val) => {
+    setPurchasePriceIncTax(val);
+    const inc = parseFloat(val);
+    const selectedTax = (taxRatesData || []).find((t) => t.id === taxRateId);
+    const rate = selectedTax ? parseFloat(selectedTax.rate) : 0;
+
+    if (isTaxable && !isNaN(inc) && inc > 0 && rate > 0) {
+      const exc = inc / (1 + rate / 100);
+      setPurchasePriceExcTax(exc.toFixed(2));
+    } else if (!val || val === '') {
+      // Clear exc tax if inc tax is cleared
+      setPurchasePriceExcTax('');
+    } else if (!isTaxable || rate === 0) {
+      // If not taxable or no rate, exc tax equals inc tax
+      setPurchasePriceExcTax(val);
+    }
+  };
+
+  // Recalculate if tax rate changes (keep simpler effect for rate changes)
+  useEffect(() => {
+    const exc = parseFloat(purchasePriceExcTax);
+    const selectedTax = (taxRatesData || []).find((t) => t.id === taxRateId);
+    const rate = selectedTax ? parseFloat(selectedTax.rate) : 0;
+
+    if (isTaxable && !isNaN(exc) && rate >= 0 && purchasePriceExcTax) {
+      const inc = exc * (1 + rate / 100);
+      setPurchasePriceIncTax(inc.toFixed(2));
+    }
+  }, [taxRateId, isTaxable, taxRatesData]);
 
   // Load product data if in edit mode
   const loadProductData = useCallback(async (forceRefresh = false) => {
@@ -634,30 +718,51 @@ const AddProduct = () => {
 
   // Submit form
   const handleSubmit = async (addStock = false) => {
+    console.log('[handleSubmit] Called with addStock:', addStock);
     setSubmitError(null);
 
     // Validate required fields
     if (!productName.trim()) {
       setSubmitError('Product Name is required');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
     if (!sku.trim()) {
       setSubmitError('SKU is required');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
     if (!unitId) {
       setSubmitError('Unit is required');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
     const salePrice = parseFloat(sellingPriceExcTax);
     if (isNaN(salePrice) || salePrice <= 0) {
       setSubmitError('Valid selling price is required');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
 
+    console.log('[handleSubmit] Validation passed, submitting...');
     setIsSubmitting(true);
 
     try {
+      // 1. Process Pending Deletions (if any) - Only in Edit Mode
+      if (isEditMode && pendingVariantDeletions.size > 0) {
+        console.log(`[handleSubmit] Processing ${pendingVariantDeletions.size} variant deletions...`);
+        try {
+          // Use bulk delete endpoint for efficiency
+          await api.post(`/products/${id}/variants/bulk-delete`, {
+            variantIds: Array.from(pendingVariantDeletions)
+          });
+          console.log('[handleSubmit] Bulk deletion successful');
+        } catch (delErr) {
+          console.error(`[handleSubmit] Failed to delete variants:`, delErr);
+          throw new Error(`Failed to delete variants: ${delErr.message}`);
+        }
+      }
+
       const payload = {
         sku: sku.trim(),
         name: productName.trim(),
@@ -686,22 +791,46 @@ const AddProduct = () => {
       };
 
       let response;
+      let finalProductId = id;
+
       if (isEditMode) {
         response = await api.put(`/products/${id}`, payload);
       } else {
         response = await api.post('/products', payload);
+        finalProductId = response.data.product?.id;
+      }
+
+      // 2. Process Pending Variant Creations (if any) - For both New and Edit
+      // Only proceed if we have a valid product ID and selected suffixes
+      if (productType === 'variable' && selectedPreviewSuffixes.size > 0 && finalProductId) {
+        console.log(`[handleSubmit] Generating ${selectedPreviewSuffixes.size} variants...`);
+
+        const variationConfigs = selectedVariations.map(varId => ({
+          variationId: varId,
+          valueIds: selectedVariationValues[varId] || []
+        }));
+
+        await api.post(`/products/${finalProductId}/generate-variants?dry_run=false`, {
+          variation_ids: selectedVariations,
+          variation_configs: variationConfigs,
+          allowed_sku_suffixes: Array.from(selectedPreviewSuffixes)
+        });
       }
 
       queryClient.invalidateQueries({ queryKey: ['products'] });
 
+      console.log('[handleSubmit] Success, navigating...');
       if (addStock) {
         // Navigate to stock management or inventory page
-        navigate('/inventory', { state: { productId: response.data.product?.id || id } });
+        navigate('/inventory', { state: { productId: response.data.product?.id || finalProductId } });
       } else {
         navigate('/products');
       }
     } catch (error) {
-      setSubmitError(error.response?.data?.error || error.message || `Failed to ${isEditMode ? 'update' : 'create'} product`);
+      console.error('[handleSubmit] Error:', error);
+      const errorMessage = error.response?.data?.error || error.message || `Failed to ${isEditMode ? 'update' : 'create'} product`;
+      setSubmitError(errorMessage);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } finally {
       setIsSubmitting(false);
     }
@@ -903,55 +1032,7 @@ const AddProduct = () => {
             />
           </div>
 
-          {/* Category-Specific Attribute Dropdowns */}
-          {categoryId && (
-            <div className="mt-6 pt-6 border-t border-gray-200">
-              <h4 className="text-sm font-semibold text-gray-900 mb-4">Product Attributes</h4>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Gauge Dropdown */}
-                {isGaugeEnabledForCategory() && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Gauge (mm)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min={gaugeMin}
-                      max={gaugeMax}
-                      placeholder={`${gaugeMin} - ${gaugeMax}`}
-                      value={attributeValues.gauge_mm || ''}
-                      onChange={(e) => setAttributeValues({ ...attributeValues, gauge_mm: e.target.value ? parseFloat(e.target.value) : undefined })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Value between {gaugeMin} and {gaugeMax} mm</p>
-                  </div>
-                )}
-
-                {/* Color Dropdown */}
-                {getColorsForCategory().length > 0 && (
-                  <FormSelect
-                    label="Color"
-                    options={getColorsForCategory().map(c => ({ value: c.name, label: c.name }))}
-                    value={attributeValues.color || ''}
-                    onChange={(val) => setAttributeValues({ ...attributeValues, color: val || undefined })}
-                    placeholder="Select Color"
-                  />
-                )}
-
-                {/* Design Dropdown */}
-                {getDesignsForCategory().length > 0 && (
-                  <FormSelect
-                    label="Design"
-                    options={getDesignsForCategory().map(d => ({ value: d.name, label: d.name }))}
-                    value={attributeValues.design || ''}
-                    onChange={(val) => setAttributeValues({ ...attributeValues, design: val || undefined })}
-                    placeholder="Select Design"
-                  />
-                )}
-              </div>
-            </div>
-          )}
+          {/* Gauge/Color/Design dropdowns REMOVED - replaced by variations system */}
 
           {/* Dynamic Attributes Section (from attribute_schema) */}
           {selectedCategory?.attribute_schema && selectedCategory.attribute_schema.length > 0 && (
@@ -1008,15 +1089,13 @@ const AddProduct = () => {
                             alert('Please select at least one variant to create.');
                             return;
                           }
-                          generateVariantsMutation.mutate({
-                            isDryRun: false,
-                            allowedSuffixes: Array.from(selectedPreviewSuffixes)
-                          });
+                          // Just confirm selection (visual feedback only)
+                          alert('Selection confirmed. Click "Save & Add Stock" or "Update" to finalize changes.');
                         }}
-                        disabled={generateVariantsMutation.isPending || selectedPreviewSuffixes.size === 0}
+                        disabled={selectedPreviewSuffixes.size === 0}
                         className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
                       >
-                        {generateVariantsMutation.isPending ? 'Saving...' : `Confirm & Save (${selectedPreviewSuffixes.size})`}
+                        Confirm Selection ({selectedPreviewSuffixes.size})
                       </button>
                     </>
                   )}
@@ -1045,8 +1124,9 @@ const AddProduct = () => {
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                       <tr>
-                        {previewVariants.length > 0 && (
-                          <th className="px-6 py-3 text-left">
+                        <th className="px-6 py-3 text-left">
+                          {/* Empty header for checkbox column (or could be 'Select') */}
+                          {previewVariants.length > 0 && (
                             <input
                               type="checkbox"
                               checked={previewVariants.length > 0 && selectedPreviewSuffixes.size === previewVariants.length}
@@ -1060,8 +1140,12 @@ const AddProduct = () => {
                               }}
                               className="rounded border-gray-300 text-primary-600 shadow-sm focus:border-primary-300 focus:ring focus:ring-primary-200 focus:ring-opacity-50"
                             />
-                          </th>
-                        )}
+                          )}
+                          {/* If showing saved variants, header might need to be consistent */}
+                          {previewVariants.length === 0 && (
+                            <span className="sr-only">Delete</span>
+                          )}
+                        </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SKU</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
@@ -1099,14 +1183,36 @@ const AddProduct = () => {
                         // Render Saved Variants (Nested .child Object)
                         product.variants
                           .filter(variant => variant?.child)
-                          .map((variant) => (
-                            <tr key={variant.id}>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{variant.child?.sku || '-'}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{variant.child?.name || '-'}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{variant.child?.sale_price || '-'}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{variant.child?.current_stock ?? '-'}</td>
-                            </tr>
-                          ))
+                          .map((variant) => {
+                            const isDeletable = !variant.child?.current_stock || parseFloat(variant.child.current_stock) === 0;
+                            const isMarkedForDeletion = pendingVariantDeletions.has(variant.id);
+
+                            return (
+                              <tr key={variant.id} className={isMarkedForDeletion ? "bg-red-50" : ""}>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <input
+                                    type="checkbox"
+                                    disabled={!isDeletable}
+                                    checked={isMarkedForDeletion}
+                                    onChange={(e) => {
+                                      const newSet = new Set(pendingVariantDeletions);
+                                      if (e.target.checked) {
+                                        newSet.add(variant.id);
+                                      } else {
+                                        newSet.delete(variant.id);
+                                      }
+                                      setPendingVariantDeletions(newSet);
+                                    }}
+                                    className="rounded border-gray-300 text-red-600 shadow-sm focus:border-red-300 focus:ring focus:ring-red-200 focus:ring-opacity-50 disabled:opacity-30 disabled:cursor-not-allowed"
+                                  />
+                                </td>
+                                <td className={`px-6 py-4 whitespace-nowrap text-sm ${isMarkedForDeletion ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{variant.child?.sku || '-'}</td>
+                                <td className={`px-6 py-4 whitespace-nowrap text-sm ${isMarkedForDeletion ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{variant.child?.name || '-'}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{variant.child?.sale_price || '-'}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{variant.child?.current_stock ?? '-'}</td>
+                              </tr>
+                            );
+                          })
                       )}
                     </tbody>
                   </table>
@@ -1186,7 +1292,7 @@ const AddProduct = () => {
                         type="number"
                         step="0.01"
                         value={purchasePriceExcTax}
-                        onChange={(e) => setPurchasePriceExcTax(e.target.value)}
+                        onChange={(e) => handlePurchasePriceExcChange(e.target.value)}
                         placeholder="0"
                         className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                       />
@@ -1199,7 +1305,7 @@ const AddProduct = () => {
                         type="number"
                         step="0.01"
                         value={purchasePriceIncTax}
-                        onChange={(e) => setPurchasePriceIncTax(e.target.value)}
+                        onChange={(e) => handlePurchasePriceIncChange(e.target.value)}
                         placeholder="0"
                         className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                       />

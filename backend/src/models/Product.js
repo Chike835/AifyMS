@@ -141,6 +141,10 @@ const Product = sequelize.define('Product', {
     allowNull: true,
     defaultValue: {}
   },
+  is_variant_child: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

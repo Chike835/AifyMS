@@ -1,6 +1,7 @@
 import sequelize from '../config/db.js';
 import { SalesOrder, SalesItem, InventoryBatch, Product, Recipe, ItemAssignment } from '../models/index.js';
 import { multiply, subtract, lessThan, lessThanOrEqual } from '../utils/mathUtils.js';
+import { safeRollback } from '../utils/transactionUtils.js';
 
 /**
  * POST /api/production/assign-material
@@ -15,9 +16,9 @@ export const assignMaterial = async (req, res, next) => {
 
     // Validation
     if (!sales_item_id || !inventory_batch_id) {
-      await transaction.rollback();
-      return res.status(400).json({ 
-        error: 'sales_item_id and inventory_batch_id are required' 
+      await safeRollback(transaction);
+      return res.status(400).json({
+        error: 'sales_item_id and inventory_batch_id are required'
       });
     }
 
@@ -31,23 +32,23 @@ export const assignMaterial = async (req, res, next) => {
     });
 
     if (!salesItem) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Sales item not found' });
     }
 
     // Verify sales item is for a manufactured_virtual product
     if (salesItem.product?.type !== 'manufactured_virtual') {
-      await transaction.rollback();
-      return res.status(400).json({ 
-        error: 'Material assignment is only allowed for manufactured_virtual products' 
+      await safeRollback(transaction);
+      return res.status(400).json({
+        error: 'Material assignment is only allowed for manufactured_virtual products'
       });
     }
 
     // Verify order is in queue status
     if (salesItem.order?.production_status !== 'queue') {
-      await transaction.rollback();
-      return res.status(400).json({ 
-        error: 'Order must be in queue status to assign materials' 
+      await safeRollback(transaction);
+      return res.status(400).json({
+        error: 'Order must be in queue status to assign materials'
       });
     }
 
@@ -59,7 +60,7 @@ export const assignMaterial = async (req, res, next) => {
     });
 
     if (!batch) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Inventory batch not found' });
     }
 
@@ -70,22 +71,22 @@ export const assignMaterial = async (req, res, next) => {
     });
 
     if (!recipe) {
-      await transaction.rollback();
-      return res.status(404).json({ 
-        error: `No recipe found for product: ${salesItem.product.name}` 
+      await safeRollback(transaction);
+      return res.status(404).json({
+        error: `No recipe found for product: ${salesItem.product.name}`
       });
     }
 
     // Verify batch product matches recipe raw product
     if (batch.product_id !== recipe.raw_product_id) {
-      await transaction.rollback();
-      return res.status(400).json({ 
-        error: 'Inventory batch product does not match recipe raw product' 
+      await safeRollback(transaction);
+      return res.status(400).json({
+        error: 'Inventory batch product does not match recipe raw product'
       });
     }
 
     // Validate batch attributes match sales item requirements
-    // This checks Color, Gauge, etc. based on product type
+    // (Uses product variations for attribute matching)
     const validationError = await validateBatchAttributes(
       batch,
       salesItem.product,
@@ -93,7 +94,7 @@ export const assignMaterial = async (req, res, next) => {
     );
 
     if (validationError) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: validationError });
     }
 
@@ -102,9 +103,9 @@ export const assignMaterial = async (req, res, next) => {
 
     // Check if batch has sufficient quantity
     if (lessThan(batch.remaining_quantity, requiredRawQuantity)) {
-      await transaction.rollback();
-      return res.status(400).json({ 
-        error: `Insufficient stock in batch ${batch.instance_code || batch.batch_identifier}. Available: ${batch.remaining_quantity}, Required: ${requiredRawQuantity}` 
+      await safeRollback(transaction);
+      return res.status(400).json({
+        error: `Insufficient stock in batch ${batch.instance_code || batch.batch_identifier}. Available: ${batch.remaining_quantity}, Required: ${requiredRawQuantity}`
       });
     }
 
@@ -115,9 +116,9 @@ export const assignMaterial = async (req, res, next) => {
     });
 
     if (existingAssignment) {
-      await transaction.rollback();
-      return res.status(400).json({ 
-        error: 'Material already assigned to this sales item. Use update endpoint to modify.' 
+      await safeRollback(transaction);
+      return res.status(400).json({
+        error: 'Material already assigned to this sales item. Use update endpoint to modify.'
       });
     }
 
@@ -146,8 +147,8 @@ export const assignMaterial = async (req, res, next) => {
     const completeAssignment = await ItemAssignment.findByPk(assignment.id, {
       include: [
         { model: SalesItem, as: 'sales_item', include: [{ model: Product, as: 'product' }] },
-        { 
-          model: InventoryBatch, 
+        {
+          model: InventoryBatch,
           as: 'inventory_batch',
           include: [{ model: Product, as: 'product' }]
         }
@@ -184,42 +185,14 @@ async function validateBatchAttributes(batch, virtualProduct, transaction) {
   const category = await Category.findByPk(batchProduct?.category_id, { transaction });
   const categoryName = category?.name?.toLowerCase() || '';
 
-  // For Aluminium: Check gauge and color match
-  if (categoryName.includes('aluminium') || categoryName.includes('aluminum')) {
-    const batchGauge = batchAttributes.gauge_mm;
-    const batchColor = batchAttributes.color_code;
+  // NOTE: Gauge and color validation REMOVED - feature deprecated in favor of variations system
+  // Material assignments now rely on product variations for attribute matching
 
-    // Get virtual product requirements (could be stored in product attributes or recipe)
-    // For now, we'll check if there's a mismatch based on common requirements
-    // In a real scenario, you might store required gauge/color in the recipe or product attributes
-    
-    // Example validation: If virtual product has specific gauge requirement
-    // This is a placeholder - you may need to store requirements differently
-    if (!batchGauge || typeof batchGauge !== 'number') {
-      return 'Batch must have valid gauge_mm';
-    }
-
-    if (batchGauge < 0.1 || batchGauge > 1.0) {
-      return 'Batch gauge_mm must be between 0.1 and 1.0 mm';
-    }
-
-    if (!batchColor || typeof batchColor !== 'string') {
-      return 'Batch must have color_code';
-    }
-
-    // Note: In a full implementation, you would compare batch attributes
-    // with the sales item's required attributes (stored in product or recipe)
-    // For now, we just validate that the batch has the required attributes
-  }
-
-  // For Stone Tiles: Check design pattern and other attributes
+  // For Stone Tiles: Check design pattern and other attributes if needed
   if (categoryName.includes('stone') || categoryName.includes('tile')) {
     if (!batchAttributes.design_pattern || typeof batchAttributes.design_pattern !== 'string') {
       return 'Batch must have design_pattern';
     }
-
-    // Similar validation for stone tiles
-    // Compare with sales item requirements
   }
 
   return null; // No validation errors
@@ -236,13 +209,13 @@ export const getMaterialAssignments = async (req, res, next) => {
     const assignments = await ItemAssignment.findAll({
       where: { sales_item_id },
       include: [
-        { 
-          model: InventoryBatch, 
+        {
+          model: InventoryBatch,
           as: 'inventory_batch',
           include: [{ model: Product, as: 'product' }]
         },
-        { 
-          model: SalesItem, 
+        {
+          model: SalesItem,
           as: 'sales_item',
           include: [{ model: Product, as: 'product' }]
         }
@@ -254,6 +227,8 @@ export const getMaterialAssignments = async (req, res, next) => {
     next(error);
   }
 };
+
+
 
 
 

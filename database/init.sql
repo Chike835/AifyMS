@@ -207,6 +207,10 @@ CREATE TABLE warranties (
 ALTER TABLE products ADD COLUMN IF NOT EXISTS warranty_id UUID REFERENCES warranties(id);
 CREATE INDEX idx_products_warranty_id ON products(warranty_id);
 
+-- Add is_variant_child to products table
+ALTER TABLE products ADD COLUMN IF NOT EXISTS is_variant_child BOOLEAN DEFAULT FALSE;
+CREATE INDEX idx_products_is_variant_child ON products(is_variant_child);
+
 -- Batch Types table (Dynamic batch type configuration)
 CREATE TABLE batch_types (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -343,7 +347,8 @@ CREATE INDEX idx_payment_accounts_type ON payment_accounts(account_type);
 -- Payments table
 CREATE TABLE payments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    customer_id UUID NOT NULL REFERENCES customers(id),
+    customer_id UUID REFERENCES customers(id),
+    supplier_id UUID REFERENCES suppliers(id),
     amount DECIMAL(15, 2) NOT NULL,
     method payment_method NOT NULL,
     status payment_status DEFAULT 'pending_confirmation',
@@ -353,8 +358,14 @@ CREATE TABLE payments (
     confirmed_at TIMESTAMP,
     reference_note TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CHECK (amount > 0)
+    CHECK (amount > 0),
+    CHECK (
+        (customer_id IS NOT NULL AND supplier_id IS NULL) OR 
+        (customer_id IS NULL AND supplier_id IS NOT NULL)
+    )
 );
+CREATE INDEX IF NOT EXISTS idx_payments_customer_id ON payments(customer_id);
+CREATE INDEX IF NOT EXISTS idx_payments_supplier_id ON payments(supplier_id);
 
 -- Purchases table (purchase orders from suppliers)
 CREATE TABLE purchases (
@@ -426,13 +437,11 @@ CREATE TABLE production_wastage (
     CHECK (quantity_wasted > 0)
 );
 
--- Expense Categories table (branch-scoped)
+-- Expense Categories table (global, not branch-scoped)
 CREATE TABLE expense_categories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(100) NOT NULL,
-    branch_id UUID NOT NULL REFERENCES branches(id),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(name, branch_id)
+    name VARCHAR(100) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Expenses table (branch-scoped, linked to category and user)
@@ -803,7 +812,6 @@ CREATE INDEX idx_sales_orders_invoice_number ON sales_orders(invoice_number);
 CREATE INDEX idx_sales_items_order_id ON sales_items(order_id);
 CREATE INDEX idx_item_assignments_sales_item_id ON item_assignments(sales_item_id);
 CREATE INDEX idx_item_assignments_inventory_batch_id ON item_assignments(inventory_batch_id);
-CREATE INDEX idx_payments_customer_id ON payments(customer_id);
 CREATE INDEX idx_payments_status ON payments(status);
 CREATE INDEX idx_payments_created_by ON payments(created_by);
 CREATE INDEX idx_purchases_branch_id ON purchases(branch_id);
@@ -820,7 +828,6 @@ CREATE INDEX idx_stock_transfers_to_branch ON stock_transfers(to_branch_id);
 CREATE INDEX idx_stock_adjustments_batch_id ON stock_adjustments(inventory_batch_id);
 CREATE INDEX idx_production_wastage_batch_id ON production_wastage(inventory_batch_id);
 CREATE INDEX idx_sales_orders_production_status ON sales_orders(production_status);
-CREATE INDEX idx_expense_categories_branch_id ON expense_categories(branch_id);
 CREATE INDEX idx_expense_categories_name ON expense_categories(name);
 CREATE INDEX idx_expenses_branch_id ON expenses(branch_id);
 CREATE INDEX idx_expenses_category_id ON expenses(category_id);
@@ -882,13 +889,14 @@ INSERT INTO permissions (slug, group_name) VALUES
     ('quote_manage', 'sales_pos'),
     ('draft_manage', 'sales_pos');
 
--- Payments Permissions (5)
+-- Payments Permissions (6)
 INSERT INTO permissions (slug, group_name) VALUES
     ('payment_view', 'payments'),
     ('payment_receive', 'payments'),
     ('payment_confirm', 'payments'),
     ('payment_delete_unconfirmed', 'payments'),
-    ('payment_void_confirmed', 'payments');
+    ('payment_void_confirmed', 'payments'),
+    ('supplier_payment', 'payments');
 
 -- Contacts Permissions (2)
 INSERT INTO permissions (slug, group_name) VALUES
@@ -1060,13 +1068,9 @@ INSERT INTO business_settings (setting_key, setting_value, setting_type, categor
     ('barcode_width', '2', 'number', 'barcode'),
     ('barcode_height', '100', 'number', 'barcode'),
     ('barcode_show_text', 'true', 'boolean', 'barcode'),
-    ('barcode_text_position', 'bottom', 'string', 'barcode'),
-    ('manufacturing_gauges', '["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1.0"]', 'json', 'manufacturing'),
-    ('manufacturing_colors', '[{"name":"Charcoal","category_ids":[]},{"name":"Terracotta","category_ids":[]},{"name":"Blue","category_ids":[]},{"name":"Green","category_ids":[]},{"name":"Red","category_ids":[]},{"name":"Brown","category_ids":[]},{"name":"Grey","category_ids":[]},{"name":"White","category_ids":[]},{"name":"Natural","category_ids":[]}]', 'json', 'manufacturing'),
-    ('manufacturing_design', '[{"name":"Shingle","category_ids":[]},{"name":"Tile","category_ids":[]},{"name":"Slate","category_ids":[]},{"name":"Roman","category_ids":[]}]', 'json', 'manufacturing'),
-    ('gauge_enabled_categories', '[]', 'json', 'manufacturing'),
-    ('gauge_min', '0.1', 'number', 'manufacturing'),
-    ('gauge_max', '1.0', 'number', 'manufacturing')
+    ('barcode_text_position', 'bottom', 'string', 'barcode')
+    -- NOTE: manufacturing_gauges, manufacturing_colors, manufacturing_design,
+    -- gauge_enabled_categories, gauge_min, gauge_max REMOVED - replaced by variations system
 ON CONFLICT (setting_key) DO UPDATE SET
     setting_value = EXCLUDED.setting_value,
     setting_type = EXCLUDED.setting_type,

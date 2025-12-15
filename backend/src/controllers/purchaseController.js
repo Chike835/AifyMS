@@ -10,38 +10,54 @@ import {
   Unit
 } from '../models/index.js';
 import { Op } from 'sequelize';
+import { safeRollback } from '../utils/transactionUtils.js';
 
 /**
- * Generate a unique purchase number
+ * Generate a unique purchase number with transaction lock to prevent race conditions
+ * @param {Object} transaction - Sequelize transaction object
+ * @returns {Promise<string>} Unique purchase number
  */
-const generatePurchaseNumber = async () => {
-  const today = new Date();
-  const datePrefix = `PO-${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+const generatePurchaseNumber = async (transaction) => {
+  const prefix = 'PO';
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const dateStr = `${year}${month}${day}`;
 
-  // Find the latest purchase number for today
+  // Use advisory lock to prevent concurrent purchase number generation
+  // PostgreSQL advisory locks are automatically released when transaction ends
+  const lockKey = `purchase_${dateStr}`.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+
+  // Acquire advisory lock (blocks until available)
+  await sequelize.query(`SELECT pg_advisory_xact_lock(${lockKey})`, { transaction });
+
+  // Find the last purchase for today with lock
   const latestPurchase = await Purchase.findOne({
     where: {
       purchase_number: {
-        [Op.like]: `${datePrefix}%`
+        [Op.like]: `${prefix}-${dateStr}-%`
       }
     },
-    order: [['purchase_number', 'DESC']]
+    order: [['purchase_number', 'DESC']],
+    lock: transaction.LOCK.UPDATE,
+    transaction
   });
 
   let sequence = 1;
   if (latestPurchase) {
-    const lastSequence = parseInt(latestPurchase.purchase_number.slice(-4), 10);
+    const lastSequence = parseInt(latestPurchase.purchase_number.split('-')[2], 10);
     sequence = lastSequence + 1;
   }
 
-  return `${datePrefix}-${String(sequence).padStart(4, '0')}`;
+  return `${prefix}-${dateStr}-${String(sequence).padStart(4, '0')}`;
 };
 
 /**
  * Get all purchases
  * Super Admin sees all; Branch users see only their branch's purchases
  */
-export const getPurchases = async (req, res) => {
+export const getPurchases = async (req, res, next) => {
   try {
     const { status, page = 1, limit = 50 } = req.query;
     let queryLimit = parseInt(limit);
@@ -56,7 +72,7 @@ export const getPurchases = async (req, res) => {
     const whereClause = {};
 
     // Branch filtering for non-Super Admin users
-    if (req.user.role_name !== 'Super Admin' && req.user.branch_id) {
+    if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id) {
       whereClause.branch_id = req.user.branch_id;
     }
 
@@ -99,20 +115,20 @@ export const getPurchases = async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching purchases:', error);
-    return res.status(500).json({ error: 'Failed to fetch purchases' });
+    next(error);
   }
 };
 
 /**
  * Get a single purchase by ID with items
  */
-export const getPurchaseById = async (req, res) => {
+export const getPurchaseById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
     // Build where clause with branch filter
     const whereClause = { id };
-    if (req.user.role_name !== 'Super Admin' && req.user.branch_id) {
+    if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id) {
       whereClause.branch_id = req.user.branch_id;
     }
 
@@ -165,7 +181,7 @@ export const getPurchaseById = async (req, res) => {
     return res.json({ purchase });
   } catch (error) {
     console.error('Error fetching purchase:', error);
-    return res.status(500).json({ error: 'Failed to fetch purchase' });
+    next(error);
   }
 };
 
@@ -174,7 +190,7 @@ export const getPurchaseById = async (req, res) => {
  * CRITICAL: For raw_tracked products, automatically creates inventory instances
  * Uses database transaction for atomicity - rolls back on any failure
  */
-export const createPurchase = async (req, res) => {
+export const createPurchase = async (req, res, next) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -182,21 +198,21 @@ export const createPurchase = async (req, res) => {
 
     // Validate required fields
     if (!items || !Array.isArray(items) || items.length === 0) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'At least one item is required' });
     }
 
     // Determine branch_id
-    const branch_id = req.user.branch_id;
-    if (!branch_id && req.user.role_name !== 'Super Admin') {
-      await transaction.rollback();
+    const branch_id = req.user?.branch_id;
+    if (!branch_id && req.user?.role_name !== 'Super Admin') {
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'User must belong to a branch to create purchases' });
     }
 
     // For Super Admin without branch, require branch_id in request
     const purchaseBranchId = branch_id || req.body.branch_id;
     if (!purchaseBranchId) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Branch ID is required' });
     }
 
@@ -204,7 +220,7 @@ export const createPurchase = async (req, res) => {
     if (supplier_id) {
       const supplier = await Supplier.findByPk(supplier_id, { transaction });
       if (!supplier) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(400).json({ error: 'Supplier not found' });
       }
     }
@@ -222,7 +238,7 @@ export const createPurchase = async (req, res) => {
     for (const item of items) {
       const product = productMap.get(item.product_id);
       if (!product) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(400).json({
           error: `Product not found: ${item.product_id}`
         });
@@ -238,7 +254,7 @@ export const createPurchase = async (req, res) => {
         // Fetch the purchase unit to get conversion factor
         const purchaseUnit = await Unit.findByPk(item.purchase_unit_id, { transaction });
         if (!purchaseUnit) {
-          await transaction.rollback();
+          await safeRollback(transaction);
           return res.status(400).json({
             error: `Purchase unit not found: ${item.purchase_unit_id}`
           });
@@ -251,7 +267,7 @@ export const createPurchase = async (req, res) => {
         });
 
         if (!baseUnit) {
-          await transaction.rollback();
+          await safeRollback(transaction);
           return res.status(400).json({
             error: `Product base unit not found for product: ${product.name}`
           });
@@ -303,14 +319,14 @@ export const createPurchase = async (req, res) => {
       }
 
       if (!baseQuantity || baseQuantity <= 0) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(400).json({
           error: `Invalid quantity for product ${product.name}`
         });
       }
 
       if (item.unit_cost === undefined || item.unit_cost < 0) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(400).json({
           error: `Invalid unit cost for product ${product.name}`
         });
@@ -319,7 +335,7 @@ export const createPurchase = async (req, res) => {
       // CRITICAL: For raw_tracked products, instance_code is REQUIRED
       if (product.type === 'raw_tracked') {
         if (!item.instance_code || item.instance_code.trim() === '') {
-          await transaction.rollback();
+          await safeRollback(transaction);
           return res.status(400).json({
             error: `Instance code is required for raw_tracked product: ${product.name}`
           });
@@ -332,7 +348,7 @@ export const createPurchase = async (req, res) => {
         });
 
         if (existingBatch) {
-          await transaction.rollback();
+          await safeRollback(transaction);
           return res.status(400).json({
             error: `Instance code "${item.instance_code}" already exists. Each coil/pallet must have a unique code.`
           });
@@ -347,7 +363,7 @@ export const createPurchase = async (req, res) => {
     }
 
     // Generate purchase number
-    const purchase_number = await generatePurchaseNumber();
+    const purchase_number = await generatePurchaseNumber(transaction);
 
     // Calculate total amount (using purchased_quantity if available, otherwise quantity)
     let total_amount = 0;
@@ -487,38 +503,28 @@ export const createPurchase = async (req, res) => {
   } catch (error) {
     // Rollback transaction on any error
     try {
-      await transaction.rollback();
+      await safeRollback(transaction);
     } catch (rbError) {
       // Ignore rollback errors if transaction is already finished
     }
     console.error('Error creating purchase:', error);
 
-    if (error.name === 'SequelizeValidationError') {
-      return res.status(400).json({
-        error: error.errors?.[0]?.message || 'Validation error'
-      });
-    }
-    if (error.name === 'SequelizeUniqueConstraintError') {
-      return res.status(400).json({
-        error: 'Duplicate entry detected. Please check instance codes.'
-      });
-    }
-
-    return res.status(500).json({ error: 'Failed to create purchase' });
+    // Let Express error middleware handle Sequelize errors
+    next(error);
   }
 };
 
 /**
  * Update purchase status
  */
-export const updatePurchaseStatus = async (req, res) => {
+export const updatePurchaseStatus = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { status, payment_status } = req.body;
 
     // Build where clause with branch filter
     const whereClause = { id };
-    if (req.user.role_name !== 'Super Admin' && req.user.branch_id) {
+    if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id) {
       whereClause.branch_id = req.user.branch_id;
     }
 
@@ -548,14 +554,14 @@ export const updatePurchaseStatus = async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating purchase:', error);
-    return res.status(500).json({ error: 'Failed to update purchase' });
+    next(error);
   }
 };
 
 /**
  * Delete a purchase (only draft or cancelled)
  */
-export const deletePurchase = async (req, res) => {
+export const deletePurchase = async (req, res, next) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -563,7 +569,7 @@ export const deletePurchase = async (req, res) => {
 
     // Build where clause with branch filter
     const whereClause = { id };
-    if (req.user.role_name !== 'Super Admin' && req.user.branch_id) {
+    if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id) {
       whereClause.branch_id = req.user.branch_id;
     }
 
@@ -579,13 +585,13 @@ export const deletePurchase = async (req, res) => {
     });
 
     if (!purchase) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Purchase not found' });
     }
 
     // Only allow deletion of draft or cancelled purchases
     if (!['draft', 'cancelled'].includes(purchase.status)) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({
         error: 'Only draft or cancelled purchases can be deleted'
       });
@@ -596,7 +602,7 @@ export const deletePurchase = async (req, res) => {
       if (item.inventory_batch_id) {
         const batch = await InventoryBatch.findByPk(item.inventory_batch_id, { transaction });
         if (batch && batch.remaining_quantity < batch.initial_quantity) {
-          await transaction.rollback();
+          await safeRollback(transaction);
           return res.status(400).json({
             error: `Cannot delete: Inventory batch ${batch.instance_code || batch.batch_identifier} has been partially used`
           });
@@ -615,9 +621,9 @@ export const deletePurchase = async (req, res) => {
 
     return res.json({ message: 'Purchase deleted successfully' });
   } catch (error) {
-    await transaction.rollback();
+    await safeRollback(transaction);
     console.error('Error deleting purchase:', error);
-    return res.status(500).json({ error: 'Failed to delete purchase' });
+    next(error);
   }
 };
 

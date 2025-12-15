@@ -1,6 +1,6 @@
 import { getLedger, backfillHistoricalLedger, calculateAdvanceBalance } from '../services/ledgerService.js';
 import { generateLedgerPDF } from '../services/pdfService.js';
-import { Customer, Supplier, LedgerEntry, SalesOrder } from '../models/index.js';
+import { Customer, Supplier, LedgerEntry, SalesOrder, Payment } from '../models/index.js';
 import { Op } from 'sequelize';
 
 /**
@@ -253,16 +253,41 @@ export const getCustomerLedgerSummary = async (req, res, next) => {
       }
     }) || 0;
 
-    // Get total paid (sum of PAYMENT + ADVANCE_PAYMENT credit_amount)
-    const totalPaid = await LedgerEntry.sum('credit_amount', {
+    // Get total paid (sum of confirmed PAYMENT and ADVANCE_PAYMENT ledger entries)
+    // Filter out pending payments by joining with Payment model
+    const paymentEntries = await LedgerEntry.findAll({
       where: {
         contact_id: id,
         contact_type: 'customer',
         transaction_type: {
           [Op.in]: ['PAYMENT', 'ADVANCE_PAYMENT']
         }
+      },
+      include: [
+        {
+          model: Payment,
+          as: 'payment',
+          required: false,
+          attributes: ['status']
+        }
+      ]
+    });
+
+    // Sum only confirmed payments and all advance payments (advance payments are created only when confirmed)
+    const totalPaid = paymentEntries.reduce((sum, entry) => {
+      // For PAYMENT entries, only count if confirmed
+      if (entry.transaction_type === 'PAYMENT') {
+        if (entry.payment?.status === 'confirmed') {
+          return sum + parseFloat(entry.credit_amount || 0);
+        }
+        return sum;
       }
-    }) || 0;
+      // For ADVANCE_PAYMENT entries, always count (they're created only when confirmed)
+      if (entry.transaction_type === 'ADVANCE_PAYMENT') {
+        return sum + parseFloat(entry.credit_amount || 0);
+      }
+      return sum;
+    }, 0);
 
     // Calculate advance balance using the dedicated helper (accounts for ADVANCE_PAYMENT and REFUND)
     const advanceBalance = await calculateAdvanceBalance(id);

@@ -6,79 +6,51 @@ import { Op } from 'sequelize';
 // ============================================
 
 /**
- * Create a new expense category (branch-scoped)
+ * Create a new expense category (global)
  * Permission: expense_category_manage
  */
 export const createExpenseCategory = async (req, res) => {
   try {
     const { name } = req.body;
-    const { branch_id, role_name } = req.user;
 
     if (!name || name.trim().length === 0) {
       return res.status(400).json({ error: 'Category name is required' });
     }
 
-    // Use user's branch_id unless Super Admin specifies another
-    let targetBranchId = branch_id;
-    if (role_name === 'Super Admin' && req.body.branch_id) {
-      targetBranchId = req.body.branch_id;
-    }
-
-    if (!targetBranchId) {
-      return res.status(400).json({ error: 'Branch ID is required' });
-    }
-
-    // Check for duplicate category name within the branch
+    // Check for duplicate category name (global, no branch restriction)
     const existingCategory = await ExpenseCategory.findOne({
       where: {
-        name: name.trim(),
-        branch_id: targetBranchId
+        name: name.trim()
       }
     });
 
     if (existingCategory) {
-      return res.status(409).json({ error: 'A category with this name already exists in this branch' });
+      return res.status(409).json({ error: 'A category with this name already exists' });
     }
 
     const category = await ExpenseCategory.create({
-      name: name.trim(),
-      branch_id: targetBranchId
+      name: name.trim()
     });
 
     res.status(201).json(category);
   } catch (error) {
-    console.error('Error creating expense category:', error);
-    res.status(500).json({ error: error.message || 'Failed to create expense category' });
+    next(error);
   }
 };
 
 /**
- * Get all expense categories (branch-filtered)
+ * Get all expense categories (global)
  * Permission: expense_view
  */
 export const getExpenseCategories = async (req, res) => {
   try {
-    const { branch_id, role_name } = req.user;
-
-    let whereClause = {};
-    if (role_name !== 'Super Admin') {
-      whereClause.branch_id = branch_id;
-    } else if (req.query.branch_id) {
-      whereClause.branch_id = req.query.branch_id;
-    }
-
     const categories = await ExpenseCategory.findAll({
-      where: whereClause,
-      include: [
-        { model: Branch, as: 'branch', attributes: ['id', 'name', 'code'] }
-      ],
       order: [['name', 'ASC']]
     });
 
     res.status(200).json(categories);
   } catch (error) {
-    console.error('Error fetching expense categories:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch expense categories' });
+    next(error);
   }
 };
 
@@ -90,16 +62,10 @@ export const updateExpenseCategory = async (req, res) => {
   try {
     const { id } = req.params;
     const { name } = req.body;
-    const { branch_id, role_name } = req.user;
 
     const category = await ExpenseCategory.findByPk(id);
     if (!category) {
       return res.status(404).json({ error: 'Category not found' });
-    }
-
-    // Check branch access
-    if (role_name !== 'Super Admin' && category.branch_id !== branch_id) {
-      return res.status(403).json({ error: 'Access denied to this category' });
     }
 
     if (!name || name.trim().length === 0) {
@@ -110,8 +76,7 @@ export const updateExpenseCategory = async (req, res) => {
     const duplicate = await ExpenseCategory.findOne({
       where: {
         id: { [Op.ne]: id },
-        name: name.trim(),
-        branch_id: category.branch_id
+        name: name.trim()
       }
     });
 
@@ -122,8 +87,7 @@ export const updateExpenseCategory = async (req, res) => {
     await category.update({ name: name.trim() });
     res.status(200).json(category);
   } catch (error) {
-    console.error('Error updating expense category:', error);
-    res.status(500).json({ error: error.message || 'Failed to update expense category' });
+    next(error);
   }
 };
 
@@ -134,16 +98,10 @@ export const updateExpenseCategory = async (req, res) => {
 export const deleteExpenseCategory = async (req, res) => {
   try {
     const { id } = req.params;
-    const { branch_id, role_name } = req.user;
 
     const category = await ExpenseCategory.findByPk(id);
     if (!category) {
       return res.status(404).json({ error: 'Category not found' });
-    }
-
-    // Check branch access
-    if (role_name !== 'Super Admin' && category.branch_id !== branch_id) {
-      return res.status(403).json({ error: 'Access denied to this category' });
     }
 
     // Check if category has expenses
@@ -157,8 +115,7 @@ export const deleteExpenseCategory = async (req, res) => {
     await category.destroy();
     res.status(200).json({ message: 'Category deleted successfully' });
   } catch (error) {
-    console.error('Error deleting expense category:', error);
-    res.status(500).json({ error: error.message || 'Failed to delete expense category' });
+    next(error);
   }
 };
 
@@ -183,7 +140,7 @@ export const createExpense = async (req, res) => {
       return res.status(400).json({ error: 'Amount must be greater than 0' });
     }
 
-    // Verify category exists and belongs to user's branch
+    // Verify category exists (global, no branch restriction)
     const category = await ExpenseCategory.findByPk(category_id);
     if (!category) {
       return res.status(404).json({ error: 'Expense category not found' });
@@ -197,11 +154,6 @@ export const createExpense = async (req, res) => {
 
     if (!targetBranchId) {
       return res.status(400).json({ error: 'Branch ID is required' });
-    }
-
-    // Category must belong to the target branch
-    if (category.branch_id !== targetBranchId) {
-      return res.status(400).json({ error: 'Category does not belong to this branch' });
     }
 
     const expense = await Expense.create({
@@ -224,8 +176,7 @@ export const createExpense = async (req, res) => {
 
     res.status(201).json(createdExpense);
   } catch (error) {
-    console.error('Error creating expense:', error);
-    res.status(500).json({ error: error.message || 'Failed to create expense' });
+    next(error);
   }
 };
 
@@ -311,8 +262,7 @@ export const getExpenses = async (req, res) => {
       expenses
     });
   } catch (error) {
-    console.error('Error fetching expenses:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch expenses' });
+    next(error);
   }
 };
 
@@ -344,8 +294,7 @@ export const getExpenseById = async (req, res) => {
 
     res.status(200).json(expense);
   } catch (error) {
-    console.error('Error fetching expense:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch expense' });
+    next(error);
   }
 };
 
@@ -369,14 +318,11 @@ export const updateExpense = async (req, res) => {
       return res.status(403).json({ error: 'Access denied to this expense' });
     }
 
-    // Validate category if being changed
+    // Validate category if being changed (global, no branch restriction)
     if (category_id && category_id !== expense.category_id) {
       const category = await ExpenseCategory.findByPk(category_id);
       if (!category) {
         return res.status(404).json({ error: 'Expense category not found' });
-      }
-      if (category.branch_id !== expense.branch_id) {
-        return res.status(400).json({ error: 'Category does not belong to this branch' });
       }
     }
 
@@ -403,8 +349,7 @@ export const updateExpense = async (req, res) => {
 
     res.status(200).json(updatedExpense);
   } catch (error) {
-    console.error('Error updating expense:', error);
-    res.status(500).json({ error: error.message || 'Failed to update expense' });
+    next(error);
   }
 };
 
@@ -430,8 +375,7 @@ export const deleteExpense = async (req, res) => {
     await expense.destroy();
     res.status(200).json({ message: 'Expense deleted successfully' });
   } catch (error) {
-    console.error('Error deleting expense:', error);
-    res.status(500).json({ error: error.message || 'Failed to delete expense' });
+    next(error);
   }
 };
 
@@ -492,8 +436,7 @@ export const getExpenseSummary = async (req, res) => {
       }))
     });
   } catch (error) {
-    console.error('Error fetching expense summary:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch expense summary' });
+    next(error);
   }
 };
 

@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useState } from 'react';
+import React from 'react';
 import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard,
@@ -158,7 +159,6 @@ const Sidebar = ({ isCollapsed, onToggle }) => {
             { name: 'Units', path: '/inventory/settings/units', icon: Settings, permission: 'product_view' },
             { name: 'Categories', path: '/inventory/settings/categories', icon: Settings, permission: 'product_view' },
             { name: 'Batches', path: '/inventory/settings/batches', icon: Settings, permission: 'settings_manage' },
-            { name: 'Gauges & Colors', path: '/inventory/settings/gauges-colors', icon: Settings, permission: 'settings_manage' },
             { name: 'Brands', path: '/settings', icon: Settings, permission: 'product_view', action: 'brands' },
             { name: 'Warranties', path: '/inventory/settings/warranties', icon: Settings, permission: 'product_view' },
           ],
@@ -286,7 +286,7 @@ const Sidebar = ({ isCollapsed, onToggle }) => {
       const Icon = item.icon || List;
       return (
         <Link
-          key={item.path}
+          key={`${item.path}-${item.name}`}
           to={item.path}
           className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${isActive
             ? 'bg-primary-600 text-white'
@@ -332,7 +332,10 @@ const Sidebar = ({ isCollapsed, onToggle }) => {
           </button>
           {isExpanded && (
             <div className="ml-4 space-y-1 border-l border-gray-700 pl-2">
-              {item.items.map((child) => renderMenuItem(child, level + 1))}
+              {item.items.map((child, index) => {
+                const rendered = renderMenuItem(child, level + 1);
+                return rendered;
+              })}
             </div>
           )}
         </div>
@@ -368,7 +371,10 @@ const Sidebar = ({ isCollapsed, onToggle }) => {
           </button>
           {isExpanded && (
             <div className={`ml-4 space-y-1 ${isReportsSubgroup ? 'overflow-y-auto ' + maxHeight : ''}`}>
-              {item.items.map((subItem) => renderMenuItem(subItem, level + 2))}
+              {item.items.map((subItem, index) => {
+                const rendered = renderMenuItem(subItem, level + 2);
+                return rendered;
+              })}
             </div>
           )}
         </div>
@@ -380,10 +386,12 @@ const Sidebar = ({ isCollapsed, onToggle }) => {
 
     const isActive = isPathActive(item.path);
     const Icon = item.icon || List;
+    // Generate unique key: path + name + action (if present) + icon name as fallback
+    const uniqueKey = `${item.path || ''}-${item.name || ''}-${item.action || ''}-${Icon.name || 'icon'}`;
 
     return (
       <Link
-        key={item.path}
+        key={uniqueKey}
         to={item.path}
         state={item.action ? { action: item.action } : undefined}
         className={`flex items-center space-x-3 px-4 py-2 rounded-lg transition-colors text-sm ${isActive

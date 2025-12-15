@@ -5,6 +5,7 @@ import { multiply, add, subtract, sum, equals, lessThan, lessThanOrEqual, greate
 import { processManufacturedVirtualItem, processManufacturedVirtualItemForConversion } from '../services/inventoryService.js';
 import { createLedgerEntry } from '../services/ledgerService.js';
 import { hasGlobalBranchAccess } from '../utils/authHelpers.js';
+import { safeRollback } from '../utils/transactionUtils.js';
 
 /**
  * Generate unique invoice number with transaction lock to prevent race conditions
@@ -69,14 +70,14 @@ export const createSale = async (req, res, next) => {
 
     // Validation
     if (!items || !Array.isArray(items) || items.length === 0) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Items array is required and cannot be empty' });
     }
 
     // Use user's branch if not provided (for branch managers)
     const finalBranchId = branch_id || req.user.branch_id;
     if (!finalBranchId) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'branch_id is required' });
     }
 
@@ -84,7 +85,7 @@ export const createSale = async (req, res, next) => {
     // Non-Super Admin users can only create sales for their own branch
     if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id) {
       if (finalBranchId !== req.user.branch_id) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(403).json({ error: 'You can only create sales for your own branch' });
       }
     }
@@ -106,16 +107,16 @@ export const createSale = async (req, res, next) => {
     if (agent_id) {
       agent = await Agent.findByPk(agent_id, { transaction });
       if (!agent) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(404).json({ error: 'Agent not found' });
       }
       if (!agent.is_active) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(400).json({ error: 'Agent is not active' });
       }
       // Branch check for non-Super Admin
       if (req.user?.role_name !== 'Super Admin' && agent.branch_id !== finalBranchId) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(403).json({ error: 'Agent does not belong to this branch' });
       }
     }
@@ -146,7 +147,7 @@ export const createSale = async (req, res, next) => {
 
       // Validate item
       if (!product_id || quantity === undefined || unit_price === undefined) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(400).json({
           error: 'Each item must have product_id, quantity, and unit_price'
         });
@@ -155,7 +156,7 @@ export const createSale = async (req, res, next) => {
       // Get product to check type
       const product = await Product.findByPk(product_id, { transaction });
       if (!product) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(404).json({ error: `Product ${product_id} not found` });
       }
 
@@ -170,7 +171,7 @@ export const createSale = async (req, res, next) => {
           transaction
         });
         if (!productAvailableAtBranch) {
-          await transaction.rollback();
+          await safeRollback(transaction);
           return res.status(400).json({
             error: `Product "${product.name}" is not available at this branch. Please add it to the branch's product list first.`
           });
@@ -183,7 +184,7 @@ export const createSale = async (req, res, next) => {
       if (!priceMatches) {
         const canEditPrice = req.user?.permissions?.includes('sale_edit_price');
         if (!canEditPrice) {
-          await transaction.rollback();
+          await safeRollback(transaction);
           return res.status(403).json({
             error: `Price override not allowed for product "${product.name}". Expected ${product.sale_price}, received ${unit_price}. You need the 'sale_edit_price' permission to modify prices.`
           });
@@ -223,7 +224,7 @@ export const createSale = async (req, res, next) => {
           });
 
           if (!result.success) {
-            await transaction.rollback();
+            await safeRollback(transaction);
             return res.status(400).json({ error: result.error });
           }
         }
@@ -308,7 +309,7 @@ export const createSale = async (req, res, next) => {
     });
   } catch (error) {
     try {
-      await transaction.rollback();
+      await safeRollback(transaction);
     } catch (rbError) {
       // Ignore
     }
@@ -547,7 +548,7 @@ export const updateProductionStatus = async (req, res, next) => {
 
     // Validate input
     if (!production_status) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'production_status is required' });
     }
 
@@ -558,7 +559,7 @@ export const updateProductionStatus = async (req, res, next) => {
     });
 
     if (!order) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Sales order not found' });
     }
 
@@ -569,7 +570,7 @@ export const updateProductionStatus = async (req, res, next) => {
     );
 
     if (!transitionValidation.valid) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: transitionValidation.error });
     }
 
@@ -579,7 +580,7 @@ export const updateProductionStatus = async (req, res, next) => {
     // Validate worker_name is provided when transitioning TO 'produced'
     if (production_status === 'produced' && previousStatus !== 'produced') {
       if (!worker_name || worker_name.trim() === '') {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(400).json({
           error: 'worker_name is required when setting status to "produced"'
         });
@@ -620,7 +621,7 @@ export const updateProductionStatus = async (req, res, next) => {
     });
   } catch (error) {
     try {
-      await transaction.rollback();
+      await safeRollback(transaction);
     } catch (rbError) {
       // Ignore
     }
@@ -724,7 +725,7 @@ export const markAsDelivered = async (req, res, next) => {
     const { dispatcher_name, vehicle_plate, delivery_signature } = req.body;
 
     if (!dispatcher_name || dispatcher_name.trim() === '') {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({
         error: 'dispatcher_name is required'
       });
@@ -737,12 +738,12 @@ export const markAsDelivered = async (req, res, next) => {
     });
 
     if (!order) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Sales order not found' });
     }
 
     if (order.production_status !== 'produced') {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({
         error: 'Order must be in "produced" status before it can be delivered'
       });
@@ -777,7 +778,7 @@ export const markAsDelivered = async (req, res, next) => {
     });
   } catch (error) {
     try {
-      await transaction.rollback();
+      await safeRollback(transaction);
     } catch (rbError) {
       // Ignore
     }
@@ -841,12 +842,12 @@ export const updateDraft = async (req, res, next) => {
     const draft = await SalesOrder.findByPk(id, { transaction });
 
     if (!draft) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Draft not found' });
     }
 
     if (draft.order_type !== 'draft') {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Only drafts can be updated' });
     }
 
@@ -927,7 +928,7 @@ export const updateDraft = async (req, res, next) => {
     });
   } catch (error) {
     if (!transaction.finished) {
-      await transaction.rollback();
+      await safeRollback(transaction);
     }
     next(error);
   }
@@ -957,12 +958,12 @@ export const convertDraftToInvoice = async (req, res, next) => {
     });
 
     if (!draft) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Draft not found' });
     }
 
     if (draft.order_type !== 'draft') {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Only drafts can be converted to invoices' });
     }
 
@@ -986,7 +987,7 @@ export const convertDraftToInvoice = async (req, res, next) => {
         });
 
         if (!result.success) {
-          await transaction.rollback();
+          await safeRollback(transaction);
           return res.status(400).json({ error: result.error });
         }
       }
@@ -1055,7 +1056,7 @@ export const convertDraftToInvoice = async (req, res, next) => {
     });
   } catch (error) {
     if (!transaction.finished) {
-      await transaction.rollback();
+      await safeRollback(transaction);
     }
     next(error);
   }
@@ -1179,12 +1180,12 @@ export const convertQuotationToInvoice = async (req, res, next) => {
     });
 
     if (!quotation) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Quotation not found' });
     }
 
     if (quotation.order_type !== 'quotation') {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Only quotations can be converted' });
     }
 
@@ -1192,7 +1193,7 @@ export const convertQuotationToInvoice = async (req, res, next) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     if (quotation.valid_until && new Date(quotation.valid_until) < today) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'This quotation has expired' });
     }
 
@@ -1215,7 +1216,7 @@ export const convertQuotationToInvoice = async (req, res, next) => {
         });
 
         if (!result.success) {
-          await transaction.rollback();
+          await safeRollback(transaction);
           return res.status(400).json({ error: result.error });
         }
       }
@@ -1383,13 +1384,13 @@ export const cancelSale = async (req, res, next) => {
     });
 
     if (!order) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Sales order not found' });
     }
 
     // Only allow cancellation of unpaid orders
     if (order.payment_status === 'paid') {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Cannot cancel a paid order' });
     }
 

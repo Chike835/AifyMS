@@ -1,6 +1,7 @@
 import { BusinessSetting, Branch } from '../models/index.js';
 import { Op } from 'sequelize';
 import sequelize from '../config/db.js';
+import { safeRollback } from '../utils/transactionUtils.js';
 
 const parseSettingRecord = (setting) => {
   let value = setting.setting_value;
@@ -119,7 +120,7 @@ export const updateSetting = async (req, res, next) => {
     const { value } = req.body;
 
     if (value === undefined) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Value is required' });
     }
 
@@ -132,7 +133,7 @@ export const updateSetting = async (req, res, next) => {
       // If setting doesn't exist, we can't create it here because we don't know the type/category
       // unless it's a known system setting or we allow creating arbitrary settings via API.
       // For now, assuming we only update existing settings or settings defined in seed.
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Setting not found' });
     }
 
@@ -140,7 +141,7 @@ export const updateSetting = async (req, res, next) => {
     if (['currency', 'tax_rate'].includes(key)) {
       const validation = validateSettings({ [key]: value });
       if (!validation.valid) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(400).json({
           error: 'Validation failed',
           errors: validation.errors
@@ -189,7 +190,7 @@ export const bulkUpdateSettings = async (req, res, next) => {
     const { settings } = req.body;
 
     if (!settings || typeof settings !== 'object') {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Settings object is required' });
     }
 
@@ -207,7 +208,7 @@ export const bulkUpdateSettings = async (req, res, next) => {
     if (Object.keys(criticalSettingsToValidate).length > 0) {
       const validation = validateSettings(criticalSettingsToValidate);
       if (!validation.valid) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(400).json({
           error: 'Validation failed',
           errors: validation.errors

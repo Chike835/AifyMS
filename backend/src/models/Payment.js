@@ -9,9 +9,17 @@ const Payment = sequelize.define('Payment', {
   },
   customer_id: {
     type: DataTypes.UUID,
-    allowNull: false,
+    allowNull: true,
     references: {
       model: 'customers',
+      key: 'id'
+    }
+  },
+  supplier_id: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    references: {
+      model: 'suppliers',
       key: 'id'
     }
   },

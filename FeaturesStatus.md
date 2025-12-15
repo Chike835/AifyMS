@@ -42,6 +42,7 @@
 | Feature Category | Sub-Feature | Built (AI) | Working (User) |
 |-----------------|-------------|------------|----------------|
 | **Inventory** | Product types implementation (Standard, Compound, Raw Tracked, Manufactured Virtual, Variable) | [x] | [ ] |
+| **Inventory** | Variable products with variant generation (parent-child relationship, variation combinations) | [x] | [ ] |
 | **Inventory** | Add/Edit Product page with full form (/products/add, /products/:id/edit) | [x] | [ ] |
 | **Inventory** | Stock transfer functionality | [x] | [ ] |
 | **Inventory** | Stock adjustment with reasons | [x] | [ ] |
@@ -141,6 +142,10 @@
 | **Accounts & Reports** | Financial statements (Balance Sheet, Trial Balance, Cash Flow) | [x] | [ ] |
 | **Accounts & Reports** | Reports dashboard (/accounts/reports) | [x] | [ ] |
 | **Accounts & Reports** | Payment accounts page (/accounts/payment-accounts) | [x] | [ ] |
+| **Accounts & Reports** | Balance Sheet page (/accounts/payment-accounts/balance-sheet) | [x] | [ ] |
+| **Accounts & Reports** | Trial Balance page (/accounts/payment-accounts/trial-balance) | [x] | [ ] |
+| **Accounts & Reports** | Cash Flow page (/accounts/payment-accounts/cash-flow) | [x] | [ ] |
+| **Accounts & Reports** | Payment Account Report page (/accounts/payment-accounts/report/:accountId) | [x] | [ ] |
 
 ---
 
@@ -157,8 +162,10 @@
 | **Settings** | Business locations page (/settings/locations) | [x] | [ ] |
 | **Settings** | Invoice settings page (/settings/invoice) | [x] | [ ] |
 | **Settings** | Barcode settings page (/settings/barcode) | [x] | [ ] |
-| **Settings** | Receipt printers page (/settings/printers) | [x] | [ ] |
+| **Settings** | Receipt printers page (/settings/receipt-printers) | [x] | [ ] |
 | **Settings** | Tax rates page (/settings/tax) | [x] | [ ] |
+| **Settings** | Batch settings (BatchType CRUD, Category-BatchType assignments) | [x] | [ ] |
+| **Settings** | Batch settings page (/inventory/settings/batches) | [x] | [ ] |
 
 ---
 
@@ -225,19 +232,29 @@
 | Feature Category | Sub-Feature | Built (AI) | Working (User) |
 |-----------------|-------------|------------|----------------|
 | **Attributes** | Brand management | [x] | [ ] |
-| **Attributes** | Color management | [x] | [ ] |
-| **Attributes** | Gauge category toggles (dynamic range) | [x] | [ ] |
+| **Attributes** | ~~Color management~~ | REMOVED | - |
+| **Attributes** | ~~Gauge category toggles (dynamic range)~~ | REMOVED | - |
 | **Attributes** | Attribute management interface | [x] | [ ] |
-| **Attributes** | Gauge/Color/Design dropdowns in Add Product (filtered by category) | [x] | [ ] |
+| **Attributes** | ~~Gauge/Color/Design dropdowns in Add Product (filtered by category)~~ | REMOVED | - |
 | **Attributes** | Default batch type with Make Default UI | [x] | [ ] |
 | **Attributes** | Auto-assign to global default batch type | [x] | [ ] |
+| **Attributes** | Product variations management (ProductVariation CRUD) | [x] | [ ] |
+| **Attributes** | Variation values management (ProductVariationValue CRUD) | [x] | [ ] |
+| **Attributes** | Variations management page (/inventory/settings/variations) | [x] | [ ] |
+| **Attributes** | Units management (Base/derived units with conversion factors) | [x] | [ ] |
+| **Attributes** | Units management page (/inventory/settings/units) | [x] | [ ] |
+| **Attributes** | Categories management (Hierarchical categories with parent-child relationships) | [x] | [ ] |
+| **Attributes** | Categories management page (/inventory/settings/categories) | [x] | [ ] |
+| **Attributes** | Warranties management (Warranty CRUD) | [x] | [ ] |
+| **Attributes** | Warranties management page (/inventory/settings/warranties) | [x] | [ ] |
 
 ---
 
 ## Summary Statistics
 
-**Total Features:** 96  
-**Built (AI):** 96  
+**Total Features:** 93 (3 removed)  
+**Built (AI):** 93  
+**Removed:** 3 (Color management, Gauge category toggles, Gauge/Color/Design dropdowns)  
 **Not Built:** 0  
 **Working (User):** 0 (pending user confirmation)
 

@@ -1,4 +1,4 @@
-import { Product, InventoryBatch, Branch, Customer, Supplier, Category, Unit, Purchase, PurchaseItem } from '../models/index.js';
+import { Product, InventoryBatch, Branch, Customer, Supplier, Category, Unit, Purchase, PurchaseItem, PaymentAccount, AccountTransaction } from '../models/index.js';
 import { Op } from 'sequelize';
 import XLSX from 'xlsx';
 import sequelize from '../config/db.js';
@@ -351,9 +351,15 @@ export const importProducts = async (data, errors = []) => {
   // PHASE 2: Batch fetch existing products (eliminate N+1 queries)
   const skus = validRows.map(row => row.sku);
   console.log(`[ImportProducts] Batch fetching ${skus.length} products by SKU`);
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/6aef7949-77a2-46a4-8fc4-df76651a5e4e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'importService.js:354',message:'Before Product.findAll - checking schema',data:{skuCount:skus.length},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
   const existingProducts = await Product.findAll({
     where: { sku: { [Op.in]: skus } }
   });
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/6aef7949-77a2-46a4-8fc4-df76651a5e4e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'importService.js:357',message:'After Product.findAll - query succeeded',data:{foundCount:existingProducts.length},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
 
   // PHASE 3: Create in-memory Map for O(1) lookups
   const productMap = new Map(existingProducts.map(p => [p.sku, p]));
@@ -1073,6 +1079,160 @@ export const importPurchases = async (data, user, errors = []) => {
       await transaction.rollback();
       results.errors.push({
         row: `Purchase ${purchaseNumber}`,
+        error: error.message || 'Unknown error'
+      });
+      results.skipped++;
+    }
+  }
+
+  return results;
+};
+
+/**
+ * Import payment accounts from CSV/JSON data
+ * Expected columns: name, account_type, account_number, bank_name, opening_balance, branch_name, is_active
+ */
+export const importPaymentAccounts = async (data, user, errors = []) => {
+  const results = {
+    created: 0,
+    updated: 0,
+    skipped: 0,
+    errors: []
+  };
+
+  const validAccountTypes = ['cash', 'bank', 'mobile_money', 'pos_terminal'];
+
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    const rowNum = i + 2;
+
+    try {
+      // Validate required fields
+      if (!row.name || (typeof row.name === 'string' && row.name.trim() === '')) {
+        results.errors.push({
+          row: rowNum,
+          error: 'Missing required field: name'
+        });
+        results.skipped++;
+        continue;
+      }
+
+      if (!row.account_type || (typeof row.account_type === 'string' && row.account_type.trim() === '')) {
+        results.errors.push({
+          row: rowNum,
+          error: 'Missing required field: account_type'
+        });
+        results.skipped++;
+        continue;
+      }
+
+      // Validate account_type
+      const accountType = String(row.account_type).trim().toLowerCase();
+      if (!validAccountTypes.includes(accountType)) {
+        results.errors.push({
+          row: rowNum,
+          error: `Invalid account_type: "${row.account_type}". Must be one of: ${validAccountTypes.join(', ')}`
+        });
+        results.skipped++;
+        continue;
+      }
+
+      // Determine branch_id
+      let branchId = null;
+      if (user?.role_name === 'Super Admin' && row.branch_name) {
+        // Super Admin can specify branch by name or code
+        const branch = await Branch.findOne({
+          where: {
+            [Op.or]: [
+              { name: row.branch_name.trim() },
+              { code: row.branch_name.trim() }
+            ]
+          }
+        });
+        if (branch) {
+          branchId = branch.id;
+        } else {
+          results.errors.push({
+            row: rowNum,
+            error: `Branch "${row.branch_name}" not found`
+          });
+          results.skipped++;
+          continue;
+        }
+      } else {
+        // Use user's branch or null
+        branchId = user?.branch_id || null;
+      }
+
+      // Parse opening_balance
+      const openingBalance = row.opening_balance !== undefined && row.opening_balance !== null && row.opening_balance !== ''
+        ? parseFloat(row.opening_balance)
+        : 0;
+
+      if (isNaN(openingBalance) || openingBalance < 0) {
+        results.errors.push({
+          row: rowNum,
+          error: `Invalid opening_balance: "${row.opening_balance}". Must be a non-negative number`
+        });
+        results.skipped++;
+        continue;
+      }
+
+      // Parse is_active
+      const isActive = row.is_active !== undefined && row.is_active !== null && row.is_active !== ''
+        ? (String(row.is_active).toLowerCase() === 'true' || row.is_active === '1' || row.is_active === 1)
+        : true;
+
+      // Check if account exists (by name + branch_id)
+      const existingAccount = await PaymentAccount.findOne({
+        where: {
+          name: row.name.trim(),
+          branch_id: branchId
+        }
+      });
+
+      const accountData = {
+        name: row.name.trim(),
+        account_type: accountType,
+        account_number: row.account_number ? String(row.account_number).trim() : null,
+        bank_name: row.bank_name ? String(row.bank_name).trim() : null,
+        opening_balance: openingBalance,
+        current_balance: openingBalance,
+        branch_id: branchId,
+        is_active: isActive
+      };
+
+      if (existingAccount) {
+        // Update existing account
+        // Note: We don't update opening_balance or current_balance on update to avoid overwriting transaction history
+        await existingAccount.update({
+          name: accountData.name,
+          account_type: accountData.account_type,
+          account_number: accountData.account_number,
+          bank_name: accountData.bank_name,
+          is_active: accountData.is_active
+        });
+        results.updated++;
+      } else {
+        // Create new account
+        const newAccount = await PaymentAccount.create(accountData);
+
+        // If opening balance > 0, create initial deposit transaction
+        if (openingBalance > 0) {
+          await AccountTransaction.create({
+            account_id: newAccount.id,
+            transaction_type: 'deposit',
+            amount: openingBalance,
+            notes: 'Opening balance',
+            user_id: user?.id || null
+          });
+        }
+
+        results.created++;
+      }
+    } catch (error) {
+      results.errors.push({
+        row: rowNum,
         error: error.message || 'Unknown error'
       });
       results.skipped++;

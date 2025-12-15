@@ -1,6 +1,7 @@
 import { InventoryBatch, Product, Branch, BatchType, StockTransfer, StockAdjustment, User, ActivityLog, Category } from '../models/index.js';
 import { Op } from 'sequelize';
 import sequelize from '../config/db.js';
+import { safeRollback } from '../utils/transactionUtils.js';
 
 /**
  * POST /api/inventory/stock-transfer
@@ -13,7 +14,7 @@ export const transferBatch = async (req, res, next) => {
     const user_id = req.user.id;
 
     if (!inventory_batch_id || !to_branch_id || !quantity) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ 
         error: 'Missing required fields: inventory_batch_id, to_branch_id, quantity' 
       });
@@ -22,32 +23,32 @@ export const transferBatch = async (req, res, next) => {
     // Get the batch
     const batch = await InventoryBatch.findByPk(inventory_batch_id, { transaction });
     if (!batch) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Inventory batch not found' });
     }
 
     // Verify destination branch exists
     const toBranch = await Branch.findByPk(to_branch_id, { transaction });
     if (!toBranch) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Destination branch not found' });
     }
 
     // Check if transfer is to same branch
     if (batch.branch_id === to_branch_id) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Cannot transfer to the same branch' });
     }
 
     // Check permissions - user must have access to source branch
-    if (req.user.role_name !== 'Super Admin' && req.user.branch_id !== batch.branch_id) {
-      await transaction.rollback();
+    if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id !== batch.branch_id) {
+      await safeRollback(transaction);
       return res.status(403).json({ error: 'You do not have permission to transfer from this branch' });
     }
 
     // Check if sufficient quantity available
     if (parseFloat(quantity) > parseFloat(batch.remaining_quantity)) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ 
         error: `Insufficient quantity. Available: ${batch.remaining_quantity}, Requested: ${quantity}` 
       });
@@ -177,37 +178,37 @@ export const adjustStock = async (req, res, next) => {
     const user_id = req.user.id;
 
     if (!inventory_batch_id || !quantity || !reason || !adjustment_type) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ 
         error: 'Missing required fields: inventory_batch_id, adjustment_type, quantity, reason' 
       });
     }
 
     if (parseFloat(quantity) <= 0) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'quantity must be greater than 0' });
     }
 
     if (!reason.trim()) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Reason is required' });
     }
 
     if (!['increase', 'decrease'].includes(adjustment_type)) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'adjustment_type must be "increase" or "decrease"' });
     }
 
     // Get the batch
     const batch = await InventoryBatch.findByPk(inventory_batch_id, { transaction });
     if (!batch) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Inventory batch not found' });
     }
 
     // Check permissions
-    if (req.user.role_name !== 'Super Admin' && req.user.branch_id !== batch.branch_id) {
-      await transaction.rollback();
+    if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id !== batch.branch_id) {
+      await safeRollback(transaction);
       return res.status(403).json({ error: 'You do not have permission to adjust stock in this branch' });
     }
 
@@ -219,7 +220,7 @@ export const adjustStock = async (req, res, next) => {
     } else {
       new_quantity = old_quantity - parseFloat(quantity);
       if (new_quantity < 0) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(400).json({ 
           error: `Cannot decrease by ${quantity}. Current quantity: ${old_quantity}` 
         });
@@ -458,14 +459,14 @@ export const convertBatch = async (req, res, next) => {
     const user_id = req.user.id;
 
     if (!source_batch_id || !new_instance_code || !weight) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ 
         error: 'Missing required fields: source_batch_id, new_instance_code, weight' 
       });
     }
 
     if (parseFloat(weight) <= 0) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Weight must be greater than 0' });
     }
 
@@ -482,13 +483,13 @@ export const convertBatch = async (req, res, next) => {
     });
 
     if (!sourceBatch) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Source batch not found' });
     }
 
     // Check permissions
-    if (req.user.role_name !== 'Super Admin' && req.user.branch_id !== sourceBatch.branch_id) {
-      await transaction.rollback();
+    if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id !== sourceBatch.branch_id) {
+      await safeRollback(transaction);
       return res.status(403).json({ error: 'You do not have permission to convert batches from this branch' });
     }
 
@@ -499,7 +500,7 @@ export const convertBatch = async (req, res, next) => {
     });
 
     if (!looseBatchType || sourceBatch.batch_type_id !== looseBatchType.id) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ 
         error: 'Source batch must be of type "Loose" for slitting operation' 
       });
@@ -508,7 +509,7 @@ export const convertBatch = async (req, res, next) => {
     // Check if sufficient quantity available
     const weightToConvert = parseFloat(weight);
     if (weightToConvert > parseFloat(sourceBatch.remaining_quantity)) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ 
         error: `Insufficient quantity. Available: ${sourceBatch.remaining_quantity}, Requested: ${weight}` 
       });
@@ -521,7 +522,7 @@ export const convertBatch = async (req, res, next) => {
     });
 
     if (existingBatch) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(409).json({ 
         error: `Instance code "${new_instance_code}" already exists` 
       });
@@ -534,7 +535,7 @@ export const convertBatch = async (req, res, next) => {
     });
 
     if (!coilBatchType) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Coil batch type not found. Please create it in Batch Settings.' });
     }
 
@@ -550,7 +551,7 @@ export const convertBatch = async (req, res, next) => {
       for (const attr of categorySchema) {
         const value = mergedAttributeData[attr.name];
         if (attr.required && value === undefined) {
-          await transaction.rollback();
+          await safeRollback(transaction);
           return res.status(400).json({
             error: `Required attribute "${attr.name}" is missing`
           });
@@ -558,7 +559,7 @@ export const convertBatch = async (req, res, next) => {
 
         if (value !== undefined && attr.type === 'select' && Array.isArray(attr.options)) {
           if (!attr.options.includes(value)) {
-            await transaction.rollback();
+            await safeRollback(transaction);
             return res.status(400).json({
               error: `Invalid value for attribute "${attr.name}". Must be one of: ${attr.options.join(', ')}`
             });

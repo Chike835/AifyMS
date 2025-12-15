@@ -911,6 +911,21 @@ const Products = () => {
 const ProductViewModal = ({ product, onClose }) => {
   const [selectedVariantForLedger, setSelectedVariantForLedger] = useState(null);
 
+  // Fetch full product data with variants if not already loaded
+  const { data: productData, isLoading: isLoadingProduct } = useQuery({
+    queryKey: ['product', product.id],
+    queryFn: async () => {
+      const res = await api.get(`/products/${product.id}`);
+      return res.data.product || res.data;
+    },
+    enabled: !!product.id,
+    // Use cached data if variants are already present, otherwise refetch
+    staleTime: product.variants ? Infinity : 0
+  });
+
+  // Use fetched product data if available, otherwise use passed product
+  const displayProduct = productData || product;
+
   const formatCurrency = (value) => {
     const num = parseFloat(value) || 0;
     return `₦${num.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
@@ -927,101 +942,107 @@ const ProductViewModal = ({ product, onClose }) => {
             </button>
           </div>
           <div className="p-6">
-            <div className="mb-6 flex items-start gap-6">
-              <div className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-100">
-                {product.image_url ? (
-                  <img src={product.image_url} alt={product.name} className="h-full w-full object-cover" />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-gray-400">
-                    <Package className="h-10 w-10" />
+            {isLoadingProduct ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-primary-600"></div>
+              </div>
+            ) : (
+              <>
+                <div className="mb-6 flex items-start gap-6">
+                  <div className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-100">
+                    {displayProduct.image_url ? (
+                      <img src={displayProduct.image_url} alt={displayProduct.name} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-gray-400">
+                        <Package className="h-10 w-10" />
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-              <div>
-                <h4 className="text-xl font-semibold text-gray-900">{product.name}</h4>
-                <p className="text-sm text-gray-500">SKU: {product.sku}</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <span className="inline-block rounded bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700">
-                    {productTypeLabels[product.type] || product.type}
-                  </span>
-                  {product.not_for_selling && (
-                    <span className="inline-block rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-700">
-                      Not for selling
-                    </span>
-                  )}
-                  {product.is_active === false && (
-                    <span className="inline-block rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700">
-                      Inactive
-                    </span>
-                  )}
+                  <div>
+                    <h4 className="text-xl font-semibold text-gray-900">{displayProduct.name}</h4>
+                    <p className="text-sm text-gray-500">SKU: {displayProduct.sku}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className="inline-block rounded bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700">
+                        {productTypeLabels[displayProduct.type] || displayProduct.type}
+                      </span>
+                      {displayProduct.not_for_selling && (
+                        <span className="inline-block rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-700">
+                          Not for selling
+                        </span>
+                      )}
+                      {displayProduct.is_active === false && (
+                        <span className="inline-block rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700">
+                          Inactive
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs font-medium text-gray-500">Category</label>
-                <p className="text-sm text-gray-900">{product.categoryRef?.name || product.category || '—'}</p>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500">Brand</label>
-                <p className="text-sm text-gray-900">{product.brandAttribute?.name || product.brand || '—'}</p>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500">Unit</label>
-                <p className="text-sm text-gray-900">
-                  {product.unit ? `${product.unit.name} (${product.unit.abbreviation})` : product.base_unit || '—'}
-                </p>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500">Tax Rate</label>
-                <p className="text-sm text-gray-900">
-                  {product.taxRate ? `${product.taxRate.name} (${product.taxRate.rate}%)` : '—'}
-                </p>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500">Purchase Price</label>
-                <p className="text-sm text-gray-900">
-                  {product.cost_price !== undefined && product.cost_price !== null
-                    ? formatCurrency(product.cost_price)
-                    : '—'}
-                </p>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500">Selling Price</label>
-                <p className="text-sm font-semibold text-gray-900">{formatCurrency(product.sale_price)}</p>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500">Profit Margin</label>
-                <p className="text-sm text-gray-900">{product.profit_margin || 0}%</p>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500">Current Stock</label>
-                <p className="text-sm text-gray-900">
-                  {parseFloat(product.current_stock || 0).toLocaleString()} {product.base_unit || ''}
-                </p>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500">Weight</label>
-                <p className="text-sm text-gray-900">{product.weight || '—'}</p>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500">Manage Stock</label>
-                <p className="text-sm text-gray-900">{product.manage_stock ? 'Yes' : 'No'}</p>
-              </div>
-              <div className="col-span-2">
-                <label className="text-xs font-medium text-gray-500">Business Locations</label>
-                <p className="text-sm text-gray-900">
-                  {product.business_locations && product.business_locations.length > 0
-                    ? product.business_locations.map((b) => b.name).join(', ')
-                    : '—'}
-                </p>
-              </div>
-            </div>
-          </div>
-          <div className="border-t border-gray-200 px-6 py-4">
-            {product.type === 'variable' && product.variants && product.variants.length > 0 && (
-              <div className="mb-6">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">Category</label>
+                    <p className="text-sm text-gray-900">{displayProduct.categoryRef?.name || displayProduct.category || '—'}</p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">Brand</label>
+                    <p className="text-sm text-gray-900">{displayProduct.brandAttribute?.name || displayProduct.brand || '—'}</p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">Unit</label>
+                    <p className="text-sm text-gray-900">
+                      {displayProduct.unit ? `${displayProduct.unit.name} (${displayProduct.unit.abbreviation})` : displayProduct.base_unit || '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">Tax Rate</label>
+                    <p className="text-sm text-gray-900">
+                      {displayProduct.taxRate ? `${displayProduct.taxRate.name} (${displayProduct.taxRate.rate}%)` : '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">Purchase Price</label>
+                    <p className="text-sm text-gray-900">
+                      {displayProduct.cost_price !== undefined && displayProduct.cost_price !== null
+                        ? formatCurrency(displayProduct.cost_price)
+                        : '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">Selling Price</label>
+                    <p className="text-sm font-semibold text-gray-900">{formatCurrency(displayProduct.sale_price)}</p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">Profit Margin</label>
+                    <p className="text-sm text-gray-900">{displayProduct.profit_margin || 0}%</p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">Current Stock</label>
+                    <p className="text-sm text-gray-900">
+                      {parseFloat(displayProduct.current_stock || 0).toLocaleString()} {displayProduct.base_unit || ''}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">Weight</label>
+                    <p className="text-sm text-gray-900">{displayProduct.weight || '—'}</p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">Manage Stock</label>
+                    <p className="text-sm text-gray-900">{displayProduct.manage_stock ? 'Yes' : 'No'}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-xs font-medium text-gray-500">Business Locations</label>
+                    <p className="text-sm text-gray-900">
+                      {displayProduct.business_locations && displayProduct.business_locations.length > 0
+                        ? displayProduct.business_locations.map((b) => b.name).join(', ')
+                        : '—'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Variants Section */}
+                {displayProduct.type === 'variable' && displayProduct.variants && displayProduct.variants.length > 0 && (
+              <div className="mt-6 border-t border-gray-200 pt-6">
                 <h4 className="mb-3 text-lg font-semibold text-gray-900">Variants</h4>
                 <div className="overflow-hidden rounded-lg border border-gray-200">
                   <table className="min-w-full divide-y divide-gray-200">
@@ -1035,7 +1056,7 @@ const ProductViewModal = ({ product, onClose }) => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 bg-white">
-                      {product.variants.map((variant) => {
+                      {displayProduct.variants.map((variant) => {
                         const child = variant.child || {};
                         return (
                           <tr key={variant.id} className="hover:bg-gray-50">
@@ -1045,7 +1066,7 @@ const ProductViewModal = ({ product, onClose }) => {
                               {formatCurrency(child.sale_price)}
                             </td>
                             <td className="px-4 py-2 text-right text-sm text-gray-900">
-                              {parseFloat(child.current_stock || 0).toLocaleString()} {product.base_unit}
+                              {parseFloat(child.current_stock || 0).toLocaleString()} {displayProduct.base_unit}
                             </td>
                             <td className="px-4 py-2 text-right text-sm">
                               <button
@@ -1062,8 +1083,11 @@ const ProductViewModal = ({ product, onClose }) => {
                   </table>
                 </div>
               </div>
+                )}
+              </>
             )}
-
+          </div>
+          <div className="border-t border-gray-200 px-6 py-4">
             <button
               onClick={onClose}
               className="w-full rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
@@ -1233,13 +1257,14 @@ const VariantLedgerModal = ({ variant, onClose }) => {
                           <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Quantity</th>
                           <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Unit Amount</th>
                           <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Total Amount</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Batch</th>
                           <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200 bg-white">
                         {filteredLedger.length === 0 ? (
                           <tr>
-                            <td colSpan="7" className="px-6 py-4 text-center text-sm text-gray-500">
+                            <td colSpan="8" className="px-6 py-4 text-center text-sm text-gray-500">
                               No transactions found
                             </td>
                           </tr>
@@ -1263,7 +1288,16 @@ const VariantLedgerModal = ({ variant, onClose }) => {
                               <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-semibold text-gray-900">
                                 {formatCurrency(item.total_amount)}
                               </td>
-                              <td className="px-6 py-4 text-sm text-gray-500">{item.status}</td>
+                              <td className="px-6 py-4 text-sm text-gray-500">
+                                {item.batch ? (
+                                  <span className="inline-flex items-center rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700">
+                                    {item.batch.instance_code || item.batch.batch_identifier || 'N/A'}
+                                  </span>
+                                ) : (
+                                  '—'
+                                )}
+                              </td>
+                              <td className="px-6 py-4 text-sm text-gray-500">{item.status || '—'}</td>
                             </tr>
                           ))
                         )}

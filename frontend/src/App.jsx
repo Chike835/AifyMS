@@ -61,7 +61,7 @@ import PaymentAccountReport from './pages/PaymentAccountReport';
 import StockTransfer from './pages/StockTransfer';
 import StockAdjustment from './pages/StockAdjustment';
 import BatchSettings from './pages/inventory/settings/BatchSettings';
-import GaugesColorsSettings from './pages/inventory/settings/GaugesColorsSettings';
+// GaugesColorsSettings removed - feature deprecated in favor of variations
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -606,16 +606,7 @@ function App() {
                     </ProtectedRoute>
                   }
                 />
-                <Route
-                  path="/inventory/settings/gauges-colors"
-                  element={
-                    <ProtectedRoute>
-                      <Layout>
-                        <GaugesColorsSettings />
-                      </Layout>
-                    </ProtectedRoute>
-                  }
-                />
+                {/* GaugesColorsSettings route removed - feature deprecated */}
                 <Route
                   path="/inventory/settings/warranties"
                   element={

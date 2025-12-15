@@ -32,9 +32,33 @@ export const getSalesSummary = async (req, res, next) => {
       order_type: 'invoice'
     };
 
+    // Date filtering with proper validation
     if (start_date && end_date) {
+      const startDate = new Date(start_date);
+      const endDate = new Date(end_date + 'T23:59:59.999Z');
+      
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid date format' });
+      }
+      
       where.created_at = {
-        [Op.between]: [new Date(start_date), new Date(end_date + 'T23:59:59')]
+        [Op.between]: [startDate, endDate]
+      };
+    } else if (start_date) {
+      const startDate = new Date(start_date);
+      if (isNaN(startDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid start_date format' });
+      }
+      where.created_at = {
+        [Op.gte]: startDate
+      };
+    } else if (end_date) {
+      const endDate = new Date(end_date + 'T23:59:59.999Z');
+      if (isNaN(endDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid end_date format' });
+      }
+      where.created_at = {
+        [Op.lte]: endDate
       };
     }
 
@@ -62,25 +86,32 @@ export const getSalesSummary = async (req, res, next) => {
       where: { ...where, payment_status: 'partial' }
     }) || 0;
 
-    // Top selling products
+    // Top selling products - fixed group by to include all non-aggregated columns
     const topProducts = await SalesItem.findAll({
       attributes: [
         'product_id',
-        [fn('SUM', col('quantity')), 'total_quantity'],
-        [fn('SUM', col('subtotal')), 'total_revenue']
+        [fn('SUM', col('SalesItem.quantity')), 'total_quantity'],
+        [fn('SUM', col('SalesItem.subtotal')), 'total_revenue']
       ],
       include: [
         {
           model: SalesOrder,
           as: 'order',
           attributes: [],
-          where
+          where,
+          required: true
         },
-        { model: Product, as: 'product', attributes: ['name', 'sku'] }
+        { 
+          model: Product, 
+          as: 'product', 
+          attributes: ['id', 'name', 'sku'],
+          required: true
+        }
       ],
-      group: ['SalesItem.product_id', 'product.id'],
+      group: ['SalesItem.product_id', 'product.id', 'product.name', 'product.sku'],
       order: [[literal('total_revenue'), 'DESC']],
-      limit: 10
+      limit: 10,
+      raw: false
     });
 
     // Daily sales trend
@@ -92,27 +123,32 @@ export const getSalesSummary = async (req, res, next) => {
       ],
       where,
       group: [fn('DATE', col('created_at'))],
-      order: [[literal('date'), 'ASC']],
+      order: [[fn('DATE', col('created_at')), 'ASC']],
       raw: true
     });
 
     res.json({
       summary: {
-        total_sales: parseFloat(totalSales),
-        sales_count: salesCount,
+        total_sales: parseFloat(totalSales) || 0,
+        sales_count: salesCount || 0,
         average_order_value: salesCount > 0 ? parseFloat(totalSales) / salesCount : 0,
-        paid: parseFloat(paidSales),
-        unpaid: parseFloat(unpaidSales),
-        partial: parseFloat(partialSales)
+        paid: parseFloat(paidSales) || 0,
+        unpaid: parseFloat(unpaidSales) || 0,
+        partial: parseFloat(partialSales) || 0
       },
       top_products: topProducts.map(tp => ({
-        product: tp.product,
-        total_quantity: parseFloat(tp.getDataValue('total_quantity')),
-        total_revenue: parseFloat(tp.getDataValue('total_revenue'))
+        product: tp.product ? {
+          id: tp.product.id,
+          name: tp.product.name,
+          sku: tp.product.sku
+        } : null,
+        total_quantity: parseFloat(tp.getDataValue('total_quantity') || 0),
+        total_revenue: parseFloat(tp.getDataValue('total_revenue') || 0)
       })),
-      daily_trend: dailySales
+      daily_trend: dailySales || []
     });
   } catch (error) {
+    console.error('Error in getSalesSummary:', error);
     next(error);
   }
 };
@@ -223,7 +259,7 @@ export const getInventoryValue = async (req, res, next) => {
     let totalSaleValue = 0;
     const byProduct = {};
 
-    for (const instance of instances) {
+    for (const instance of batches) {
       const qty = parseFloat(instance.remaining_quantity);
       const costPrice = parseFloat(instance.product?.cost_price || 0);
       const salePrice = parseFloat(instance.product?.sale_price || 0);
@@ -257,7 +293,7 @@ export const getInventoryValue = async (req, res, next) => {
         total_cost_value: totalCostValue,
         total_sale_value: totalSaleValue,
         potential_profit: totalSaleValue - totalCostValue,
-        total_instances: instances.length
+        total_instances: batches.length
       },
       by_product: productValues.slice(0, 20)
     });

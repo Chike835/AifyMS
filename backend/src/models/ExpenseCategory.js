@@ -11,14 +11,6 @@ const ExpenseCategory = sequelize.define('ExpenseCategory', {
     type: DataTypes.STRING(100),
     allowNull: false
   },
-  branch_id: {
-    type: DataTypes.UUID,
-    allowNull: false,
-    references: {
-      model: 'branches',
-      key: 'id'
-    }
-  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW
@@ -30,7 +22,7 @@ const ExpenseCategory = sequelize.define('ExpenseCategory', {
   indexes: [
     {
       unique: true,
-      fields: ['name', 'branch_id']
+      fields: ['name']
     }
   ]
 });

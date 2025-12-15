@@ -11,6 +11,9 @@ const api = axios.create({
 // Request interceptor: Add JWT token to requests
 api.interceptors.request.use(
   (config) => {
+    // #region agent log
+    if(config.url && config.url.includes('brands/export')){fetch('http://127.0.0.1:7242/ingest/6aef7949-77a2-46a4-8fc4-df76651a5e4e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.js:13',message:'Request interceptor - final URL',data:{url:config.url,baseURL:config.baseURL,method:config.method},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});}
+    // #endregion
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;

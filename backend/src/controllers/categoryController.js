@@ -7,8 +7,23 @@ const isSuperAdmin = (req) => req.user?.role_name === 'Super Admin';
 const shouldIncludeGlobal = (flag) => flag !== 'false';
 
 
-
+/**
+ * Check if user can access a category
+ * Categories are global (not branch-scoped), so access rules are:
+ * - Super Admin: Full access
+ * - Authenticated users: Read access always allowed
+ * - Write operations: Require authentication (checked by auth middleware)
+ * @param {Object} req - Request object with user info
+ * @param {Object} category - Category object (unused for now, but available for future field-level checks)
+ * @returns {boolean} Whether user can access the category
+ */
 const canAccessCategory = (req, category) => {
+  // All authenticated users can access categories (read)
+  // Auth middleware already verifies authentication
+  // Categories are global, so no branch-specific restrictions needed
+  if (!req.user) {
+    return false;
+  }
   return true;
 };
 
@@ -16,6 +31,13 @@ const validateParentCategory = (req, parent) => {
   if (!parent) {
     return { status: 404, message: 'Parent category not found' };
   }
+
+  // Prevent more than 2 levels of depth (Parent -> Child)
+  // If the proposed parent already has a parent, it is a child, so it cannot be a parent.
+  if (parent.parent_id) {
+    return { status: 400, message: 'Maximum category depth reached. Subcategories cannot be parent categories.' };
+  }
+
   return null;
 };
 

@@ -1,9 +1,10 @@
 import sequelize from '../config/db.js';
 import { Op } from 'sequelize';
-import { Payment, Customer, User, SalesOrder, PaymentAccount, AccountTransaction, Branch, LedgerEntry } from '../models/index.js';
+import { Payment, Customer, Supplier, User, SalesOrder, PaymentAccount, AccountTransaction, Branch, LedgerEntry, Expense, ExpenseCategory } from '../models/index.js';
 import { logActivitySync } from '../middleware/activityLogger.js';
-import { createLedgerEntry, calculateAdvanceBalance } from '../services/ledgerService.js';
+import { createLedgerEntry, calculateAdvanceBalance, recalculateSubsequentBalances } from '../services/ledgerService.js';
 import { getLocale, getCurrency } from '../config/locale.js';
+import { safeRollback } from '../utils/transactionUtils.js';
 
 /**
  * Helper function to format currency
@@ -48,11 +49,15 @@ const loadPaymentAccountForUser = async (accountId, req, options = {}) => {
 /**
  * POST /api/payments
  * Create a payment with status 'pending_confirmation'
+ * CRITICAL: Uses transaction for data integrity - payment and ledger entry must be atomic
  */
 export const createPayment = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+
   try {
     const {
       customer_id,
+      supplier_id,
       amount,
       method,
       reference_note,
@@ -60,90 +65,127 @@ export const createPayment = async (req, res, next) => {
     } = req.body;
 
     // Validation
-    if (!customer_id || amount === undefined || !method) {
+    if ((!customer_id && !supplier_id) || amount === undefined || !method) {
+      await safeRollback(transaction);
       return res.status(400).json({
-        error: 'Missing required fields: customer_id, amount, method'
+        error: 'Missing required fields: customer_id OR supplier_id, amount, method'
       });
     }
 
+    // Check permission for supplier payments
+    if (supplier_id) {
+      const userPermissions = req.user?.permissions || [];
+      const isSuperAdmin = req.user?.role_name?.toLowerCase() === 'super admin';
+      if (!isSuperAdmin && !userPermissions.includes('supplier_payment')) {
+        await safeRollback(transaction);
+        return res.status(403).json({
+          error: 'You do not have permission to make supplier payments. Contact your administrator to grant the "supplier_payment" permission.'
+        });
+      }
+    }
+
     if (amount <= 0) {
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Amount must be greater than 0' });
     }
 
     const validMethods = ['cash', 'transfer', 'pos'];
     if (!validMethods.includes(method)) {
+      await safeRollback(transaction);
       return res.status(400).json({
         error: `Invalid method. Must be one of: ${validMethods.join(', ')}`
       });
     }
 
-    // Verify customer exists
-    const customer = await Customer.findByPk(customer_id);
-    if (!customer) {
-      return res.status(404).json({ error: 'Customer not found' });
+    // Verify contact exists
+    let customer = null;
+    let supplier = null;
+
+    if (customer_id) {
+      customer = await Customer.findByPk(customer_id, { transaction });
+      if (!customer) {
+        await safeRollback(transaction);
+        return res.status(404).json({ error: 'Customer not found' });
+      }
+    } else if (supplier_id) {
+      supplier = await Supplier.findByPk(supplier_id, { transaction });
+      if (!supplier) {
+        await safeRollback(transaction);
+        return res.status(404).json({ error: 'Supplier not found' });
+      }
     }
 
     // Validate payment account
     let paymentAccount = null;
     try {
-      paymentAccount = await loadPaymentAccountForUser(payment_account_id, req);
+      paymentAccount = await loadPaymentAccountForUser(payment_account_id, req, { transaction });
     } catch (accountError) {
+      await safeRollback(transaction);
       return res.status(accountError.statusCode || 500).json({ error: accountError.message });
     }
 
-    // Create payment with pending_confirmation status
+    // Resolve Branch ID (Robust Fallback) - do this before creating payment
+    let branchId = req.user?.branch_id;
+    if (!branchId) {
+      // Try to find a default branch or the first available one
+      const defaultBranch = await Branch.findOne({ order: [['id', 'ASC']], transaction });
+      branchId = defaultBranch?.id;
+    }
+
+    // Create payment with pending_confirmation status (within transaction)
     const payment = await Payment.create({
-      customer_id,
+      customer_id: customer_id || null,
+      supplier_id: supplier_id || null,
       amount,
       method,
       status: 'pending_confirmation',
       payment_account_id: paymentAccount?.id || null,
       created_by: req.user.id,
       reference_note: reference_note || null
-    });
+    }, { transaction });
 
-    // Load with associations
-    const paymentWithDetails = await Payment.findByPk(payment.id, {
-      include: [
-        { model: Customer, as: 'customer' },
-        { model: User, as: 'creator', attributes: ['id', 'full_name', 'email'] },
-        { model: PaymentAccount, as: 'payment_account', attributes: ['id', 'name', 'account_type'] }
-      ]
-    });
-
-    // Log activity
-    await logActivitySync(
-      'CREATE',
-      'payments',
-      `Created payment of ${formatCurrency(amount)} for customer ${customer.name}`,
-      req,
-      'payment',
-      payment.id
-    );
-
-    // Resolve Branch ID (Robust Fallback)
-    let branchId = req.user.branch_id;
-    if (!branchId) {
-      // Try to find a default branch or the first available one
-      const defaultBranch = await Branch.findOne({ order: [['id', 'ASC']] });
-      branchId = defaultBranch?.id;
-    }
-
-    // Create Ledger Entry (Pending)
+    // Create Ledger Entry (Pending) - within transaction for atomicity
     // This will be visible in the ledger but excluded from balance calculations until confirmed
     await createLedgerEntry(
-      payment.customer_id,
-      'customer',
+      payment.customer_id || payment.supplier_id,
+      payment.customer_id ? 'customer' : 'supplier',
       {
         transaction_date: payment.created_at,
         transaction_type: 'PAYMENT',
         transaction_id: payment.id,
         description: `Payment ${payment.method} (Pending)`,
-        debit_amount: 0,
-        credit_amount: parseFloat(payment.amount),
+        debit_amount: payment.customer_id ? 0 : parseFloat(payment.amount), // Supplier payment is Debit (reduces our payable)
+        credit_amount: payment.customer_id ? parseFloat(payment.amount) : 0, // Customer payment is Credit (reduces their receivable)
         branch_id: branchId,
         created_by: req.user.id
-      }
+      },
+      transaction
+    );
+
+    // Commit transaction only after all operations succeed
+    await transaction.commit();
+
+    // Load with associations (outside transaction for better performance)
+    const paymentWithDetails = await Payment.findByPk(payment.id, {
+      include: [
+        { model: Customer, as: 'customer' },
+        { model: Supplier, as: 'supplier' },
+        { model: User, as: 'creator', attributes: ['id', 'full_name', 'email'] },
+        { model: PaymentAccount, as: 'payment_account', attributes: ['id', 'name', 'account_type'] }
+      ]
+    });
+
+    // Log activity (outside transaction - activity logging is non-critical)
+    const contactName = customer ? customer.name : supplier?.name;
+    const contactType = customer ? 'customer' : 'supplier';
+
+    await logActivitySync(
+      'CREATE',
+      'payments',
+      `Created payment of ${formatCurrency(amount)} for ${contactType} ${contactName}`,
+      req,
+      'payment',
+      payment.id
     );
 
     res.status(201).json({
@@ -151,6 +193,7 @@ export const createPayment = async (req, res, next) => {
       payment: paymentWithDetails
     });
   } catch (error) {
+    await transaction.rollback();
     next(error);
   }
 };
@@ -174,43 +217,56 @@ export const confirmPayment = async (req, res, next) => {
     });
 
     if (!payment) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Payment not found' });
     }
 
     // Check if already confirmed
     if (payment.status === 'confirmed') {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Payment is already confirmed' });
     }
 
     // Check if voided
     if (payment.status === 'voided') {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Cannot confirm a voided payment' });
     }
 
-    // Get customer with lock
-    const customer = await Customer.findByPk(payment.customer_id, {
-      lock: transaction.LOCK.UPDATE,
-      transaction
-    });
+    // Get contact with lock
+    let customer = null;
+    let supplier = null;
 
-    if (!customer) {
-      await transaction.rollback();
-      return res.status(404).json({ error: 'Customer not found' });
+    if (payment.customer_id) {
+      customer = await Customer.findByPk(payment.customer_id, {
+        lock: transaction.LOCK.UPDATE,
+        transaction
+      });
+      if (!customer) {
+        await safeRollback(transaction);
+        return res.status(404).json({ error: 'Customer not found' });
+      }
+    } else if (payment.supplier_id) {
+      supplier = await Supplier.findByPk(payment.supplier_id, {
+        lock: transaction.LOCK.UPDATE,
+        transaction
+      });
+      if (!supplier) {
+        await safeRollback(transaction);
+        return res.status(404).json({ error: 'Supplier not found' });
+      }
     }
 
     let accountId = payment.payment_account_id;
     if (!accountId && overridePaymentAccountId) {
       accountId = overridePaymentAccountId;
     } else if (accountId && overridePaymentAccountId && accountId !== overridePaymentAccountId) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Payment already linked to a different payment account' });
     }
 
     if (!accountId) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Payment account is required to confirm this payment' });
     }
 
@@ -221,7 +277,7 @@ export const confirmPayment = async (req, res, next) => {
         lock: transaction.LOCK.UPDATE
       });
     } catch (accountError) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(accountError.statusCode || 500).json({ error: accountError.message });
     }
 
@@ -232,9 +288,18 @@ export const confirmPayment = async (req, res, next) => {
     payment.payment_account_id = paymentAccount.id;
     await payment.save({ transaction });
 
-    // Update customer ledger balance (increment - customer owes less)
-    customer.ledger_balance = parseFloat(customer.ledger_balance) - parseFloat(payment.amount);
-    await customer.save({ transaction });
+    // Update contact ledger balance
+    if (customer) {
+      // Customer pays us: Balance decreases (Credit)
+      customer.ledger_balance = parseFloat(customer.ledger_balance) - parseFloat(payment.amount);
+      await customer.save({ transaction });
+    } else if (supplier) {
+      // We pay supplier: Balance decreases (Debit) (if balance is +ve meaning we owe them)
+      // Supplier ledger: Positive = We owe them. Negative = They owe us.
+      // Payment reduces the amount we owe.
+      supplier.ledger_balance = parseFloat(supplier.ledger_balance) - parseFloat(payment.amount);
+      await supplier.save({ transaction });
+    }
 
     // Link Ledger Entry
     // Check if an entry already exists (created during createPayment)
@@ -242,21 +307,36 @@ export const confirmPayment = async (req, res, next) => {
       where: {
         transaction_id: payment.id,
         transaction_type: 'PAYMENT',
-        contact_id: payment.customer_id,
-        contact_type: 'customer'
+        contact_id: payment.customer_id || payment.supplier_id,
+        contact_type: payment.customer_id ? 'customer' : 'supplier'
       },
       transaction
     });
 
     // Get robust branch ID
     // Try recent sale, payment account branch, user branch, or fallback to any branch
-    const recentSale = await SalesOrder.findOne({
-      where: { customer_id: payment.customer_id },
-      order: [['created_at', 'DESC']],
-      transaction
-    });
+    // Try recent sale/purchase, payment account branch, user branch, or fallback
+    let relatedTransaction = null;
+    if (payment.customer_id) {
+      relatedTransaction = await SalesOrder.findOne({
+        where: { customer_id: payment.customer_id },
+        order: [['created_at', 'DESC']],
+        transaction
+      });
+    } else if (payment.supplier_id) {
+      // For suppliers, check recent Purchase
+      // We need to import Purchase model to do this, or just skip it.
+      // Since Purchase is not imported, let's skip searching for purchase to avoid error
+      // and rely on Payment Account or User branch.
+    }
 
-    let branchId = recentSale?.branch_id || paymentAccount?.branch_id || req.user.branch_id;
+    // Get branch ID - prefer explicit sources, avoid fallback to "any branch" for expenses
+    let branchId = relatedTransaction?.branch_id || paymentAccount?.branch_id || req.user.branch_id;
+    // Only use explicit branch sources for expenses (payment account or user branch)
+    // Don't use fallback to "any branch" to avoid showing wrong branch in expenses list
+    let branchIdForExpense = paymentAccount?.branch_id || req.user.branch_id;
+    
+    // Use fallback only for ledger entries if needed
     if (!branchId) {
       const anyBranch = await Branch.findOne({ transaction });
       branchId = anyBranch?.id;
@@ -272,24 +352,24 @@ export const confirmPayment = async (req, res, next) => {
       // Trigger recalculation since we updated the entry and the payment status is now confirmed
       // The service filter check (status != confirmed) will now pass, so it will be included
       await recalculateSubsequentBalances(
-        payment.customer_id,
-        'customer',
+        payment.customer_id || payment.supplier_id,
+        payment.customer_id ? 'customer' : 'supplier',
         existingEntry.transaction_date,
         branchId,
         transaction
       );
     } else {
-      // Create new if missing (legacy support or direct creation)
+      // Create new if missing
       await createLedgerEntry(
-        payment.customer_id,
-        'customer',
+        payment.customer_id || payment.supplier_id,
+        payment.customer_id ? 'customer' : 'supplier',
         {
           transaction_date: payment.created_at || new Date(),
           transaction_type: 'PAYMENT',
           transaction_id: payment.id,
           description: `Payment ${payment.method}`,
-          debit_amount: 0,
-          credit_amount: parseFloat(payment.amount),
+          debit_amount: payment.supplier_id ? parseFloat(payment.amount) : 0, // Supplier = Debit
+          credit_amount: payment.customer_id ? parseFloat(payment.amount) : 0, // Customer = Credit
           branch_id: branchId,
           created_by: req.user.id
         },
@@ -297,19 +377,79 @@ export const confirmPayment = async (req, res, next) => {
       );
     }
 
-    // Record deposit into payment account
+    // Record transaction into payment account
+    // Customer payments = deposit (money coming in)
+    // Supplier payments = withdrawal (money going out)
+    const isSupplierPayment = !!payment.supplier_id;
+    const transactionType = isSupplierPayment ? 'withdrawal' : 'deposit';
+    const contactName = payment.customer?.name || payment.supplier?.name;
+    const contactType = isSupplierPayment ? 'supplier' : 'customer';
+
     await AccountTransaction.create({
       account_id: paymentAccount.id,
-      transaction_type: 'deposit',
+      transaction_type: transactionType,
       amount: parseFloat(payment.amount),
       reference_type: 'payment',
       reference_id: payment.id,
-      notes: `Customer payment (${payment.method})`,
+      notes: `${contactType.charAt(0).toUpperCase() + contactType.slice(1)} payment (${payment.method})`,
       user_id: req.user.id
     }, { transaction });
 
-    paymentAccount.current_balance = parseFloat(paymentAccount.current_balance || 0) + parseFloat(payment.amount);
+    // Update payment account balance
+    if (isSupplierPayment) {
+      paymentAccount.current_balance = parseFloat(paymentAccount.current_balance || 0) - parseFloat(payment.amount);
+    } else {
+      paymentAccount.current_balance = parseFloat(paymentAccount.current_balance || 0) + parseFloat(payment.amount);
+    }
     await paymentAccount.save({ transaction });
+
+    // ----------------------------------------------------------------
+    // AUTO-CREATE EXPENSE FOR SUPPLIER PAYMENTS
+    // ----------------------------------------------------------------
+    if (isSupplierPayment) {
+      // 1. Find or Create "Supplier Payments" Category (global, no branch restriction)
+      const categoryName = 'Supplier Payments';
+      let expenseCategory = await ExpenseCategory.findOne({
+        where: {
+          name: { [Op.iLike]: categoryName } // Case-insensitive search
+        },
+        transaction
+      });
+
+      if (!expenseCategory) {
+        expenseCategory = await ExpenseCategory.create({
+          name: categoryName
+        }, { transaction });
+      }
+
+      // 2. Create Expense Record
+      // Check if expense already exists for this payment (idempotency)
+      // Use branchIdForExpense for consistency (only explicit branches)
+      const existingExpense = branchIdForExpense ? await Expense.findOne({
+        where: {
+          description: { [Op.iLike]: `%Payment #${payment.id}%` }, // Heuristic check or if we add a reference column later
+          amount: parseFloat(payment.amount),
+          branch_id: branchIdForExpense
+        },
+        transaction
+      }) : null;
+
+      if (!existingExpense) {
+        // Only create expense if we have an explicit branch (from payment account or user)
+        // Don't use fallback branch to avoid showing wrong branch in expenses list
+        if (branchIdForExpense) {
+          await Expense.create({
+            category_id: expenseCategory.id,
+            branch_id: branchIdForExpense,
+            user_id: req.user.id,
+            amount: parseFloat(payment.amount),
+            description: `Supplier Payment #${payment.id} - ${supplier.name} (${payment.method})`,
+            expense_date: payment.confirmed_at || new Date()
+          }, { transaction });
+        }
+        // If no explicit branch, skip expense creation (or could make branch optional in model)
+      }
+    }
 
     // Commit transaction (only after all operations succeed, including ledger entry)
     await transaction.commit();
@@ -318,6 +458,7 @@ export const confirmPayment = async (req, res, next) => {
     const updatedPayment = await Payment.findByPk(id, {
       include: [
         { model: Customer, as: 'customer' },
+        { model: Supplier, as: 'supplier' },
         { model: User, as: 'creator', attributes: ['id', 'full_name', 'email'] },
         { model: User, as: 'confirmer', attributes: ['id', 'full_name', 'email'] },
         { model: PaymentAccount, as: 'payment_account', attributes: ['id', 'name', 'account_type'] }
@@ -325,10 +466,13 @@ export const confirmPayment = async (req, res, next) => {
     });
 
     // Log activity
+    const confContactName = customer ? customer.name : supplier?.name;
+    const confContactType = customer ? 'customer' : 'supplier';
+
     await logActivitySync(
       'CONFIRM',
       'payments',
-      `Confirmed payment of ${formatCurrency(payment.amount)} for customer ${customer.name}`,
+      `Confirmed payment of ${formatCurrency(payment.amount)} for ${confContactType} ${confContactName}`,
       req,
       'payment',
       payment.id
@@ -360,12 +504,12 @@ export const declinePayment = async (req, res, next) => {
     });
 
     if (!payment) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Payment not found' });
     }
 
     if (payment.status !== 'pending_confirmation') {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Only pending payments can be declined' });
     }
 
@@ -523,10 +667,11 @@ export const getRecentPayments = async (req, res, next) => {
     const payments = await Payment.findAll({
       where,
       include: [
-        { model: Customer, as: 'customer', attributes: ['id', 'name', 'phone'] },
+        { model: Customer, as: 'customer', attributes: ['id', 'name', 'phone'], required: false },
+        { model: Supplier, as: 'supplier', attributes: ['id', 'name', 'phone'], required: false },
         { model: User, as: 'creator', attributes: ['id', 'full_name', 'email', 'branch_id'] },
-        { model: User, as: 'confirmer', attributes: ['id', 'full_name', 'email'] },
-        { model: PaymentAccount, as: 'payment_account', attributes: ['id', 'name', 'account_type'] }
+        { model: User, as: 'confirmer', attributes: ['id', 'full_name', 'email'], required: false },
+        { model: PaymentAccount, as: 'payment_account', attributes: ['id', 'name', 'account_type'], required: false }
       ],
       order: [['created_at', 'DESC']],
       limit: 50
@@ -562,9 +707,10 @@ export const getPendingPayments = async (req, res, next) => {
     const payments = await Payment.findAll({
       where,
       include: [
-        { model: Customer, as: 'customer' },
+        { model: Customer, as: 'customer', required: false },
+        { model: Supplier, as: 'supplier', required: false },
         { model: User, as: 'creator', attributes: ['id', 'full_name', 'email', 'branch_id'] },
-        { model: PaymentAccount, as: 'payment_account', attributes: ['id', 'name', 'account_type'] }
+        { model: PaymentAccount, as: 'payment_account', attributes: ['id', 'name', 'account_type'], required: false }
       ],
       order: [['created_at', 'ASC']]
     });
@@ -678,13 +824,13 @@ export const confirmAdvancePayment = async (req, res, next) => {
     });
 
     if (!payment) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Payment not found' });
     }
 
     // Check if already confirmed
     if (payment.status === 'confirmed') {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Payment is already confirmed' });
     }
 
@@ -695,7 +841,7 @@ export const confirmAdvancePayment = async (req, res, next) => {
     });
 
     if (!customer) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Customer not found' });
     }
 
@@ -703,12 +849,12 @@ export const confirmAdvancePayment = async (req, res, next) => {
     if (!accountId && overridePaymentAccountId) {
       accountId = overridePaymentAccountId;
     } else if (accountId && overridePaymentAccountId && accountId !== overridePaymentAccountId) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Payment already linked to a different payment account' });
     }
 
     if (!accountId) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Payment account is required to confirm this payment' });
     }
 
@@ -719,7 +865,7 @@ export const confirmAdvancePayment = async (req, res, next) => {
         lock: transaction.LOCK.UPDATE
       });
     } catch (accountError) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(accountError.statusCode || 500).json({ error: accountError.message });
     }
 
@@ -824,19 +970,19 @@ export const processRefund = async (req, res, next) => {
 
     // Validation
     if (!customer_id || refund_amount === undefined || !method) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({
         error: 'Missing required fields: customer_id, refund_amount, method'
       });
     }
 
     if (refund_amount <= 0) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Refund amount must be greater than 0' });
     }
 
     if (withdrawal_fee < 0) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'Withdrawal fee cannot be negative' });
     }
 
@@ -847,7 +993,7 @@ export const processRefund = async (req, res, next) => {
     });
 
     if (!customer) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Customer not found' });
     }
 
@@ -857,7 +1003,7 @@ export const processRefund = async (req, res, next) => {
     const totalRefundAmount = parseFloat(refund_amount) + parseFloat(withdrawal_fee || 0);
 
     if (totalRefundAmount > advanceBalance) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({
         error: `Insufficient advance balance. Available: ${formatCurrency(advanceBalance)}, Requested: ${formatCurrency(totalRefundAmount)}`
       });

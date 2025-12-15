@@ -1,6 +1,7 @@
 import sequelize from '../config/db.js';
 import { Role, Permission, User } from '../models/index.js';
 import { Op } from 'sequelize';
+import { safeRollback } from '../utils/transactionUtils.js';
 
 // Protected roles that cannot be deleted or have certain permissions removed
 const PROTECTED_ROLES = ['Super Admin'];
@@ -245,13 +246,13 @@ export const updateRolePermissions = async (req, res, next) => {
     });
 
     if (!role) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(404).json({ error: 'Role not found' });
     }
 
     // Validate permission_ids is an array
     if (!Array.isArray(permission_ids)) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'permission_ids must be an array' });
     }
 
@@ -262,7 +263,7 @@ export const updateRolePermissions = async (req, res, next) => {
       });
 
       if (roleManagePermission && !permission_ids.includes(roleManagePermission.id)) {
-        await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(403).json({
           error: 'Cannot remove "role_manage" permission from Super Admin role'
         });
@@ -276,7 +277,7 @@ export const updateRolePermissions = async (req, res, next) => {
     });
 
     if (permissions.length !== permission_ids.length) {
-      await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(400).json({ error: 'One or more permission IDs are invalid' });
     }
 
@@ -345,6 +346,8 @@ export const deleteRole = async (req, res, next) => {
     next(error);
   }
 };
+
+
 
 
 

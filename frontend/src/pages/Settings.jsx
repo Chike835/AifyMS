@@ -88,6 +88,8 @@ const Settings = () => {
       </div>
 
       {activeTab === 'brands' && (
+        // #region agent log
+        // #endregion
         <DataControlBar
           importEndpoint="/api/attributes/brands/import"
           exportEndpoint="/api/attributes/brands/export"

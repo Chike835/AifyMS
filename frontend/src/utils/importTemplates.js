@@ -94,6 +94,15 @@ export const generateSuppliersTemplate = () => {
 };
 
 /**
+ * Generate CSV template for payment accounts
+ */
+export const generatePaymentAccountsTemplate = () => {
+  const headers = ['name', 'account_type', 'account_number', 'bank_name', 'opening_balance', 'branch_name', 'is_active'];
+  const sampleRow = ['Main Cash Register', 'cash', '', '', '0.00', '', 'true'];
+  return [headers.join(','), sampleRow.join(',')].join('\n');
+};
+
+/**
  * Download template as CSV file
  */
 export const downloadTemplate = (csvContent, filename) => {
@@ -121,7 +130,8 @@ export const getTemplateGenerator = (entity) => {
     variations: generateVariationsTemplate,
     warranties: generateWarrantiesTemplate,
     customers: generateCustomersTemplate,
-    suppliers: generateSuppliersTemplate
+    suppliers: generateSuppliersTemplate,
+    payment_accounts: generatePaymentAccountsTemplate
   };
 
   return generators[entity] || null;
