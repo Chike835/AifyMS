@@ -81,11 +81,11 @@ const InventoryBatches = () => {
     },
   });
 
-  // Fetch products (raw_tracked only)
+  // Fetch all products
   const { data: products } = useQuery({
-    queryKey: ['products', 'raw_tracked'],
+    queryKey: ['products', 'all'],
     queryFn: async () => {
-      const response = await api.get('/products?type=raw_tracked');
+      const response = await api.get('/products');
       return response.data.products || [];
     },
   });

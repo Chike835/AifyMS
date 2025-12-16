@@ -25,11 +25,27 @@ const ManufacturedItemSelector = ({ isOpen, items, onConfirm, onCancel }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Initialize manufactured items when modal opens
+  // Initialize items with recipes when modal opens
   useEffect(() => {
     if (isOpen && items) {
-      const manuItems = items.filter(item => item.product?.type === 'manufactured_virtual');
-      setManufacturedItems(manuItems);
+      // Filter items that have recipes (check via API)
+      const checkRecipes = async () => {
+        const itemsWithRecipes = [];
+        for (const item of items) {
+          if (item.product?.id) {
+            try {
+              const response = await api.get(`/recipes/by-virtual/${item.product.id}`);
+              if (response.data.recipe) {
+                itemsWithRecipes.push(item);
+              }
+            } catch (error) {
+              // No recipe found, skip this item
+            }
+          }
+        }
+        setManufacturedItems(itemsWithRecipes);
+      };
+      checkRecipes();
       setCurrentIndex(0);
       setAssignments({});
       setSelectedCoils([]);

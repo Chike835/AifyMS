@@ -12,6 +12,7 @@ import {
   getProductSales,
   getProductBatches,
   addProductBatch,
+  createDefaultBatches,
   generateVariants,
   getVariantLedger,
   getProductInstanceCodes,
@@ -111,6 +112,19 @@ router.post(
     (req, data) => ({ reference_type: 'inventory_batch', reference_id: data?.batch?.id })
   ),
   addProductBatch
+);
+
+// POST /api/products/:id/batches/defaults - Create default batches for product (requires batch_create or stock_add_opening)
+router.post(
+  '/:id/batches/defaults',
+  requirePermission('batch_create', 'stock_add_opening'),
+  activityLogger(
+    'CREATE',
+    'inventory_batches',
+    (req, data) => `Created default batches for product ID: ${req.params.id}`,
+    (req, data) => ({ reference_type: 'product', reference_id: req.params.id })
+  ),
+  createDefaultBatches
 );
 
 // POST /api/products/:id/generate-variants - Generate variants (requires product_edit)

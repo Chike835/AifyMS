@@ -203,10 +203,13 @@ export const createSale = async (req, res, next) => {
         subtotal
       }, { transaction });
 
-      // Handle manufactured_virtual products - CRITICAL LOGIC
-      // For Roofing Manufacturing ERP: Allow creating invoices without immediate inventory deduction
-      // Materials will be assigned later via /api/production/assign-material endpoint
-      if (product.type === 'manufactured_virtual') {
+      // Handle products with recipes - check if product has a recipe
+      const recipe = await Recipe.findOne({
+        where: { virtual_product_id: product.id },
+        transaction
+      });
+
+      if (recipe) {
         hasManufacturedItems = true;
 
         // Only process inventory deduction if item_assignments are provided
@@ -971,7 +974,13 @@ export const convertDraftToInvoice = async (req, res, next) => {
     let hasManufacturedItems = false;
 
     for (const item of draft.items) {
-      if (item.product?.type === 'manufactured_virtual') {
+      // Check if product has a recipe
+      const recipe = await Recipe.findOne({
+        where: { virtual_product_id: item.product_id },
+        transaction
+      });
+
+      if (recipe) {
         hasManufacturedItems = true;
 
         // Find assignments for this item

@@ -25,26 +25,16 @@ export const createRecipe = async (req, res, next) => {
       return res.status(400).json({ error: 'conversion_factor must be greater than 0' });
     }
 
-    // Verify virtual product exists and is manufactured_virtual
+    // Verify virtual product exists
     const virtualProduct = await Product.findByPk(virtual_product_id);
     if (!virtualProduct) {
       return res.status(404).json({ error: 'Virtual product not found' });
     }
-    if (virtualProduct.type !== 'manufactured_virtual') {
-      return res.status(400).json({ 
-        error: 'Virtual product must be of type manufactured_virtual' 
-      });
-    }
 
-    // Verify raw product exists and is raw_tracked
+    // Verify raw product exists
     const rawProduct = await Product.findByPk(raw_product_id);
     if (!rawProduct) {
       return res.status(404).json({ error: 'Raw product not found' });
-    }
-    if (rawProduct.type !== 'raw_tracked') {
-      return res.status(400).json({ 
-        error: 'Raw product must be of type raw_tracked' 
-      });
     }
 
     // Check if recipe already exists for this combination
@@ -177,16 +167,11 @@ export const updateRecipe = async (req, res, next) => {
       return res.status(400).json({ error: 'wastage_margin must be between 0 and 100' });
     }
 
-    // If changing products, verify they exist and have correct types
+    // If changing products, verify they exist
     if (virtual_product_id && virtual_product_id !== recipe.virtual_product_id) {
       const virtualProduct = await Product.findByPk(virtual_product_id);
       if (!virtualProduct) {
         return res.status(404).json({ error: 'Virtual product not found' });
-      }
-      if (virtualProduct.type !== 'manufactured_virtual') {
-        return res.status(400).json({ 
-          error: 'Virtual product must be of type manufactured_virtual' 
-        });
       }
     }
 
@@ -194,11 +179,6 @@ export const updateRecipe = async (req, res, next) => {
       const rawProduct = await Product.findByPk(raw_product_id);
       if (!rawProduct) {
         return res.status(404).json({ error: 'Raw product not found' });
-      }
-      if (rawProduct.type !== 'raw_tracked') {
-        return res.status(400).json({ 
-          error: 'Raw product must be of type raw_tracked' 
-        });
       }
 
       // Check if recipe already exists for new combination

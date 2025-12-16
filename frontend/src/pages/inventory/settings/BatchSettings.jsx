@@ -365,26 +365,40 @@ const BatchSettings = () => {
                   <div className="grid grid-cols-2 gap-2">
                     {batchTypes.filter(bt => bt.is_active).map((batchType) => {
                       const assigned = isAssigned(category.id, batchType.id);
+                      const isDefault = batchType.is_default;
+                      // Pre-select if it's the default batch type (visual only if not assigned)
+                      const shouldBeChecked = assigned || isDefault;
                       return (
                         <label
                           key={batchType.id}
-                          className={`flex items-center space-x-2 p-2 rounded cursor-pointer transition-colors ${assigned
+                          className={`flex items-center space-x-2 p-2 rounded cursor-pointer transition-colors ${shouldBeChecked
                               ? 'bg-blue-50 border-2 border-blue-300'
                               : 'bg-gray-50 border border-gray-200 hover:bg-gray-100'
                             }`}
                         >
                           <input
                             type="checkbox"
-                            checked={assigned}
-                            onChange={() => handleToggleAssignment(category.id, batchType.id, assigned)}
+                            checked={shouldBeChecked}
+                            onChange={() => {
+                              // If default but not assigned, assign it; if assigned, remove it
+                              if (assigned) {
+                                handleToggleAssignment(category.id, batchType.id, true);
+                              } else {
+                                // Not assigned - assign it (even if it's default, we need to create the assignment)
+                                handleToggleAssignment(category.id, batchType.id, false);
+                              }
+                            }}
                             disabled={!hasPermission('settings_manage')}
                             className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 w-4 h-4"
                           />
-                          {assigned && (
+                          {shouldBeChecked && (
                             <Check className="h-4 w-4 text-blue-600" />
                           )}
-                          <span className={`text-sm ${assigned ? 'font-medium text-gray-900' : 'text-gray-700'}`}>
+                          <span className={`text-sm ${shouldBeChecked ? 'font-medium text-gray-900' : 'text-gray-700'}`}>
                             {batchType.name}
+                            {isDefault && (
+                              <span className="ml-1 text-xs text-yellow-600">(Default)</span>
+                            )}
                           </span>
                         </label>
                       );

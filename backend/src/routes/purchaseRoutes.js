@@ -30,7 +30,7 @@ router.get('/:id', requirePermission('product_view'), getPurchaseById);
 
 /**
  * POST /api/purchases
- * Create a new purchase (with automatic inventory instance creation for raw_tracked)
+ * Create a new purchase (with automatic inventory instance creation if instance_code provided)
  * Permission: stock_add_opening (ability to add opening stock implies purchase creation)
  */
 router.post('/', requirePermission('stock_add_opening'), createPurchase);

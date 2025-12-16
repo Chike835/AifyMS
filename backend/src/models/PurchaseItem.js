@@ -36,12 +36,12 @@ const PurchaseItem = sequelize.define('PurchaseItem', {
     type: DataTypes.DECIMAL(15, 2),
     allowNull: false
   },
-  // For raw_tracked products: the instance code of the created inventory batch
+  // Instance code of the created inventory batch (optional for any product type)
   instance_code: {
     type: DataTypes.STRING(100),
     allowNull: true
   },
-  // Reference to the inventory batch created (if raw_tracked)
+  // Reference to the inventory batch created (if instance_code provided)
   inventory_batch_id: {
     type: DataTypes.UUID,
     allowNull: true,

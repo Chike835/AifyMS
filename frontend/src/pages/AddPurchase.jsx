@@ -45,11 +45,12 @@ const AddPurchase = () => {
     }
   });
 
-  // Fetch products
+  // Fetch products - include variant children, exclude parent variable products
   const { data: productsData } = useQuery({
-    queryKey: ['products'],
+    queryKey: ['products', 'with_variants'],
     queryFn: async () => {
-      const response = await api.get('/products');
+      // Get all products including variant children (backend filters to exclude parent variable products)
+      const response = await api.get('/products', { params: { include_variants: 'true' } });
       return response.data.products || [];
     }
   });
@@ -101,10 +102,10 @@ const AddPurchase = () => {
     return products.find(p => p.id === productId);
   };
 
-  // Check if product is raw_tracked
-  const isRawTracked = (productId) => {
-    const product = getProduct(productId);
-    return product?.type === 'raw_tracked';
+  // Check if product needs instance code (any product can have instance codes now)
+  const needsInstanceCode = (productId) => {
+    // Instance codes are optional for all products
+    return false; // Remove type restriction
   };
 
   // Add new item row
@@ -352,10 +353,11 @@ const AddPurchase = () => {
       return;
     }
 
-    // Validate raw_tracked items have instance codes
+    // Instance code validation removed - instance codes are optional for all products
     for (const item of validItems) {
       const product = getProduct(item.product_id);
-      if (product?.type === 'raw_tracked' && !item.instance_code?.trim()) {
+      // Instance codes are optional - no validation needed
+      if (false && !item.instance_code?.trim()) {
         setFormError(`Instance Code (Coil/Pallet Number) is required for "${product.name}"`);
         return;
       }
@@ -511,7 +513,7 @@ const AddPurchase = () => {
           <div className="space-y-4">
             {items.map((item, index) => {
               const product = getProduct(item.product_id);
-              const isTracked = isRawTracked(item.product_id);
+              // instance_code is now optional for all products
 
               return (
                 <div key={index} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
@@ -743,26 +745,18 @@ const AddPurchase = () => {
                           />
                         </div>
 
-                        {/* Instance Code (for raw_tracked) */}
+                        {/* Instance Code (optional) */}
                         <div className="md:col-span-1">
                           <label className="block text-xs font-medium text-gray-500 mb-1">
-                            {isTracked ? 'Coil/Pallet # *' : 'Instance Code'}
+                            Instance Code
                           </label>
                           <input
                             type="text"
                             value={item.instance_code}
                             onChange={(e) => updateItem(index, 'instance_code', e.target.value)}
-                            className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm ${isTracked
-                              ? 'border-orange-300 bg-orange-50'
-                              : 'border-gray-300 bg-gray-100'
-                              }`}
-                            placeholder={isTracked ? 'COIL-001' : 'N/A'}
-                            disabled={!isTracked}
-                            required={isTracked}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm bg-gray-100"
+                            placeholder="Optional"
                           />
-                          {isTracked && (
-                            <p className="text-xs text-orange-600 mt-1">Required for inventory tracking</p>
-                          )}
                         </div>
                       </>
                     )}
@@ -793,15 +787,10 @@ const AddPurchase = () => {
                   {/* Product Type Indicator */}
                   {product && (
                     <div className="mt-2 flex items-center space-x-2">
-                      <span className={`px-2 py-0.5 text-xs rounded-full ${product.type === 'raw_tracked'
-                        ? 'bg-orange-100 text-orange-700'
-                        : product.type === 'manufactured_virtual'
-                          ? 'bg-purple-100 text-purple-700'
-                          : 'bg-gray-100 text-gray-700'
-                        }`}>
+                      <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-700">
                         {product.type}
                       </span>
-                      {product.type === 'raw_tracked' && (
+                      {item.instance_code && (
                         <span className="text-xs text-gray-500">
                           → Will create inventory instance automatically
                         </span>
@@ -829,7 +818,7 @@ const AddPurchase = () => {
             <div className="text-sm text-blue-700">
               <p className="font-medium">Inventory Integration</p>
               <p className="mt-1">
-                When purchasing <strong>raw_tracked</strong> products (e.g., coils, pallets),
+                When purchasing products with instance codes (e.g., coils, pallets),
                 a unique Instance Code is required. The system will automatically create an
                 inventory instance for each item, making it available for sales and production.
               </p>

@@ -6,8 +6,6 @@
 export const PRODUCT_TYPES = {
     STANDARD: 'standard',
     COMPOUND: 'compound',
-    RAW_TRACKED: 'raw_tracked',
-    MANUFACTURED_VIRTUAL: 'manufactured_virtual',
     VARIABLE: 'variable'
 };
 

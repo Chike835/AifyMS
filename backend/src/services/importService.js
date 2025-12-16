@@ -223,7 +223,7 @@ export const importProducts = async (data, errors = []) => {
     errors: []
   };
 
-  const validTypes = ['standard', 'compound', 'raw_tracked', 'manufactured_virtual', 'variable'];
+  const validTypes = ['standard', 'compound', 'variable'];
   const validRows = [];
   const rowNumMap = new Map(); // Map to track row numbers for error reporting
 
@@ -462,15 +462,7 @@ export const importInventoryBatches = async (data, errors = []) => {
         continue;
       }
 
-      // Verify product is raw_tracked
-      if (product.type !== 'raw_tracked') {
-        results.errors.push({
-          row: rowNum,
-          error: `Product "${row.product_sku}" is not a raw_tracked product`
-        });
-        results.skipped++;
-        continue;
-      }
+      // Product type validation removed - any product type can have batches
 
       // Find branch by code
       const branch = await Branch.findOne({ where: { code: row.branch_code.trim() } });

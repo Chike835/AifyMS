@@ -54,17 +54,13 @@ export const createBatch = async (req, res, next) => {
       });
     }
 
-    // Verify product exists and is of type raw_tracked
+    // Verify product exists
     const product = await Product.findByPk(product_id);
     if (!product) {
       return res.status(404).json({ error: 'Product not found' });
     }
 
-    if (product.type !== 'raw_tracked') {
-      return res.status(400).json({
-        error: 'Only raw_tracked products can have inventory batches'
-      });
-    }
+    // Product type validation removed - any product type can have inventory batches
 
     // Verify branch exists
     const branch = await Branch.findByPk(branch_id);

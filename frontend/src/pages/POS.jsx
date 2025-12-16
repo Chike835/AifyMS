@@ -24,6 +24,17 @@ const POS = () => {
     enabled: searchQuery.length > 0,
   });
 
+  // Fetch recipes
+  const { data: recipesData } = useQuery({
+    queryKey: ['recipes'],
+    queryFn: async () => {
+      const response = await api.get('/recipes');
+      return response.data.recipes || [];
+    }
+  });
+
+  const recipes = recipesData || [];
+
   // Create sale mutation
   const createSaleMutation = useMutation({
     mutationFn: async (saleData) => {
@@ -41,8 +52,9 @@ const POS = () => {
   });
 
   const addToCart = (product, quantity = 1) => {
-    // Check if product is manufactured_virtual
-    if (product.type === 'manufactured_virtual') {
+    // Check if product has a recipe
+    const hasRecipe = recipes.some(r => r.virtual_product_id === product.id);
+    if (hasRecipe) {
       // Open coil selector modal
       setSelectedProduct(product);
       setSelectedQuantity(quantity);

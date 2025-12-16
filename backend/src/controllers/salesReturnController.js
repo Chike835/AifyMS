@@ -11,7 +11,8 @@ import {
   Branch,
   User,
   InventoryBatch,
-  ItemAssignment
+  ItemAssignment,
+  Recipe
 } from '../models/index.js';
 import { add, greaterThan } from '../utils/mathUtils.js';
 
@@ -301,9 +302,17 @@ export const approveSalesReturn = async (req, res, next) => {
       return res.status(400).json({ error: 'Only pending returns can be approved' });
     }
 
-    // Process inventory restoration for raw_tracked products
+    // Process inventory restoration for products with inventory batches or recipes
     for (const item of salesReturn.items) {
-      if (item.product?.type === 'raw_tracked' || item.product?.type === 'manufactured_virtual') {
+      // Check if product has inventory batches or a recipe
+      const hasBatches = await InventoryBatch.findOne({
+        where: { product_id: item.product_id }
+      });
+      const hasRecipe = await Recipe.findOne({
+        where: { virtual_product_id: item.product_id }
+      });
+
+      if (hasBatches || hasRecipe) {
         // For manufactured products, restore to the original coils
         const assignments = item.original_item?.assignments || [];
         

@@ -332,10 +332,8 @@ export const confirmPayment = async (req, res, next) => {
 
     // Get branch ID - prefer explicit sources, avoid fallback to "any branch" for expenses
     let branchId = relatedTransaction?.branch_id || paymentAccount?.branch_id || req.user.branch_id;
-    // Only use explicit branch sources for expenses (payment account or user branch)
-    // Don't use fallback to "any branch" to avoid showing wrong branch in expenses list
-    let branchIdForExpense = paymentAccount?.branch_id || req.user.branch_id;
-    
+    // Use fallback only for ledger entries AND expenses if needed
+
     // Use fallback only for ledger entries if needed
     if (!branchId) {
       const anyBranch = await Branch.findOne({ transaction });
@@ -424,30 +422,28 @@ export const confirmPayment = async (req, res, next) => {
 
       // 2. Create Expense Record
       // Check if expense already exists for this payment (idempotency)
-      // Use branchIdForExpense for consistency (only explicit branches)
-      const existingExpense = branchIdForExpense ? await Expense.findOne({
+      // Use branchId (which includes fallbacks) to ensure expense is recorded
+      const existingExpense = await Expense.findOne({
         where: {
-          description: { [Op.iLike]: `%Payment #${payment.id}%` }, // Heuristic check or if we add a reference column later
+          description: { [Op.iLike]: `%Payment #${payment.id}%` },
           amount: parseFloat(payment.amount),
-          branch_id: branchIdForExpense
+          branch_id: branchId
         },
         transaction
-      }) : null;
+      });
 
       if (!existingExpense) {
-        // Only create expense if we have an explicit branch (from payment account or user)
-        // Don't use fallback branch to avoid showing wrong branch in expenses list
-        if (branchIdForExpense) {
+        // Ensure we have a branch ID (should be guaranteed by fallback logic above)
+        if (branchId) {
           await Expense.create({
             category_id: expenseCategory.id,
-            branch_id: branchIdForExpense,
+            branch_id: branchId,
             user_id: req.user.id,
             amount: parseFloat(payment.amount),
             description: `Supplier Payment #${payment.id} - ${supplier.name} (${payment.method})`,
             expense_date: payment.confirmed_at || new Date()
           }, { transaction });
         }
-        // If no explicit branch, skip expense creation (or could make branch optional in model)
       }
     }
 

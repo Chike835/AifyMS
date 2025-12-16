@@ -54,6 +54,17 @@ const Drafts = () => {
     }
   });
 
+  // Fetch recipes
+  const { data: recipesData } = useQuery({
+    queryKey: ['recipes'],
+    queryFn: async () => {
+      const response = await api.get('/recipes');
+      return response.data.recipes || [];
+    }
+  });
+
+  const recipes = recipesData || [];
+
   // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async (id) => {
@@ -109,8 +120,11 @@ const Drafts = () => {
   };
 
   const handleConvertToInvoice = (draft) => {
-    // Check if draft has manufactured products that need coil selection
-    const hasManufactured = draft.items?.some(item => item.product?.type === 'manufactured_virtual');
+    // Check if draft has products with recipes that need coil selection
+    const hasManufactured = draft.items?.some(item => {
+      const recipe = recipes.find(r => r.virtual_product_id === item.product_id);
+      return !!recipe;
+    });
 
     if (hasManufactured) {
       // Show coil selection modal for manufactured items
@@ -406,9 +420,9 @@ const Drafts = () => {
                           </div>
                           <div className="text-xs text-gray-500">
                             {item.product?.sku}
-                            {item.product?.type === 'manufactured_virtual' && (
+                            {recipes.find(r => r.virtual_product_id === item.product_id) && (
                               <span className="ml-1 px-1 py-0.5 bg-purple-100 text-purple-700 rounded text-xs">
-                                manufactured
+                                has recipe
                               </span>
                             )}
                           </div>

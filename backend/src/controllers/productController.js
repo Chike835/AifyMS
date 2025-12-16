@@ -1,4 +1,4 @@
-import { Product, PriceHistory, User, InventoryBatch, Branch, Category, Unit, TaxRate, ProductBrand, ProductBusinessLocation, BatchType, ProductVariationAssignment, ProductVariant, ProductVariation, ProductVariationValue, PurchaseItem, Purchase, SalesItem, SalesOrder } from '../models/index.js';
+import { Product, PriceHistory, User, InventoryBatch, Branch, Category, Unit, TaxRate, ProductBrand, ProductBusinessLocation, BatchType, CategoryBatchType, ProductVariationAssignment, ProductVariant, ProductVariation, ProductVariationValue, PurchaseItem, Purchase, SalesItem, SalesOrder } from '../models/index.js';
 import * as variantService from '../services/variantService.js';
 import { Op } from 'sequelize';
 import sequelize from '../config/db.js';
@@ -239,18 +239,39 @@ export const getProducts = async (req, res, next) => {
       where.type = type;
     }
 
-    // Search filter
-    if (search) {
+    // Optimized filtering using is_variant_child column
+    // This avoids fetching all variant IDs into memory
+    // If include_variants is true, include variant children; otherwise exclude them
+    const includeVariants = req.query.include_variants === 'true';
+    if (!includeVariants) {
+      where.is_variant_child = false;
+    } else {
+      // When including variants, exclude parent variable products
       where[Op.or] = [
+        { is_variant_child: true },
+        { type: { [Op.ne]: 'variable' } }
+      ];
+    }
+
+    // Search filter (applied after variant filtering)
+    if (search) {
+      const searchConditions = [
         { name: { [Op.iLike]: `%${search}%` } },
         { name: { [Op.iLike]: `%${search}%` } },
         { sku: { [Op.iLike]: `%${search}%` } }
       ];
+      
+      // If we already have Op.or (from variant filtering), combine with Op.and
+      if (where[Op.or]) {
+        where[Op.and] = [
+          { [Op.or]: where[Op.or] },
+          { [Op.or]: searchConditions }
+        ];
+        delete where[Op.or];
+      } else {
+        where[Op.or] = searchConditions;
+      }
     }
-
-    // Optimized filtering using is_variant_child column
-    // This avoids fetching all variant IDs into memory
-    where.is_variant_child = false;
 
     /* REMOVED: Inefficient subquery logic
     const childProductIds = await ProductVariant.findAll({
@@ -927,12 +948,7 @@ export const addProductBatch = async (req, res, next) => {
       return res.status(404).json({ error: 'Product not found' });
     }
 
-    if (product.type !== 'raw_tracked') {
-      await safeRollback(transaction);
-      return res.status(400).json({
-        error: 'Only raw_tracked products can have inventory batches'
-      });
-    }
+    // Product type validation removed - any product type can have inventory batches
 
     // Validation
     if (!branch_id || initial_quantity === undefined) {
@@ -942,9 +958,9 @@ export const addProductBatch = async (req, res, next) => {
       });
     }
 
-    if (initial_quantity <= 0) {
+    if (initial_quantity < 0) {
       await safeRollback(transaction);
-      return res.status(400).json({ error: 'initial_quantity must be greater than 0' });
+      return res.status(400).json({ error: 'initial_quantity cannot be negative' });
     }
 
     // If grouped, instance_code is required
@@ -1016,6 +1032,155 @@ export const addProductBatch = async (req, res, next) => {
     res.status(201).json({
       message: 'Inventory batch created successfully',
       batch: batchWithDetails
+    });
+  } catch (error) {
+    await transaction.rollback();
+    next(error);
+  }
+};
+
+/**
+ * POST /api/products/:id/batches/defaults
+ * Create default batches for a product (all category-assigned batch types with 0 balance)
+ */
+export const createDefaultBatches = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { id } = req.params;
+    const { branch_id } = req.body; // Optional branch_id, will use first branch if not provided
+
+    // Validate product
+    const product = await Product.findByPk(id, { transaction });
+    if (!product) {
+      await safeRollback(transaction);
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    // Product type validation removed - any product type can have inventory batches
+
+    // Get branch (use provided or first available)
+    let branch = null;
+    if (branch_id) {
+      branch = await Branch.findByPk(branch_id, { transaction });
+      if (!branch) {
+        await safeRollback(transaction);
+        return res.status(404).json({ error: 'Branch not found' });
+      }
+    } else {
+      branch = await Branch.findOne({ 
+        where: { is_active: true },
+        order: [['name', 'ASC']],
+        transaction 
+      });
+      if (!branch) {
+        await safeRollback(transaction);
+        return res.status(400).json({ error: 'No active branch found. Please specify a branch_id.' });
+      }
+    }
+
+    // Get batch types assigned to product's category
+    let batchTypes = [];
+    if (product.category_id) {
+      const category = await Category.findByPk(product.category_id, {
+        include: [{
+          model: BatchType,
+          as: 'batch_types',
+          where: { is_active: true },
+          required: false
+        }],
+        transaction
+      });
+
+      if (category && category.batch_types && category.batch_types.length > 0) {
+        batchTypes = category.batch_types;
+      }
+    }
+
+    // If no category-assigned batch types, use global default
+    if (batchTypes.length === 0) {
+      const defaultBatchType = await BatchType.findOne({
+        where: { is_default: true, is_active: true },
+        transaction
+      });
+      if (defaultBatchType) {
+        batchTypes = [defaultBatchType];
+      } else {
+        // Fallback to first active batch type
+        const firstBatchType = await BatchType.findOne({
+          where: { is_active: true },
+          order: [['name', 'ASC']],
+          transaction
+        });
+        if (firstBatchType) {
+          batchTypes = [firstBatchType];
+        }
+      }
+    }
+
+    if (batchTypes.length === 0) {
+      await safeRollback(transaction);
+      return res.status(400).json({
+        error: 'No batch types available. Please assign batch types to the category or set a global default.'
+      });
+    }
+
+    // Create batches for all batch types with 0 balance
+    const createdBatches = [];
+    for (const batchType of batchTypes) {
+      // Verify batch type is assigned to category (if category provided)
+      if (product.category_id) {
+        const assignment = await CategoryBatchType.findOne({
+          where: { 
+            category_id: product.category_id, 
+            batch_type_id: batchType.id 
+          },
+          transaction
+        });
+        // Skip if not assigned (unless it's the global default)
+        if (!assignment && !batchType.is_default) {
+          continue;
+        }
+      }
+
+      try {
+        const batch = await InventoryBatch.create({
+          product_id: id,
+          branch_id: branch.id,
+          category_id: product.category_id || null,
+          instance_code: null, // No instance code for default batches
+          batch_type_id: batchType.id,
+          grouped: false,
+          batch_identifier: null,
+          initial_quantity: 0,
+          remaining_quantity: 0,
+          status: 'in_stock',
+          attribute_data: {}
+        }, { transaction });
+
+        createdBatches.push(batch);
+      } catch (err) {
+        // Log error but continue with other batch types
+        console.error(`Failed to create batch for type ${batchType.name}:`, err);
+      }
+    }
+
+    await transaction.commit();
+
+    // Reload batches with associations
+    const batchesWithDetails = await InventoryBatch.findAll({
+      where: { id: { [Op.in]: createdBatches.map(b => b.id) } },
+      include: [
+        { model: Product, as: 'product', attributes: ['id', 'sku', 'name', 'base_unit'] },
+        { model: Branch, as: 'branch', attributes: ['id', 'name', 'code'] },
+        { model: BatchType, as: 'batch_type', attributes: ['id', 'name', 'description'] },
+        { model: Category, as: 'category', attributes: ['id', 'name'] }
+      ]
+    });
+
+    res.status(201).json({
+      message: `Created ${createdBatches.length} default batch(es) with 0 balance`,
+      batches: batchesWithDetails,
+      count: createdBatches.length
     });
   } catch (error) {
     await transaction.rollback();
@@ -1217,10 +1382,7 @@ export const getProductStock = async (req, res, next) => {
       return res.status(404).json({ error: 'Product not found' });
     }
 
-    // Only for raw_tracked products
-    if (product.type !== 'raw_tracked') {
-      return res.status(400).json({ error: 'Stock tracking is only available for raw_tracked products' });
-    }
+    // Product type validation removed - stock tracking available for all products
 
     const where = { product_id: id };
     if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {

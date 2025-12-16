@@ -23,10 +23,10 @@ export const calculateRequiredRawMaterial = async ({
   transaction = null
 }) => {
   try {
-    if (!virtualProduct || virtualProduct.type !== 'manufactured_virtual') {
+    if (!virtualProduct) {
       return {
         success: false,
-        error: 'Product must be of type manufactured_virtual'
+        error: 'Product is required'
       };
     }
 

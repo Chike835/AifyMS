@@ -60,20 +60,11 @@ const Recipes = () => {
     }
   });
 
-  // Fetch virtual products (manufactured_virtual)
-  const { data: virtualProductsData } = useQuery({
-    queryKey: ['virtualProducts'],
+  // Fetch all products for recipe selection
+  const { data: allProductsData } = useQuery({
+    queryKey: ['allProducts'],
     queryFn: async () => {
-      const response = await api.get('/products?type=manufactured_virtual');
-      return response.data.products || [];
-    }
-  });
-
-  // Fetch raw products (raw_tracked)
-  const { data: rawProductsData } = useQuery({
-    queryKey: ['rawProducts'],
-    queryFn: async () => {
-      const response = await api.get('/products?type=raw_tracked');
+      const response = await api.get('/products');
       return response.data.products || [];
     }
   });
@@ -349,7 +340,7 @@ const Recipes = () => {
               {visibleColumns.virtual_product && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   <button onClick={() => handleSort('virtual_product.name')} className="flex items-center gap-1">
-                    Virtual Product
+                    Product
                     <SortIndicator field="virtual_product.name" sortField={sortField} sortDirection={sortDirection} />
                   </button>
                 </th>
@@ -357,7 +348,7 @@ const Recipes = () => {
               {visibleColumns.raw_product && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   <button onClick={() => handleSort('raw_product.name')} className="flex items-center gap-1">
-                    Raw Product
+                    Raw Material
                     <SortIndicator field="raw_product.name" sortField={sortField} sortDirection={sortDirection} />
                   </button>
                 </th>
@@ -495,7 +486,7 @@ const Recipes = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Virtual Product (Manufactured) *
+                    Product *
                   </label>
                   <select
                     value={formData.virtual_product_id}
@@ -503,8 +494,8 @@ const Recipes = () => {
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500"
                     required
                   >
-                    <option value="">Select Virtual Product</option>
-                    {virtualProductsData?.map((product) => (
+                    <option value="">Select Product</option>
+                    {allProductsData?.map((product) => (
                       <option key={product.id} value={product.id}>
                         {product.name} ({product.sku})
                       </option>
@@ -513,7 +504,7 @@ const Recipes = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Raw Product (Tracked) *
+                    Raw Material *
                   </label>
                   <select
                     value={formData.raw_product_id}
@@ -521,8 +512,8 @@ const Recipes = () => {
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500"
                     required
                   >
-                    <option value="">Select Raw Product</option>
-                    {rawProductsData?.map((product) => (
+                    <option value="">Select Raw Material</option>
+                    {allProductsData?.map((product) => (
                       <option key={product.id} value={product.id}>
                         {product.name} ({product.sku})
                       </option>
@@ -620,7 +611,7 @@ const Recipes = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Virtual Product (Manufactured) *
+                    Product *
                   </label>
                   <select
                     value={formData.virtual_product_id}
@@ -628,8 +619,8 @@ const Recipes = () => {
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500"
                     required
                   >
-                    <option value="">Select Virtual Product</option>
-                    {virtualProductsData?.map((product) => (
+                    <option value="">Select Product</option>
+                    {allProductsData?.map((product) => (
                       <option key={product.id} value={product.id}>
                         {product.name} ({product.sku})
                       </option>
@@ -638,7 +629,7 @@ const Recipes = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Raw Product (Tracked) *
+                    Raw Material *
                   </label>
                   <select
                     value={formData.raw_product_id}
@@ -646,8 +637,8 @@ const Recipes = () => {
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500"
                     required
                   >
-                    <option value="">Select Raw Product</option>
-                    {rawProductsData?.map((product) => (
+                    <option value="">Select Raw Material</option>
+                    {allProductsData?.map((product) => (
                       <option key={product.id} value={product.id}>
                         {product.name} ({product.sku})
                       </option>
@@ -740,7 +731,7 @@ const Recipes = () => {
               {calculation && (
                 <div className="bg-gray-50 rounded-lg p-4 space-y-2">
                   <div className="text-sm text-gray-600">
-                    <span className="font-medium">{calculation.quantity}</span> {selectedRecipe.virtual_product?.base_unit || 'units'} of {selectedRecipe.virtual_product?.name} will require:
+                    <span className="font-medium">{calculation.quantity}</span> {selectedRecipe.virtual_product?.base_unit || 'units'} of {selectedRecipe.virtual_product?.name || 'product'} will require:
                   </div>
                   <div className="space-y-1 text-sm">
                     <div className="flex justify-between">

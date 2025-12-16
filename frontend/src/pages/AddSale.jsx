@@ -81,15 +81,14 @@ const AddSale = () => {
     return products.find(p => p.id === productId);
   };
 
-  // Get recipe for a manufactured_virtual product
+  // Get recipe for a product (any product can have a recipe)
   const getRecipe = (productId) => {
     return recipes.find(r => r.virtual_product_id === productId);
   };
 
-  // Check if product is manufactured_virtual
+  // Check if product has a recipe
   const isManufactured = (productId) => {
-    const product = getProduct(productId);
-    return product?.type === 'manufactured_virtual';
+    return !!getRecipe(productId);
   };
 
   // Calculate required raw material for a manufactured product
@@ -481,12 +480,7 @@ const AddSale = () => {
                   {/* Product Info & Requirements */}
                   {product && (
                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <span className={`px-2 py-0.5 text-xs rounded-full ${product.type === 'raw_tracked'
-                        ? 'bg-orange-100 text-orange-700'
-                        : product.type === 'manufactured_virtual'
-                          ? 'bg-purple-100 text-purple-700'
-                          : 'bg-gray-100 text-gray-700'
-                        }`}>
+                      <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-700">
                         {product.type}
                       </span>
                       {isManuf && recipe && item.quantity && (

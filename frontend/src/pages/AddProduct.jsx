@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronUp, ChevronDown, Plus, ImageIcon, X } from 'lucide-react';
 import api from '../utils/api';
 import AttributeRenderer from '../components/AttributeRenderer';
+import ProductBatchCreationModal from '../components/ProductBatchCreationModal';
 import { useAuth } from '../context/AuthContext';
 
 // Toggle Switch Component
@@ -152,8 +153,6 @@ const MultiSelectTags = ({ label, options, selectedIds, onChange }) => {
 const productTypes = [
   { value: 'standard', label: 'Single' },
   { value: 'compound', label: 'Combo' },
-  { value: 'raw_tracked', label: 'Raw (Tracked)' },
-  { value: 'manufactured_virtual', label: 'Manufactured' },
   { value: 'variable', label: 'Variable' }
 ];
 
@@ -390,6 +389,10 @@ const AddProduct = () => {
   const [submitError, setSubmitError] = useState(null);
   // Full product object (for access to non-form fields like variants in render)
   const [product, setProduct] = useState(null);
+  // Batch creation modal state
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [createdProduct, setCreatedProduct] = useState(null);
+  const [shouldAddStock, setShouldAddStock] = useState(false);
 
   // Fetch reference data
   const { data: unitsData } = useQuery({
@@ -820,11 +823,44 @@ const AddProduct = () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
 
       console.log('[handleSubmit] Success, navigating...');
-      if (addStock) {
-        // Navigate to stock management or inventory page
-        navigate('/inventory', { state: { productId: response.data.product?.id || finalProductId } });
+      
+      // If product is raw_tracked (new or edited), check if it has batches
+      const savedProduct = response.data.product;
+      if (savedProduct && savedProduct.type === 'raw_tracked') {
+        try {
+          // Check if product already has batches
+          const batchesResponse = await api.get(`/products/${savedProduct.id}/batches`);
+          const existingBatches = batchesResponse.data?.batches || [];
+          
+          if (existingBatches.length === 0) {
+            // No batches exist - show batch creation modal
+            setCreatedProduct(savedProduct);
+            setShouldAddStock(addStock);
+            setShowBatchModal(true);
+            // Don't navigate yet - wait for batch creation or skip
+          } else {
+            // Product already has batches - navigate normally
+            if (addStock) {
+              navigate('/inventory', { state: { productId: savedProduct.id } });
+            } else {
+              navigate('/products');
+            }
+          }
+        } catch (err) {
+          console.error('Failed to check product batches:', err);
+          // On error, assume no batches and show modal
+          setCreatedProduct(savedProduct);
+          setShouldAddStock(addStock);
+          setShowBatchModal(true);
+        }
       } else {
-        navigate('/products');
+        // For non-raw_tracked products, navigate normally
+        if (addStock) {
+          // Navigate to stock management or inventory page
+          navigate('/inventory', { state: { productId: savedProduct?.id || finalProductId } });
+        } else {
+          navigate('/products');
+        }
       }
     } catch (error) {
       console.error('[handleSubmit] Error:', error);
@@ -1409,7 +1445,57 @@ const AddProduct = () => {
             {isSubmitting ? 'Saving...' : (isEditMode ? 'Update' : 'Save')}
           </button>
         </div>
-      </form >
+      </form>
+
+      {/* Batch Creation Modal */}
+      {showBatchModal && createdProduct && (
+        <ProductBatchCreationModal
+          product={createdProduct}
+          onClose={() => {
+            setShowBatchModal(false);
+            const productId = createdProduct.id;
+            setCreatedProduct(null);
+            // Navigate after closing
+            if (shouldAddStock) {
+              navigate('/inventory', { state: { productId } });
+            } else {
+              navigate('/products');
+            }
+          }}
+          onSkip={async () => {
+            // Auto-create default batches with 0 balance
+            try {
+              await api.post(`/products/${createdProduct.id}/batches/defaults`);
+              queryClient.invalidateQueries({ queryKey: ['products'] });
+              queryClient.invalidateQueries({ queryKey: ['inventoryInstances'] });
+              queryClient.invalidateQueries({ queryKey: ['productBatches', createdProduct.id] });
+            } catch (err) {
+              console.error('Failed to create default batches:', err);
+              // Continue anyway - batches might already exist or there's a configuration issue
+            }
+            const productId = createdProduct.id;
+            setShowBatchModal(false);
+            setCreatedProduct(null);
+            // Navigate after skipping/auto-creating
+            if (shouldAddStock) {
+              navigate('/inventory', { state: { productId } });
+            } else {
+              navigate('/products');
+            }
+          }}
+          onComplete={(batchCount) => {
+            const productId = createdProduct.id;
+            setShowBatchModal(false);
+            setCreatedProduct(null);
+            // Navigate after completion
+            if (shouldAddStock) {
+              navigate('/inventory', { state: { productId } });
+            } else {
+              navigate('/products');
+            }
+          }}
+        />
+      )}
     </div >
   );
 };

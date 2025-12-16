@@ -1,13 +1,15 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
-import { Package, Plus, ArrowRightLeft, Edit, UploadCloud } from 'lucide-react';
+import { Package, Plus, ArrowRightLeft, Edit, UploadCloud, X, Trash2 } from 'lucide-react';
 import TransferModal from '../components/inventory/TransferModal';
 import AdjustModal from '../components/inventory/AdjustModal';
 import ImportModal from '../components/import/ImportModal';
 import ListToolbar from '../components/common/ListToolbar';
 import ExportModal from '../components/import/ExportModal';
+import SearchableSelect from '../components/common/SearchableSelect';
+import BatchTypeSelect from '../components/inventory/BatchTypeSelect';
 
 import { sortData } from '../utils/sortUtils';
 import SortIndicator from '../components/common/SortIndicator';
@@ -21,12 +23,16 @@ const Inventory = () => {
   const [showImportModal, setShowImportModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [selectedInstance, setSelectedInstance] = useState(null);
-  const [formData, setFormData] = useState({
-    product_id: '',
-    branch_id: user?.branch_id || '',
-    instance_code: '',
-    initial_quantity: '',
-  });
+  const [batches, setBatches] = useState([
+    {
+      product_id: '',
+      branch_id: user?.branch_id || '',
+      batch_type_id: '',
+      instance_code: '',
+      initial_quantity: '',
+      grouped: true
+    }
+  ]);
 
   // Sorting
   const [sortField, setSortField] = useState('instance_code');
@@ -63,11 +69,12 @@ const Inventory = () => {
     },
   });
 
-  // Fetch products (raw_tracked only)
+  // Fetch all products - include variant children, exclude parent variable products
   const { data: products } = useQuery({
-    queryKey: ['products', 'all_inventory'],
+    queryKey: ['products', 'all_inventory', 'with_variants'],
     queryFn: async () => {
-      const response = await api.get('/products');
+      // Get all products including variant children (backend filters to exclude parent variable products)
+      const response = await api.get('/products', { params: { include_variants: 'true' } });
       return response.data.products || [];
     },
   });
@@ -80,6 +87,7 @@ const Inventory = () => {
       return response.data.branches || [];
     },
   });
+
 
   // Transfer mutation
   const transferMutation = useMutation({
@@ -117,23 +125,46 @@ const Inventory = () => {
 
   // Register new coil mutation
   const registerMutation = useMutation({
-    mutationFn: async (data) => {
-      const response = await api.post('/inventory/instances', data);
-      return response.data;
+    mutationFn: async (batchesToCreate) => {
+      const results = [];
+      for (const batch of batchesToCreate) {
+        try {
+          const response = await api.post('/inventory/instances', batch);
+          results.push({ success: true, batch: response.data.batch });
+        } catch (err) {
+          results.push({ 
+            success: false, 
+            error: err.response?.data?.error || 'Failed to create batch',
+            instance_code: batch.instance_code
+          });
+        }
+      }
+      return results;
     },
-    onSuccess: () => {
+    onSuccess: (results) => {
       queryClient.invalidateQueries({ queryKey: ['inventoryInstances'] });
+      const successCount = results.filter(r => r.success).length;
+      const failCount = results.filter(r => !r.success).length;
+      
+      if (failCount > 0) {
+        const errors = results.filter(r => !r.success).map(r => `${r.instance_code || 'Batch'}: ${r.error}`).join(', ');
+        alert(`Created ${successCount} batch(es), but ${failCount} failed: ${errors}`);
+      } else {
+        alert(`Successfully registered ${successCount} batch(es)!`);
+      }
+      
       setShowRegisterModal(false);
-      setFormData({
+      setBatches([{
         product_id: '',
-        branch_id: '',
+        branch_id: user?.branch_id || '',
+        batch_type_id: '',
         instance_code: '',
         initial_quantity: '',
-      });
-      alert('Coil registered successfully!');
+        grouped: true
+      }]);
     },
     onError: (error) => {
-      alert(error.response?.data?.error || 'Failed to register coil');
+      alert(error.response?.data?.error || 'Failed to register batches');
     },
   });
 
@@ -159,12 +190,60 @@ const Inventory = () => {
     return filteredInstances.slice(0, limit);
   }, [filteredInstances, limit]);
 
+  const updateBatch = (index, field, value) => {
+    const newBatches = [...batches];
+    newBatches[index][field] = value;
+    // If product changes, clear batch_type_id since batch types are product-specific
+    if (field === 'product_id') {
+      newBatches[index].batch_type_id = '';
+    }
+    setBatches(newBatches);
+  };
+
+  const addBatch = () => {
+    setBatches([...batches, {
+      product_id: batches[0]?.product_id || '', // Use same product for new batch
+      branch_id: user?.branch_id || '',
+      batch_type_id: '',
+      instance_code: '',
+      initial_quantity: '',
+      grouped: true
+    }]);
+  };
+
+
+  const removeBatch = (index) => {
+    if (batches.length > 1) {
+      setBatches(batches.filter((_, i) => i !== index));
+    }
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
-    registerMutation.mutate({
-      ...formData,
-      initial_quantity: parseFloat(formData.initial_quantity),
+    
+    // Validate all batches
+    const invalidBatches = batches.filter(b => {
+      if (!b.product_id || !b.branch_id || !b.initial_quantity) return true;
+      if (b.grouped && !b.instance_code?.trim()) return true;
+      return false;
     });
+
+    if (invalidBatches.length > 0) {
+      alert('Please ensure all batches have product, branch, and quantity. Grouped batches also require an instance code.');
+      return;
+    }
+
+    // Prepare batches for submission
+    const batchesToCreate = batches.map(batch => ({
+      product_id: batch.product_id,
+      branch_id: batch.branch_id,
+      batch_type_id: batch.batch_type_id || undefined, // Optional, backend will use default
+      instance_code: batch.grouped ? batch.instance_code : undefined,
+      initial_quantity: parseFloat(batch.initial_quantity),
+      grouped: batch.grouped
+    }));
+
+    registerMutation.mutate(batchesToCreate);
   };
 
 
@@ -385,56 +464,130 @@ const Inventory = () => {
 
       {/* Register Coil Modal */}
       {showRegisterModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">Register New Coil</h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Product *
-                </label>
-                <select
-                  required
-                  value={formData.product_id}
-                  onChange={(e) => setFormData({ ...formData, product_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="">Select Product</option>
-                  {products?.map((product) => (
-                    <option key={product.id} value={product.id}>
-                      {product.name} ({product.sku})
-                    </option>
-                  ))}
-                </select>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex justify-between items-center p-6 border-b border-gray-200">
+              <h2 className="text-2xl font-bold text-gray-900">Register New Batches</h2>
+              <button
+                type="button"
+                onClick={() => setShowRegisterModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4">
+              <div className="space-y-4">
+                {batches.map((batch, index) => (
+                  <div key={index} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                    <div className="flex justify-between items-center mb-3">
+                      <h4 className="font-medium text-gray-900">Batch {index + 1}</h4>
+                      {batches.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeBatch(index)}
+                          className="text-red-600 hover:text-red-800"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Product *
+                        </label>
+                        <SearchableSelect
+                          required
+                          options={products || []}
+                          value={batch.product_id}
+                          onChange={(value) => updateBatch(index, 'product_id', value)}
+                          placeholder="Search and select product..."
+                          getOptionLabel={(product) => `${product.name} (${product.sku})${product.type ? ` - ${product.type}` : ''}`}
+                          getOptionValue={(product) => product.id}
+                          searchFields={['name', 'sku', 'type']}
+                          className="w-full"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Branch *
+                        </label>
+                        <select
+                          required
+                          value={batch.branch_id}
+                          onChange={(e) => updateBatch(index, 'branch_id', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                        >
+                          <option value="">Select Branch</option>
+                          {(branches || []).map(branch => (
+                            <option key={branch.id} value={branch.id}>
+                              {branch.name} ({branch.code})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Batch Type
+                        </label>
+                        <BatchTypeSelect
+                          productId={batch.product_id}
+                          products={products}
+                          value={batch.batch_type_id}
+                          onChange={(value) => updateBatch(index, 'batch_type_id', value)}
+                          disabled={!batch.product_id}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="flex items-center space-x-2 mb-1">
+                          <input
+                            type="checkbox"
+                            checked={batch.grouped}
+                            onChange={(e) => updateBatch(index, 'grouped', e.target.checked)}
+                            className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                          />
+                          <span className="text-sm font-medium text-gray-700">Grouped Batch</span>
+                        </label>
+                        {batch.grouped && (
+                          <input
+                            type="text"
+                            required={batch.grouped}
+                            placeholder="Instance Code (e.g., COIL-001)"
+                            value={batch.instance_code}
+                            onChange={(e) => updateBatch(index, 'instance_code', e.target.value)}
+                            className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                          />
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Initial Quantity *
+                        </label>
+                        <input
+                          type="number"
+                          required
+                          step="0.001"
+                          min="0.001"
+                          value={batch.initial_quantity}
+                          onChange={(e) => updateBatch(index, 'initial_quantity', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Instance Code *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.instance_code}
-                  onChange={(e) => setFormData({ ...formData, instance_code: e.target.value })}
-                  placeholder="e.g., COIL-001"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Initial Quantity *
-                </label>
-                <input
-                  type="number"
-                  required
-                  step="0.001"
-                  min="0"
-                  value={formData.initial_quantity}
-                  onChange={(e) => setFormData({ ...formData, initial_quantity: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                />
-              </div>
-              <div className="flex space-x-4 pt-4">
+              <button
+                type="button"
+                onClick={addBatch}
+                className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Add Another Batch</span>
+              </button>
+              <div className="flex space-x-4 pt-4 border-t border-gray-200">
                 <button
                   type="button"
                   onClick={() => setShowRegisterModal(false)}
@@ -447,7 +600,7 @@ const Inventory = () => {
                   disabled={registerMutation.isPending}
                   className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  {registerMutation.isPending ? 'Registering...' : 'Register'}
+                  {registerMutation.isPending ? 'Registering...' : `Register ${batches.length} Batch${batches.length > 1 ? 'es' : ''}`}
                 </button>
               </div>
             </form>

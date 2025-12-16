@@ -187,7 +187,7 @@ export const getPurchaseById = async (req, res, next) => {
 
 /**
  * Create a new purchase with items
- * CRITICAL: For raw_tracked products, automatically creates inventory instances
+ * CRITICAL: For products with instance codes, automatically creates inventory instances
  * Uses database transaction for atomicity - rolls back on any failure
  */
 export const createPurchase = async (req, res, next) => {
@@ -332,15 +332,9 @@ export const createPurchase = async (req, res, next) => {
         });
       }
 
-      // CRITICAL: For raw_tracked products, instance_code is REQUIRED
-      if (product.type === 'raw_tracked') {
-        if (!item.instance_code || item.instance_code.trim() === '') {
-          await safeRollback(transaction);
-          return res.status(400).json({
-            error: `Instance code is required for raw_tracked product: ${product.name}`
-          });
-        }
-
+      // Instance code is optional - can be provided for any product type
+      // If provided, it will be used for inventory batch creation
+      if (item.instance_code && item.instance_code.trim() !== '') {
         // Check if instance_code already exists
         const existingBatch = await InventoryBatch.findOne({
           where: { instance_code: item.instance_code.trim() },
@@ -384,7 +378,7 @@ export const createPurchase = async (req, res, next) => {
       notes: notes?.trim() || null
     }, { transaction });
 
-    // Create purchase items and inventory batches for raw_tracked products
+    // Create purchase items and inventory batches for products with instance codes
     const createdItems = [];
     const createdBatches = [];
 
@@ -396,8 +390,8 @@ export const createPurchase = async (req, res, next) => {
 
       let inventoryBatchId = null;
 
-      // For raw_tracked products, create inventory batch (using base quantity)
-      if (product.type === 'raw_tracked') {
+      // Create inventory batch if instance_code is provided (for any product type)
+      if (item.instance_code && item.instance_code.trim() !== '') {
         const inventoryBatch = await InventoryBatch.create({
           product_id: item.product_id,
           branch_id: purchaseBranchId,

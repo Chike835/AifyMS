@@ -59,6 +59,17 @@ const Quotations = () => {
     }
   });
 
+  // Fetch recipes
+  const { data: recipesData } = useQuery({
+    queryKey: ['recipes'],
+    queryFn: async () => {
+      const response = await api.get('/recipes');
+      return response.data.recipes || [];
+    }
+  });
+
+  const recipes = recipesData || [];
+
   // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async (id) => {
@@ -139,8 +150,11 @@ const Quotations = () => {
       return;
     }
 
-    // Check if quotation has manufactured products that need coil selection
-    const hasManufactured = quotation.items?.some(item => item.product?.type === 'manufactured_virtual');
+    // Check if quotation has products with recipes that need coil selection
+    const hasManufactured = quotation.items?.some(item => {
+      const recipe = recipes.find(r => r.virtual_product_id === item.product_id);
+      return !!recipe;
+    });
 
     if (hasManufactured) {
       // Show coil selection modal for manufactured items

@@ -36,11 +36,15 @@ export const assignMaterial = async (req, res, next) => {
       return res.status(404).json({ error: 'Sales item not found' });
     }
 
-    // Verify sales item is for a manufactured_virtual product
-    if (salesItem.product?.type !== 'manufactured_virtual') {
+    // Verify sales item has a recipe (check if product has a recipe)
+    const recipe = await Recipe.findOne({
+      where: { virtual_product_id: salesItem.product_id },
+      transaction
+    });
+    if (!recipe) {
       await safeRollback(transaction);
       return res.status(400).json({
-        error: 'Material assignment is only allowed for manufactured_virtual products'
+        error: 'Material assignment is only allowed for products with recipes'
       });
     }
 
@@ -64,18 +68,7 @@ export const assignMaterial = async (req, res, next) => {
       return res.status(404).json({ error: 'Inventory batch not found' });
     }
 
-    // Get recipe for conversion
-    const recipe = await Recipe.findOne({
-      where: { virtual_product_id: salesItem.product_id },
-      transaction
-    });
-
-    if (!recipe) {
-      await safeRollback(transaction);
-      return res.status(404).json({
-        error: `No recipe found for product: ${salesItem.product.name}`
-      });
-    }
+    // Recipe already fetched and validated above
 
     // Verify batch product matches recipe raw product
     if (batch.product_id !== recipe.raw_product_id) {
@@ -168,7 +161,7 @@ export const assignMaterial = async (req, res, next) => {
 /**
  * Validate that batch attributes match sales item requirements
  * @param {Object} batch - InventoryBatch instance
- * @param {Object} virtualProduct - Product instance (manufactured_virtual)
+ * @param {Object} virtualProduct - Product instance (with recipe)
  * @param {Object} transaction - Sequelize transaction
  * @returns {Promise<string|null>} Error message or null if valid
  */

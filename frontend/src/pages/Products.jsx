@@ -30,8 +30,6 @@ import SortIndicator from '../components/common/SortIndicator';
 const productTypeLabels = {
   standard: 'Single',
   compound: 'Combo',
-  raw_tracked: 'Raw (Tracked)',
-  manufactured_virtual: 'Manufactured',
   variable: 'Variable'
 };
 
@@ -346,8 +344,6 @@ const Products = () => {
                 <option value="">All</option>
                 <option value="standard">Single</option>
                 <option value="compound">Combo</option>
-                <option value="raw_tracked">Raw (Tracked)</option>
-                <option value="manufactured_virtual">Manufactured</option>
                 <option value="variable">Variable</option>
               </select>
             </div>
