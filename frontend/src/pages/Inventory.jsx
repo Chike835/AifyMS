@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
@@ -33,6 +33,7 @@ const Inventory = () => {
       grouped: true
     }
   ]);
+  const fetchingCodes = useRef(new Set()); // Track which batches are currently fetching codes
 
   // Sorting
   const [sortField, setSortField] = useState('instance_code');
@@ -132,8 +133,8 @@ const Inventory = () => {
           const response = await api.post('/inventory/instances', batch);
           results.push({ success: true, batch: response.data.batch });
         } catch (err) {
-          results.push({ 
-            success: false, 
+          results.push({
+            success: false,
             error: err.response?.data?.error || 'Failed to create batch',
             instance_code: batch.instance_code
           });
@@ -145,14 +146,14 @@ const Inventory = () => {
       queryClient.invalidateQueries({ queryKey: ['inventoryInstances'] });
       const successCount = results.filter(r => r.success).length;
       const failCount = results.filter(r => !r.success).length;
-      
+
       if (failCount > 0) {
         const errors = results.filter(r => !r.success).map(r => `${r.instance_code || 'Batch'}: ${r.error}`).join(', ');
         alert(`Created ${successCount} batch(es), but ${failCount} failed: ${errors}`);
       } else {
         alert(`Successfully registered ${successCount} batch(es)!`);
       }
-      
+
       setShowRegisterModal(false);
       setBatches([{
         product_id: '',
@@ -190,25 +191,139 @@ const Inventory = () => {
     return filteredInstances.slice(0, limit);
   }, [filteredInstances, limit]);
 
+  // Auto-fill instance codes for batches that need them
+  useEffect(() => {
+    if (!showRegisterModal) {
+      fetchingCodes.current.clear(); // Clear fetching state when modal closes
+      return;
+    }
+
+    batches.forEach((batch, index) => {
+      // Only fetch if: grouped is true, has product, branch, and batch_type, but no instance_code
+      // And not already fetching for this batch
+      const fetchKey = `${index}-${batch.product_id}-${batch.branch_id}-${batch.batch_type_id}`;
+      if (
+        batch.grouped &&
+        batch.product_id &&
+        batch.branch_id &&
+        batch.batch_type_id &&
+        !batch.instance_code &&
+        !fetchingCodes.current.has(fetchKey)
+      ) {
+        fetchingCodes.current.add(fetchKey);
+        fetchSuggestedCode(index, batch.product_id, batch.branch_id, batch.batch_type_id).finally(() => {
+          fetchingCodes.current.delete(fetchKey);
+        });
+      }
+    });
+  }, [batches, showRegisterModal]); // Re-run when batches change or modal opens
+
+  const fetchSuggestedCode = async (index, productId, branchId, batchTypeId) => {
+    if (!productId || !branchId || !batchTypeId) {
+      return Promise.resolve();
+    }
+
+    try {
+      const response = await api.get('/inventory/batches/suggest-code', {
+        params: { 
+          product_id: productId, 
+          branch_id: branchId,
+          batch_type_id: batchTypeId
+        }
+      });
+
+      const suggestedCode = response.data.suggested_code;
+
+      setBatches(prevBatches => {
+        const newBatches = [...prevBatches];
+
+        // Safety check: ensure batch exists and still has matching product/branch/batch_type
+        if (!newBatches[index] ||
+          newBatches[index].product_id !== productId ||
+          newBatches[index].branch_id !== branchId ||
+          newBatches[index].batch_type_id !== batchTypeId) {
+          return prevBatches;
+        }
+
+        // Check for duplicates in other batches to handle local increments
+        let finalCode = suggestedCode;
+        const checkConflict = (code) => newBatches.some((b, i) => i !== index && b.instance_code === code);
+
+        if (checkConflict(finalCode)) {
+          // Parse the format: SKU-{BATCH_TYPE}-XXX where XXX is the sequence number
+          // Match pattern: anything ending with - followed by digits
+          const match = finalCode.match(/^(.+-)(\d+)$/);
+          if (match) {
+            const prefix = match[1]; // Everything up to and including the last "-"
+            let num = parseInt(match[2], 10);
+            const originalPadding = match[2].length; // Preserve original padding length
+
+            while (checkConflict(finalCode)) {
+              num++;
+              // Use original padding length, minimum 3 digits
+              const padding = Math.max(originalPadding, 3);
+              finalCode = `${prefix}${String(num).padStart(padding, '0')}`;
+            }
+          }
+        }
+
+        newBatches[index].instance_code = finalCode;
+        return newBatches;
+      });
+    } catch (error) {
+      console.error("Error fetching instance code:", error);
+    }
+  };
+
   const updateBatch = (index, field, value) => {
     const newBatches = [...batches];
     newBatches[index][field] = value;
     // If product changes, clear batch_type_id since batch types are product-specific
     if (field === 'product_id') {
       newBatches[index].batch_type_id = '';
+      newBatches[index].instance_code = ''; // Clear instance code when product changes
+    }
+    // If batch_type changes, clear instance_code to regenerate with new batch type
+    if (field === 'batch_type_id') {
+      newBatches[index].instance_code = '';
     }
     setBatches(newBatches);
+
+    // Trigger suggestion if product, branch, or batch_type changed for a grouped batch
+    const batchToCheck = newBatches[index]; // Use the updated batch object
+    // Note: 'grouped' in batchToCheck might be the OLD value if we don't update it carefully, 
+    // but we updated newBatches[index][field] = value above, so it is current.
+
+    if (batchToCheck.grouped) {
+      if (field === 'product_id' || field === 'branch_id' || field === 'batch_type_id' || (field === 'grouped' && value === true)) {
+        const prod = batchToCheck.product_id;
+        const branch = batchToCheck.branch_id;
+        const batchType = batchToCheck.batch_type_id;
+
+        // If triggered by grouped toggle, only fetch if code is empty
+        if (field === 'grouped' && batchToCheck.instance_code) {
+          return;
+        }
+
+        // Only fetch if all three are set (product, branch, and batch_type)
+        if (prod && branch && batchType) {
+          fetchSuggestedCode(index, prod, branch, batchType);
+        }
+      }
+    }
   };
 
   const addBatch = () => {
-    setBatches([...batches, {
+    const newBatch = {
       product_id: batches[0]?.product_id || '', // Use same product for new batch
       branch_id: user?.branch_id || '',
       batch_type_id: '',
       instance_code: '',
       initial_quantity: '',
       grouped: true
-    }]);
+    };
+
+    setBatches(prev => [...prev, newBatch]);
   };
 
 
@@ -220,7 +335,7 @@ const Inventory = () => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    
+
     // Validate all batches
     const invalidBatches = batches.filter(b => {
       if (!b.product_id || !b.branch_id || !b.initial_quantity) return true;

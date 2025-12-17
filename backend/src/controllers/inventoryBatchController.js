@@ -1,4 +1,5 @@
 import { InventoryBatch, Product, Branch, Category, BatchType, CategoryBatchType, SalesItem, ItemAssignment, User } from '../models/index.js';
+import { generateNextInstanceCode } from '../utils/instanceCodeGenerator.js';
 import { Op } from 'sequelize';
 import sequelize from '../config/db.js';
 import { safeRollback } from '../utils/transactionUtils.js';
@@ -634,6 +635,58 @@ export const getAvailableBatches = async (req, res, next) => {
     });
 
     res.json({ batches });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/inventory/batches/suggest-code
+ * Suggest next instance code for a product+branch+batch_type combination
+ * Query params: product_id (required), branch_id (required), batch_type_id (required)
+ * Returns: { suggested_code: "SKU-LOOSE-001" } (example with LOOSE batch type)
+ */
+export const suggestInstanceCode = async (req, res, next) => {
+  try {
+    const { product_id, branch_id, batch_type_id } = req.query;
+
+    if (!product_id) {
+      return res.status(400).json({ error: 'product_id is required' });
+    }
+
+    if (!branch_id) {
+      return res.status(400).json({ error: 'branch_id is required' });
+    }
+
+    if (!batch_type_id) {
+      return res.status(400).json({ error: 'batch_type_id is required' });
+    }
+
+    // Verify product exists
+    const product = await Product.findByPk(product_id);
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    // Verify branch exists
+    const branch = await Branch.findByPk(branch_id);
+    if (!branch) {
+      return res.status(404).json({ error: 'Branch not found' });
+    }
+
+    // Verify batch type exists and is active
+    const batchType = await BatchType.findByPk(batch_type_id);
+    if (!batchType) {
+      return res.status(404).json({ error: 'Batch type not found' });
+    }
+
+    if (!batchType.is_active) {
+      return res.status(400).json({ error: 'Batch type is not active' });
+    }
+
+    const suggested_code = await generateNextInstanceCode(product_id, branch_id, batch_type_id);
+
+    res.json({ suggested_code });
   } catch (error) {
     next(error);
   }

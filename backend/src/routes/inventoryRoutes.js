@@ -17,7 +17,8 @@ import {
   getBatchById,
   updateBatch,
   deleteBatch,
-  getAvailableBatches
+  getAvailableBatches,
+  suggestInstanceCode
 } from '../controllers/inventoryBatchController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { requirePermission } from '../middleware/permissionMiddleware.js';
@@ -39,6 +40,9 @@ router.post('/instances', requirePermission('batch_create', 'stock_add_opening')
 
 // GET /api/inventory/batches/available/:productId - Get available batches for POS
 router.get('/batches/available/:productId', requirePermission('pos_access'), getAvailableBatches);
+
+// GET /api/inventory/batches/suggest-code - Suggest instance code (requires batch_create or stock_add_opening)
+router.get('/batches/suggest-code', requirePermission('batch_create', 'stock_add_opening'), suggestInstanceCode);
 
 // GET /api/inventory/batches/:id - Get batch by ID (requires batch_view or product_view)
 router.get('/batches/:id', requirePermission('batch_view', 'product_view'), getBatchById);
