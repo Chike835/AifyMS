@@ -1,17 +1,20 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import ListToolbar from '../components/common/ListToolbar';
 import ExportModal from '../components/import/ExportModal';
 import { sortData } from '../utils/sortUtils';
 import SortIndicator from '../components/common/SortIndicator';
-import { ClipboardList, Plus, Eye, X, FileText } from 'lucide-react';
+import { ClipboardList, Plus } from 'lucide-react';
+import SaleDetailModal from '../components/sales/SaleDetailModal';
+import SaleActionDropdown from '../components/sales/SaleActionDropdown';
 
 const Sales = () => {
   const navigate = useNavigate();
   const { hasPermission } = useAuth();
+  const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('');
   const [productionStatusFilter, setProductionStatusFilter] = useState('');
@@ -52,7 +55,7 @@ const Sales = () => {
   const [showExportModal, setShowExportModal] = useState(false);
 
   // Fetch sales orders
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['sales', paymentStatusFilter, productionStatusFilter, orderTypeFilter, page, limit, searchTerm],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -65,17 +68,6 @@ const Sales = () => {
       const response = await api.get(`/sales?${params.toString()}`);
       return response.data;
     }
-  });
-
-  // Fetch order details
-  const { data: detailData, isLoading: detailLoading } = useQuery({
-    queryKey: ['saleDetail', selectedOrder?.id],
-    queryFn: async () => {
-      if (!selectedOrder?.id) return null;
-      const response = await api.get(`/sales/${selectedOrder.id}`);
-      return response.data.order;
-    },
-    enabled: !!selectedOrder?.id && showDetailModal
   });
 
   const formatCurrency = (amount) => {
@@ -120,6 +112,46 @@ const Sales = () => {
       case 'quotation': return 'bg-purple-100 text-purple-800';
       case 'draft': return 'bg-gray-100 text-gray-800';
       default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const handleDeleteSub = async (id) => {
+    if (window.confirm('Are you sure you want to delete this sale? This action cannot be undone.')) {
+      try {
+        await api.delete(`/sales/${id}`);
+        queryClient.invalidateQueries(['sales']);
+        refetch();
+      } catch (error) {
+        alert('Failed to delete sale: ' + (error.response?.data?.error || error.message));
+      }
+    }
+  };
+
+  const handleApproveDiscount = async (saleId) => {
+    if (window.confirm('Are you sure you want to approve this discount?')) {
+      try {
+        await api.put(`/discount-approvals/${saleId}/approve`);
+        queryClient.invalidateQueries(['sales']);
+        queryClient.invalidateQueries(['sale', saleId]);
+        refetch();
+        alert('Discount approved successfully');
+      } catch (error) {
+        alert('Failed to approve discount: ' + (error.response?.data?.error || error.message));
+      }
+    }
+  };
+
+  const handleApproveSale = async (saleId) => {
+    if (window.confirm('Are you sure you want to approve this sale for production?')) {
+      try {
+        await api.put(`/sales/${saleId}/approve-manufacturing`);
+        queryClient.invalidateQueries(['sales']);
+        queryClient.invalidateQueries(['sale', saleId]);
+        refetch();
+        alert('Sale approved for production successfully');
+      } catch (error) {
+        alert('Failed to approve sale: ' + (error.response?.data?.error || error.message));
+      }
     }
   };
 
@@ -243,7 +275,7 @@ const Sales = () => {
       </div>
 
       {/* Sales Table */}
-      <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-lg shadow border border-gray-200 overflow-visible">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
@@ -329,7 +361,14 @@ const Sales = () => {
               </tr>
             ) : (
               filteredOrders.map((order) => (
-                <tr key={order.id} className="hover:bg-gray-50">
+                <tr
+                  key={order.id}
+                  className="hover:bg-gray-50 cursor-pointer transition-colors"
+                  onClick={() => {
+                    setSelectedOrder(order);
+                    setShowDetailModal(true);
+                  }}
+                >
                   {visibleColumns.invoice_number && (
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">
@@ -386,26 +425,17 @@ const Sales = () => {
                       {formatDate(order.created_at)}
                     </td>
                   )}
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex items-center justify-end space-x-2">
-                      <button
-                        onClick={() => {
-                          setSelectedOrder(order);
-                          setShowDetailModal(true);
-                        }}
-                        className="text-primary-600 hover:text-primary-900"
-                        title="View Details"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => window.open(`/api/print/invoice/${order.id}`, '_blank')}
-                        className="text-gray-600 hover:text-gray-900"
-                        title="Print Invoice"
-                      >
-                        <FileText className="h-4 w-4" />
-                      </button>
-                    </div>
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
+                    <SaleActionDropdown
+                      sale={order}
+                      onView={() => {
+                        setSelectedOrder(order);
+                        setShowDetailModal(true);
+                      }}
+                      onDelete={() => handleDeleteSub(order.id)}
+                      onApproveSale={() => handleApproveSale(order.id)}
+                      onApproveDiscount={() => handleApproveDiscount(order.id)}
+                    />
                   </td>
                 </tr>
               ))
@@ -455,175 +485,14 @@ const Sales = () => {
       )}
 
       {/* Detail Modal */}
-      {showDetailModal && selectedOrder && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl p-6 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900">
-                  {selectedOrder.invoice_number}
-                </h2>
-                <p className="text-gray-600">Sales Order Details</p>
-              </div>
-              <button
-                onClick={() => {
-                  setShowDetailModal(false);
-                  setSelectedOrder(null);
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-
-            {detailLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-              </div>
-            ) : detailData ? (
-              <>
-                {/* Summary */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                  <div className="bg-gray-50 rounded-lg p-3">
-                    <p className="text-xs text-gray-500">Customer</p>
-                    <p className="text-sm font-medium text-gray-900">
-                      {detailData.customer?.name || 'Walk-in Customer'}
-                    </p>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg p-3">
-                    <p className="text-xs text-gray-500">Branch</p>
-                    <p className="text-sm font-medium text-gray-900">
-                      {detailData.branch?.name}
-                    </p>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg p-3">
-                    <p className="text-xs text-gray-500">Payment Status</p>
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${getPaymentStatusColor(detailData.payment_status)}`}>
-                      {detailData.payment_status}
-                    </span>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg p-3">
-                    <p className="text-xs text-gray-500">Total Amount</p>
-                    <p className="text-sm font-bold text-gray-900">
-                      {formatCurrency(detailData.total_amount)}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Production Info */}
-                {detailData.production_status !== 'na' && (
-                  <div className="bg-orange-50 rounded-lg p-4 mb-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-orange-800">Production Status</p>
-                        <span className={`inline-block mt-1 px-2 py-1 text-xs font-medium rounded-full ${getProductionStatusColor(detailData.production_status)}`}>
-                          {detailData.production_status}
-                        </span>
-                      </div>
-                      {detailData.dispatcher_name && (
-                        <div className="text-right">
-                          <p className="text-xs text-orange-600">Dispatcher</p>
-                          <p className="text-sm font-medium text-orange-800">{detailData.dispatcher_name}</p>
-                          {detailData.vehicle_plate && (
-                            <p className="text-xs text-orange-600">{detailData.vehicle_plate}</p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Items Table */}
-                <div className="mb-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Items</h3>
-                  <div className="border border-gray-200 rounded-lg overflow-hidden">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Product</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Qty</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Unit Price</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Subtotal</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-200">
-                        {detailData.items?.map((item) => (
-                          <tr key={item.id}>
-                            <td className="px-4 py-3">
-                              <div className="text-sm font-medium text-gray-900">
-                                {item.product?.name}
-                              </div>
-                              <div className="text-xs text-gray-500">
-                                {item.product?.sku}
-                              </div>
-                              {item.assignments?.length > 0 && (
-                                <div className="mt-1">
-                                  {item.assignments.map((assignment) => (
-                                    <span
-                                      key={assignment.id}
-                                      className="inline-block mr-1 px-1.5 py-0.5 text-xs font-mono bg-blue-50 text-blue-700 rounded"
-                                    >
-                                      {assignment.inventory_batch?.instance_code || assignment.inventory_batch?.batch_identifier}: {parseFloat(assignment.quantity_deducted).toFixed(3)} {assignment.inventory_batch?.product?.base_unit}
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-gray-900">
-                              {parseFloat(item.quantity).toFixed(3)} {item.product?.base_unit}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-gray-900">
-                              {formatCurrency(item.unit_price)}
-                            </td>
-                            <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                              {formatCurrency(item.subtotal)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot className="bg-gray-50">
-                        <tr>
-                          <td colSpan="3" className="px-4 py-3 text-sm font-medium text-gray-900 text-right">
-                            Total:
-                          </td>
-                          <td className="px-4 py-3 text-sm font-bold text-gray-900">
-                            {formatCurrency(detailData.total_amount)}
-                          </td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Meta */}
-                <div className="text-xs text-gray-500 border-t border-gray-200 pt-4">
-                  <p>Created on {formatDate(detailData.created_at)}</p>
-                </div>
-              </>
-            ) : (
-              <p className="text-gray-500">Unable to load order details</p>
-            )}
-
-            <div className="mt-6 pt-4 border-t border-gray-200 flex justify-end space-x-3">
-              <button
-                onClick={() => window.open(`/api/print/invoice/${selectedOrder.id}`, '_blank')}
-                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-              >
-                Print Invoice
-              </button>
-              <button
-                onClick={() => {
-                  setShowDetailModal(false);
-                  setSelectedOrder(null);
-                }}
-                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <SaleDetailModal
+        isOpen={showDetailModal}
+        onClose={() => {
+          setShowDetailModal(false);
+          setSelectedOrder(null);
+        }}
+        saleId={selectedOrder?.id}
+      />
     </div>
   );
 };

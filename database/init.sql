@@ -878,13 +878,14 @@ INSERT INTO permissions (slug, group_name) VALUES
     ('batch_edit', 'inventory'),
     ('batch_delete', 'inventory');
 
--- Sales & POS Permissions (8)
+-- Sales & POS Permissions (9)
 INSERT INTO permissions (slug, group_name) VALUES
     ('pos_access', 'sales_pos'),
     ('sale_view_own', 'sales_pos'),
     ('sale_view_all', 'sales_pos'),
     ('sale_edit_price', 'sales_pos'),
     ('sale_discount', 'sales_pos'),
+    ('sale_discount_approve', 'sales_pos'),
     ('sale_credit', 'sales_pos'),
     ('quote_manage', 'sales_pos'),
     ('draft_manage', 'sales_pos');
@@ -1159,7 +1160,38 @@ COMMENT ON TABLE activity_logs IS 'System activity log tracking user actions acr
 COMMENT ON COLUMN activity_logs.action_type IS 'Type of action: LOGIN, CREATE, UPDATE, DELETE, PRINT, CONFIRM, or VOID';
 COMMENT ON COLUMN activity_logs.module IS 'Module where action occurred (e.g., sales, purchases, payments)';
 
+
+-- ============================================
+-- PHASE 3: DISCOUNT SYSTEM & NOTIFICATIONS
+-- ============================================
+
+-- Notifications table
+CREATE TABLE IF NOT EXISTS notifications (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type VARCHAR(50) NOT NULL,
+    title VARCHAR(200) NOT NULL,
+    message TEXT,
+    reference_type VARCHAR(50),
+    reference_id UUID,
+    is_read BOOLEAN DEFAULT false,
+    read_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
+
+-- Add discount fields to sales_orders
+ALTER TABLE sales_orders
+    ADD COLUMN IF NOT EXISTS discount_status VARCHAR(20) DEFAULT 'approved' CHECK (discount_status IN ('approved', 'pending', 'declined')),
+    ADD COLUMN IF NOT EXISTS discount_approved_by UUID REFERENCES users(id),
+    ADD COLUMN IF NOT EXISTS discount_approved_at TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS discount_declined_reason TEXT,
+    ADD COLUMN IF NOT EXISTS total_discount DECIMAL(15, 2) DEFAULT 0;
+
+-- Add discount approval permission
+INSERT INTO permissions (slug, group_name) VALUES ('sale_discount_approve', 'Sales') ON CONFLICT (slug) DO NOTHING;
+
 -- ============================================
 -- INITIALIZATION COMPLETE
 -- ============================================
-

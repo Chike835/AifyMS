@@ -1,10 +1,10 @@
 # AifyMS ERP System - Architecture Context Map
 
-**Version:** 1.0.0  
+**Version:** 1.0.1  
 **Last Updated:** 2025-01-27  
 **Purpose:** Cognitive map for LLM understanding of system architecture, data flow, and key patterns
 
-**Note:** This document reflects the current implementation with 36 route files, 49 models, 7 services, 58+ frontend pages, and 60+ permissions.
+**Note:** This document reflects the current implementation with 38 route files, 50 models, 7 services, 58 frontend pages, and 60+ permissions.
 
 ---
 
@@ -17,7 +17,8 @@
 │  │  React 18 (Vite) Frontend                                │  │
 │  │  - Pages: Dashboard, POS, Inventory, Payments, etc.      │  │
 │  │  - Components: Layout, Forms, Modals                     │  │
-│  │  - Context: AuthContext (User, Permissions)              │  │
+│  │  - Context: AuthContext (User, Permissions),              │  │
+│  │            NotificationContext (Notifications)           │  │
 │  │  - Utils: API Client (Axios with interceptors)           │  │
 │  └──────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
@@ -412,6 +413,67 @@ graph TB
 
 ---
 
+### 13. Notification System Flow
+
+**Feature:** In-app notification system for discount approvals and other events
+
+**Data Flow:**
+1. **Notification Creation:** System creates notifications for various events:
+   - Discount approval requests (`type: 'discount_approval'`)
+   - Payment pending confirmations
+   - Other system events
+2. **Notification Storage:** 
+   - Stored in `notifications` table with `user_id`, `type`, `title`, `message`, `reference_type`, `reference_id`
+   - `is_read` defaults to `false`, `read_at` is `null` initially
+3. **Frontend Display:**
+   - `NotificationContext` provides notifications and unread count
+   - Auto-refetches every 30 seconds
+   - Displays in TopBar component with badge count
+4. **Mark as Read:**
+   - `PUT /api/notifications/:id/read` marks single notification as read
+   - `PUT /api/notifications/read-all` marks all user notifications as read
+   - Updates `is_read = true` and `read_at = CURRENT_TIMESTAMP`
+
+**Key Tables:**
+- `notifications`: User notifications with read status tracking
+- Indexed on `user_id`, `is_read`, `type`, and `created_at` for efficient queries
+
+---
+
+### 14. Discount Approval Workflow
+
+**Feature:** Maker-checker workflow for sales discounts requiring approval
+
+**Data Flow:**
+1. **Discount Request:** When a sale is created with a discount:
+   - `SalesOrder.discount_status` set to `'pending'` if discount exceeds threshold
+   - `total_discount` field stores the discount amount
+   - Notification created for approvers with `type: 'discount_approval'`
+2. **Approval Process:**
+   - Approver views pending discounts via `/discount-approvals` page
+   - `GET /api/discount-approvals?status=pending` returns pending sales
+   - Approver can approve or decline with reason
+3. **Approval Action:**
+   - `PUT /api/discount-approvals/:id/approve`:
+     - Updates `discount_status = 'approved'`
+     - Sets `discount_approved_by` and `discount_approved_at`
+     - Creates ledger entry if customer exists
+     - Updates production status to 'queue' if manufactured items exist
+4. **Decline Action:**
+   - `PUT /api/discount-approvals/:id/decline`:
+     - Updates `discount_status = 'declined'`
+     - Stores `discount_declined_reason`
+5. **Restore Action:**
+   - `PUT /api/discount-approvals/:id/restore`:
+     - Restores declined discount back to `'pending'` status
+
+**Key Tables:**
+- `sales_orders`: Contains `discount_status`, `discount_approved_by`, `discount_approved_at`, `discount_declined_reason`, `total_discount`
+- `notifications`: Created for discount approval requests
+- Permission: `sale_discount_approve` required to view/approve discounts
+
+---
+
 ## Technology Stack
 
 ### Frontend
@@ -483,6 +545,7 @@ graph TB
 - **PayrollRecord** → belongsTo Branch, User (employee)
 - **LedgerEntry** → belongsTo Customer/Supplier (contact_id with contact_type), User (creator), Payment (transaction_id)
 - **ActivityLog** → belongsTo User, Branch
+- **Notification** → belongsTo User (recipient)
 
 ### Product Types (Enum)
 - `standard`: Regular products
@@ -697,6 +760,17 @@ Request → authenticate → requirePermission → Controller
 - `GET /api/export/products` - Export products to CSV/Excel
 - Similar import/export endpoints for variations, units, categories, warranties
 
+**Notifications:**
+- `GET /api/notifications` - Get user's notifications (with unread count)
+- `PUT /api/notifications/:id/read` - Mark notification as read
+- `PUT /api/notifications/read-all` - Mark all notifications as read
+
+**Discount Approvals:**
+- `GET /api/discount-approvals` - Get sales with discounts (pending, approved, declined)
+- `PUT /api/discount-approvals/:id/approve` - Approve discount and create ledger entry
+- `PUT /api/discount-approvals/:id/decline` - Decline discount with reason
+- `PUT /api/discount-approvals/:id/restore` - Restore declined discount to pending
+
 ---
 
 ## Environment Variables
@@ -734,9 +808,9 @@ src/
 ```
 src/
 ├── config/             # Configuration (db.js, env.js, locale.js)
-├── controllers/        # Request handlers (36 controllers)
-├── models/             # Sequelize models (49 models)
-├── routes/             # Express route definitions (36 route files)
+├── controllers/        # Request handlers (37 controllers)
+├── models/             # Sequelize models (50 models)
+├── routes/             # Express route definitions (38 route files)
 ├── middleware/         # Auth and permission middleware
 ├── services/           # Business logic services (7 services)
 │   ├── exportService.js
@@ -869,8 +943,7 @@ const menuItems = [
 11. **Units Settings** (`/inventory/settings/units`) - Units management
 12. **Categories Settings** (`/inventory/settings/categories`) - Categories management
 13. **Batch Settings** (`/inventory/settings/batches`) - Batch type and category-batch assignments
-14. **Gauges & Colors Settings** (`/inventory/settings/gauges-colors`) - Gauge-enabled categories and color management
-15. **Warranties Settings** (`/inventory/settings/warranties`) - Warranties management
+14. **Warranties Settings** (`/inventory/settings/warranties`) - Warranties management
 16. **Products** (`/products`) - Product management
 17. **Add Product** (`/products/add`) - Create new product
 18. **Edit Product** (`/products/:id/edit`) - Edit existing product
@@ -891,30 +964,31 @@ const menuItems = [
 33. **Quotations** (`/sales/quotations`) - Quotations management
 34. **Sales Returns** (`/sales/returns`) - Sales returns management
 35. **Discounts** (`/discounts`) - Discounts management
-36. **Delivery Notes** (`/delivery-notes`) - Custom delivery note templates
-37. **Shipments** (`/shipments`) - Shipment tracking
-38. **Production Queue** (`/production-queue`) - Manufacturing queue
-39. **Manufacturing Status** (`/manufacturing/status`) - Production status tracking
-40. **Recipes** (`/manufacturing/recipes`) - Recipe management
-41. **Expenses** (`/expenses`) - Expenses management
-42. **Expense Categories** (`/expenses/categories`) - Expense categories
-43. **Payroll** (`/payroll`) - Payroll management
-44. **Users** (`/users`) - User management
-45. **Roles** (`/roles`) - Roles & permissions management
-46. **Agents** (`/agents`) - Sales commission agents
-47. **Reports** (`/reports` or `/accounts/reports`) - Comprehensive reports dashboard
-48. **Payment Accounts** (`/accounts/payment-accounts`) - Payment accounts management
-49. **Balance Sheet** (`/accounts/payment-accounts/balance-sheet`) - Balance sheet financial statement
-50. **Trial Balance** (`/accounts/payment-accounts/trial-balance`) - Trial balance financial statement
-51. **Cash Flow** (`/accounts/payment-accounts/cash-flow`) - Cash flow financial statement
-52. **Payment Account Report** (`/accounts/payment-accounts/report/:accountId`) - Individual account report
-53. **Settings** (`/settings`) - General settings
-54. **Business Settings** (`/settings/business`) - Business configuration
-55. **Business Locations** (`/settings/locations`) - Multi-branch management
-56. **Invoice Settings** (`/settings/invoice`) - Invoice configuration
-57. **Barcode Settings** (`/settings/barcode`) - Barcode configuration
-58. **Receipt Printers** (`/settings/receipt-printers`) - Receipt printer configuration
-59. **Tax Rates** (`/settings/tax`) - Tax rates management
+36. **Discount Approvals** (`/discount-approvals`) - Discount approval workflow
+37. **Delivery Notes** (`/delivery-notes`) - Custom delivery note templates
+38. **Shipments** (`/shipments`) - Shipment tracking
+39. **Production Queue** (`/production-queue`) - Manufacturing queue
+40. **Manufacturing Status** (`/manufacturing/status`) - Production status tracking
+41. **Recipes** (`/manufacturing/recipes`) - Recipe management
+42. **Expenses** (`/expenses`) - Expenses management
+43. **Expense Categories** (`/expenses/categories`) - Expense categories
+44. **Payroll** (`/payroll`) - Payroll management
+45. **Users** (`/users`) - User management
+46. **Roles** (`/roles`) - Roles & permissions management
+47. **Agents** (`/agents`) - Sales commission agents
+48. **Reports** (`/reports` or `/accounts/reports`) - Comprehensive reports dashboard
+49. **Payment Accounts** (`/accounts/payment-accounts`) - Payment accounts management
+50. **Balance Sheet** (`/accounts/payment-accounts/balance-sheet`) - Balance sheet financial statement
+51. **Trial Balance** (`/accounts/payment-accounts/trial-balance`) - Trial balance financial statement
+52. **Cash Flow** (`/accounts/payment-accounts/cash-flow`) - Cash flow financial statement
+53. **Payment Account Report** (`/accounts/payment-accounts/report/:accountId`) - Individual account report
+54. **Settings** (`/settings`) - General settings
+55. **Business Settings** (`/settings/business`) - Business configuration
+56. **Business Locations** (`/settings/locations`) - Multi-branch management
+57. **Invoice Settings** (`/settings/invoice`) - Invoice configuration
+58. **Barcode Settings** (`/settings/barcode`) - Barcode configuration
+59. **Receipt Printers** (`/settings/receipt-printers`) - Receipt printer configuration
+60. **Tax Rates** (`/settings/tax`) - Tax rates management
 
 **Route Protection:**
 - `ProtectedRoute` component checks authentication

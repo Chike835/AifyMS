@@ -293,6 +293,44 @@ export const confirmPayment = async (req, res, next) => {
       // Customer pays us: Balance decreases (Credit)
       customer.ledger_balance = parseFloat(customer.ledger_balance) - parseFloat(payment.amount);
       await customer.save({ transaction });
+
+      // Auto-update payment status for unpaid invoices if customer balance covers them
+      // After payment, check if customer has enough credit (negative balance) to cover unpaid invoices
+      const updatedBalance = parseFloat(customer.ledger_balance);
+      
+      // Get all unpaid invoices for this customer, ordered by date (oldest first)
+      const unpaidInvoices = await SalesOrder.findAll({
+        where: {
+          customer_id: customer.id,
+          payment_status: { [Op.in]: ['unpaid', 'partial'] },
+          order_type: 'invoice',
+          discount_status: { [Op.ne]: 'pending' } // Only check invoices that are not pending discount approval
+        },
+        order: [['created_at', 'ASC']],
+        transaction
+      });
+
+      // Process invoices in order, marking as paid if balance covers them
+      let remainingCredit = -updatedBalance; // Negative balance = credit available
+      for (const invoice of unpaidInvoices) {
+        const invoiceAmount = parseFloat(invoice.total_amount);
+        
+        // Check if we have enough credit to cover this invoice
+        if (remainingCredit >= invoiceAmount) {
+          invoice.payment_status = 'paid';
+          await invoice.save({ transaction });
+          remainingCredit -= invoiceAmount;
+        } else if (remainingCredit > 0) {
+          // Partial payment
+          invoice.payment_status = 'partial';
+          await invoice.save({ transaction });
+          remainingCredit = 0; // No more credit left
+          break;
+        } else {
+          // No more credit, stop processing
+          break;
+        }
+      }
     } else if (supplier) {
       // We pay supplier: Balance decreases (Debit) (if balance is +ve meaning we owe them)
       // Supplier ledger: Positive = We owe them. Negative = They owe us.
@@ -875,6 +913,44 @@ export const confirmAdvancePayment = async (req, res, next) => {
     // Update customer ledger balance (decrease - customer paid advance)
     customer.ledger_balance = parseFloat(customer.ledger_balance) - parseFloat(payment.amount);
     await customer.save({ transaction });
+
+    // Auto-update payment status for unpaid invoices if customer balance covers them
+    // After advance payment, check if customer has enough credit (negative balance) to cover unpaid invoices
+    const updatedBalance = parseFloat(customer.ledger_balance);
+    
+    // Get all unpaid invoices for this customer, ordered by date (oldest first)
+    const unpaidInvoices = await SalesOrder.findAll({
+      where: {
+        customer_id: customer.id,
+        payment_status: { [Op.in]: ['unpaid', 'partial'] },
+        order_type: 'invoice',
+        discount_status: { [Op.ne]: 'pending' } // Only check invoices that are not pending discount approval
+      },
+      order: [['created_at', 'ASC']],
+      transaction
+    });
+
+    // Process invoices in order, marking as paid if balance covers them
+    let remainingCredit = -updatedBalance; // Negative balance = credit available
+    for (const invoice of unpaidInvoices) {
+      const invoiceAmount = parseFloat(invoice.total_amount);
+      
+      // Check if we have enough credit to cover this invoice
+      if (remainingCredit >= invoiceAmount) {
+        invoice.payment_status = 'paid';
+        await invoice.save({ transaction });
+        remainingCredit -= invoiceAmount;
+      } else if (remainingCredit > 0) {
+        // Partial payment
+        invoice.payment_status = 'partial';
+        await invoice.save({ transaction });
+        remainingCredit = 0; // No more credit left
+        break;
+      } else {
+        // No more credit, stop processing
+        break;
+      }
+    }
 
     // Create ledger entry with ADVANCE_PAYMENT type (within transaction - must succeed or entire payment rolls back)
     const recentSale = await SalesOrder.findOne({

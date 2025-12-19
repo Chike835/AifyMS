@@ -1,7 +1,7 @@
 import express from 'express';
-import { 
-  createSale, 
-  getSales, 
+import {
+  createSale,
+  getSales,
   getSaleById,
   updateProductionStatus,
   getProductionQueue,
@@ -15,7 +15,10 @@ import {
   convertQuotationToInvoice,
   deleteQuotation,
   updateSale,
-  cancelSale
+  cancelSale,
+  getManufacturingApprovals,
+  approveManufacturing,
+  rejectManufacturing
 } from '../controllers/salesController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { requirePermission } from '../middleware/permissionMiddleware.js';
@@ -72,6 +75,15 @@ router.put('/:id', requirePermission('draft_manage'), updateSale);
 
 // DELETE /api/sales/:id - Cancel/void sales order (requires sale_edit_price)
 router.delete('/:id', requirePermission('sale_edit_price'), cancelSale);
+
+// GET /api/sales/manufacturing-approvals - Get sales pending manufacturing approval (requires production_update_status)
+router.get('/manufacturing-approvals', requirePermission('production_update_status'), getManufacturingApprovals);
+
+// PUT /api/sales/:id/approve-manufacturing - Approve sale for production (requires production_update_status)
+router.put('/:id/approve-manufacturing', requirePermission('production_update_status'), approveManufacturing);
+
+// PUT /api/sales/:id/reject-manufacturing - Reject sale for production (requires production_update_status)
+router.put('/:id/reject-manufacturing', requirePermission('production_update_status'), rejectManufacturing);
 
 export default router;
 

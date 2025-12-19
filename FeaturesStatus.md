@@ -1,7 +1,7 @@
 # AifyMS ERP - Feature Status Ledger
 
-**Version:** 1.0.0  
-**Last Updated:** 2025-11-24  
+**Version:** 1.0.1  
+**Last Updated:** 2025-01-27  
 **Purpose:** Truth source for project completeness tracking
 
 **Legend:**
@@ -227,6 +227,28 @@
 
 ---
 
+## Notifications
+
+| Feature Category | Sub-Feature | Built (AI) | Working (User) |
+|-----------------|-------------|------------|----------------|
+| **Notifications** | In-app notification system (backend model & API) | [x] | [ ] |
+| **Notifications** | Notification context provider (frontend) | [x] | [ ] |
+| **Notifications** | Mark as read functionality | [x] | [ ] |
+| **Notifications** | Unread count tracking | [x] | [ ] |
+
+---
+
+## Discount Approvals
+
+| Feature Category | Sub-Feature | Built (AI) | Working (User) |
+|-----------------|-------------|------------|----------------|
+| **Discount Approvals** | Discount approval workflow (maker-checker) | [x] | [ ] |
+| **Discount Approvals** | Discount approval API (approve/decline/restore) | [x] | [ ] |
+| **Discount Approvals** | Discount approvals page (/discount-approvals) | [x] | [ ] |
+| **Discount Approvals** | Notification integration for approval requests | [x] | [ ] |
+
+---
+
 ## Product Attributes
 
 | Feature Category | Sub-Feature | Built (AI) | Working (User) |
@@ -252,8 +274,8 @@
 
 ## Summary Statistics
 
-**Total Features:** 93 (3 removed)  
-**Built (AI):** 93  
+**Total Features:** 101 (3 removed)  
+**Built (AI):** 101  
 **Removed:** 3 (Color management, Gauge category toggles, Gauge/Color/Design dropdowns)  
 **Not Built:** 0  
 **Working (User):** 0 (pending user confirmation)
@@ -270,4 +292,9 @@
 ---
 
 *Last reviewed against codebase: 2025-01-27*
+
+## Recent Additions (v1.0.1)
+
+- **Notifications System:** In-app notification system with read/unread tracking, integrated with discount approvals
+- **Discount Approvals:** Maker-checker workflow for sales discounts requiring approval, with notification integration
 

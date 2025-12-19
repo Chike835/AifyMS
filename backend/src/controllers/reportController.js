@@ -36,11 +36,11 @@ export const getSalesSummary = async (req, res, next) => {
     if (start_date && end_date) {
       const startDate = new Date(start_date);
       const endDate = new Date(end_date + 'T23:59:59.999Z');
-      
+
       if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
         return res.status(400).json({ error: 'Invalid date format' });
       }
-      
+
       where.created_at = {
         [Op.between]: [startDate, endDate]
       };
@@ -101,9 +101,9 @@ export const getSalesSummary = async (req, res, next) => {
           where,
           required: true
         },
-        { 
-          model: Product, 
-          as: 'product', 
+        {
+          model: Product,
+          as: 'product',
           attributes: ['id', 'name', 'sku'],
           required: true
         }
@@ -1728,6 +1728,78 @@ export const getActivityLogReport = async (req, res, next) => {
         user_id: user_id || null
       }
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/reports/batch-operations
+ * Get batch operations report (creation/deletion)
+ */
+export const getBatchOperationsReport = async (req, res, next) => {
+  try {
+    const { start_date, end_date, branch_id } = req.query;
+    const where = {
+      module: 'INVENTORY_BATCH',
+      action_type: { [Op.in]: ['CREATE', 'DELETE'] }
+    };
+
+    // Date filtering (using timestamp column from ActivityLog)
+    if (start_date && end_date) {
+      const startDate = new Date(start_date);
+      const endDate = new Date(end_date + 'T23:59:59.999Z');
+
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid date format' });
+      }
+
+      where.timestamp = {
+        [Op.between]: [startDate, endDate]
+      };
+    } else if (start_date) {
+      const startDate = new Date(start_date);
+      if (isNaN(startDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid start_date format' });
+      }
+      where.timestamp = {
+        [Op.gte]: startDate
+      };
+    } else if (end_date) {
+      const endDate = new Date(end_date + 'T23:59:59.999Z');
+      if (isNaN(endDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid end_date format' });
+      }
+      where.timestamp = {
+        [Op.lte]: endDate
+      };
+    }
+
+    // Branch filtering
+    if (branch_id) {
+      where.branch_id = branch_id;
+    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+      where.branch_id = req.user.branch_id;
+    }
+
+    const logs = await ActivityLog.findAll({
+      where,
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: ['id', 'username', 'first_name', 'last_name']
+        },
+        {
+          model: Branch,
+          as: 'branch',
+          attributes: ['id', 'name']
+        }
+      ],
+      order: [['timestamp', 'DESC']]
+    });
+
+    res.json({ logs });
   } catch (error) {
     next(error);
   }

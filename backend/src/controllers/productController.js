@@ -260,7 +260,7 @@ export const getProducts = async (req, res, next) => {
         { name: { [Op.iLike]: `%${search}%` } },
         { sku: { [Op.iLike]: `%${search}%` } }
       ];
-      
+
       // If we already have Op.or (from variant filtering), combine with Op.and
       if (where[Op.or]) {
         where[Op.and] = [
@@ -319,6 +319,13 @@ export const getProducts = async (req, res, next) => {
       where.not_for_selling = true;
     } else if (not_for_selling === 'false') {
       where.not_for_selling = false;
+    }
+
+    // Manage stock filter
+    if (req.query.manage_stock === 'true') {
+      where.manage_stock = true;
+    } else if (req.query.manage_stock === 'false') {
+      where.manage_stock = false;
     }
 
     // Build includes
@@ -1067,10 +1074,10 @@ export const createDefaultBatches = async (req, res, next) => {
         return res.status(404).json({ error: 'Branch not found' });
       }
     } else {
-      branch = await Branch.findOne({ 
+      branch = await Branch.findOne({
         where: { is_active: true },
         order: [['name', 'ASC']],
-        transaction 
+        transaction
       });
       if (!branch) {
         await safeRollback(transaction);
@@ -1130,9 +1137,9 @@ export const createDefaultBatches = async (req, res, next) => {
       // Verify batch type is assigned to category (if category provided)
       if (product.category_id) {
         const assignment = await CategoryBatchType.findOne({
-          where: { 
-            category_id: product.category_id, 
-            batch_type_id: batchType.id 
+          where: {
+            category_id: product.category_id,
+            batch_type_id: batchType.id
           },
           transaction
         });
@@ -1552,7 +1559,7 @@ export const generateVariants = async (req, res, next) => {
     if (product.type !== 'variable') {
       await safeRollback(transaction);
       console.error('[generateVariants] Product is not variable type:', { productId: id, productType: product.type });
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: `Product is not a variable product. Current type: ${product.type}`,
         productId: id,
         productType: product.type
@@ -1566,9 +1573,9 @@ export const generateVariants = async (req, res, next) => {
         if (!config.variationId) {
           invalidConfigs.push({ config, reason: 'Missing variationId' });
         } else if (!config.valueIds || !Array.isArray(config.valueIds) || config.valueIds.length === 0) {
-          invalidConfigs.push({ 
-            config, 
-            reason: `No valueIds provided or valueIds is empty for variationId: ${config.variationId}` 
+          invalidConfigs.push({
+            config,
+            reason: `No valueIds provided or valueIds is empty for variationId: ${config.variationId}`
           });
         }
       }
@@ -1576,7 +1583,7 @@ export const generateVariants = async (req, res, next) => {
       if (invalidConfigs.length > 0) {
         await safeRollback(transaction);
         console.error('[generateVariants] Invalid variation configs:', invalidConfigs);
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: 'Invalid variation configurations provided',
           details: invalidConfigs.map(ic => ({
             variationId: ic.config.variationId,
@@ -1604,7 +1611,7 @@ export const generateVariants = async (req, res, next) => {
     if (!targetVariationIds || targetVariationIds.length === 0) {
       await safeRollback(transaction);
       console.error('[generateVariants] No variations assigned to product:', id);
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'No variations assigned to this product. Please assign variations before generating variants.',
         productId: id
       });

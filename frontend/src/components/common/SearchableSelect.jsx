@@ -1,36 +1,94 @@
-import { useState, useRef, useEffect } from 'react';
-import { ChevronDown, X, Search } from 'lucide-react';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import { ChevronDown, X, Search, Loader2 } from 'lucide-react';
 
 const SearchableSelect = ({
   options = [],
   value,
   onChange,
+  onSearch, // Optional: Async search function
   placeholder = 'Select...',
   getOptionLabel = (option) => option.label || option.name || String(option),
   getOptionValue = (option) => option.value || option.id || option,
   searchFields = ['label', 'name', 'value'],
   className = '',
   required = false,
-  disabled = false
+  disabled = false,
+  debounceMs = 500
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [asyncOptions, setAsyncOptions] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+
   const containerRef = useRef(null);
   const inputRef = useRef(null);
   const listRef = useRef(null);
+  const searchTimeoutRef = useRef(null);
 
-  const selectedOption = options.find(opt => getOptionValue(opt) === value);
+  // Determine which options to use
+  const isAsync = typeof onSearch === 'function';
+  const displayOptions = isAsync ? asyncOptions : options;
 
-  // Filter options based on search term
-  const filteredOptions = options.filter(option => {
-    if (!searchTerm.trim()) return true;
-    const search = searchTerm.toLowerCase();
-    return searchFields.some(field => {
-      const fieldValue = option[field];
-      return fieldValue && String(fieldValue).toLowerCase().includes(search);
-    }) || getOptionLabel(option).toLowerCase().includes(search);
-  });
+  // Find selected option object (handle both sync and async scenarios)
+  // For async, we might not have the selected option in the current list if it was cleared
+  // So we accept that we might just show the label if we have it, or we rely on the parent to pass the full object if needed
+  // BUT: The simplest way is to check both props options and asyncOptions
+  const selectedOption = useMemo(() => {
+    const allKnownOptions = [...options, ...asyncOptions];
+    return allKnownOptions.find(opt => getOptionValue(opt) === value);
+  }, [options, asyncOptions, value, getOptionValue]);
+
+  // Sync Search Logic
+  const filteredOptions = useMemo(() => {
+    if (isAsync) return asyncOptions; // Async handles filtering server-side
+
+    return options.filter(option => {
+      if (!searchTerm.trim()) return true;
+      const search = searchTerm.toLowerCase();
+      return searchFields.some(field => {
+        const fieldValue = option[field];
+        return fieldValue && String(fieldValue).toLowerCase().includes(search);
+      }) || getOptionLabel(option).toLowerCase().includes(search);
+    });
+  }, [options, asyncOptions, searchTerm, isAsync, searchFields, getOptionLabel]);
+
+  // Async Search Handler with Debounce
+  useEffect(() => {
+    if (!isAsync) return;
+
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (!isOpen) return; // Don't search if closed
+
+    setIsLoading(true);
+    searchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const results = await onSearch(searchTerm);
+        setAsyncOptions(results || []);
+      } catch (error) {
+        console.error("Search failed", error);
+        setAsyncOptions([]);
+      } finally {
+        setIsLoading(false);
+      }
+    }, debounceMs);
+
+    return () => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    };
+  }, [searchTerm, isOpen, isAsync, debounceMs, onSearch]);
+
+  // Initialize async options on open if empty (optional: to load initial list)
+  useEffect(() => {
+    if (isAsync && isOpen && asyncOptions.length === 0 && !isLoading) {
+      // Trigger initial search
+      setSearchTerm('');
+    }
+  }, [isOpen, isAsync]);
+
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -55,7 +113,7 @@ const SearchableSelect = ({
     const handleKeyDown = (e) => {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setHighlightedIndex(prev => 
+        setHighlightedIndex(prev =>
           prev < filteredOptions.length - 1 ? prev + 1 : prev
         );
       } else if (e.key === 'ArrowUp') {
@@ -128,6 +186,7 @@ const SearchableSelect = ({
           {selectedOption ? getOptionLabel(selectedOption) : placeholder}
         </span>
         <div className="flex items-center gap-1">
+          {isLoading && <Loader2 className="h-4 w-4 animate-spin text-primary-500" />}
           {value && !disabled && (
             <button
               type="button"
@@ -168,7 +227,7 @@ const SearchableSelect = ({
           >
             {filteredOptions.length === 0 ? (
               <div className="px-3 py-2 text-sm text-gray-500 text-center">
-                No options found
+                {isLoading ? 'Loading...' : 'No options found'}
               </div>
             ) : (
               filteredOptions.map((option, index) => {
@@ -205,7 +264,7 @@ const SearchableSelect = ({
           className="absolute opacity-0 pointer-events-none"
           tabIndex={-1}
           value=""
-          onChange={() => {}}
+          onChange={() => { }}
         />
       )}
     </div>
@@ -213,5 +272,7 @@ const SearchableSelect = ({
 };
 
 export default SearchableSelect;
+
+
 
 

@@ -1,27 +1,105 @@
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
+import { useAuth } from '../context/AuthContext';
 import CoilSelectorModal from '../components/pos/CoilSelectorModal';
-import { Search, Plus, Minus, Trash2, ShoppingCart } from 'lucide-react';
+import ProductGrid from '../components/pos/ProductGrid';
+import CategoryTabs from '../components/pos/CategoryTabs';
+import CartSidebar from '../components/pos/CartSidebar';
+import { Search, Maximize2, Minimize2, Minimize, LogOut, LayoutGrid } from 'lucide-react';
 
 const POS = () => {
+  const navigate = useNavigate();
+  const { user, hasPermission } = useAuth();
+
+  // UI State
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Cart State
   const [cart, setCart] = useState([]);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+
+  // Coil Modal State
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [selectedQuantity, setSelectedQuantity] = useState(1);
   const [showCoilModal, setShowCoilModal] = useState(false);
-  const navigate = useNavigate();
 
-  // Search products
-  const { data: searchResults } = useQuery({
-    queryKey: ['products', searchQuery],
+  // Permissions (Mock permission if hasPermission is not yet available, checking AuthContext later)
+  // Assuming hasPermission might be undefined if user not fully loaded, safe check
+  const canEditPrice = hasPermission ? hasPermission('sale_edit_price') : true;
+
+  // Branch State
+  const [selectedBranch, setSelectedBranch] = useState(null);
+
+  // Determine if user can select branch
+  const canSelectBranch = useMemo(() => {
+    if (!user) return false;
+    return user.role_name === 'Super Admin' || (hasPermission && hasPermission('branch_access_all'));
+  }, [user, hasPermission]);
+
+
+  // Sync fullscreen state with browser
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  // Set default branch
+  useEffect(() => {
+    if (user?.branch_id && !selectedBranch) {
+      setSelectedBranch(user.branch_id);
+    }
+  }, [user]);
+
+  // Fetch branches
+  const { data: branchesData } = useQuery({
+    queryKey: ['branches'],
     queryFn: async () => {
-      if (!searchQuery.trim()) return { products: [] };
-      const response = await api.get(`/products?search=${encodeURIComponent(searchQuery)}`);
-      return response.data;
+      const response = await api.get('/branches');
+      return response.data.branches || [];
     },
-    enabled: searchQuery.length > 0,
+    enabled: !!user
+  });
+
+  // Fetch products
+  const { data: productsData, isLoading: productsLoading } = useQuery({
+    queryKey: ['products', 'pos'],
+    queryFn: async () => {
+      const response = await api.get('/products', {
+        params: {
+          status: 'active',
+          not_for_selling: 'false',
+          limit: 500
+        }
+      });
+      return response.data;
+    }
+  });
+
+  // Fetch categories
+  const { data: categoriesData } = useQuery({
+    queryKey: ['categories', 'pos'],
+    queryFn: async () => {
+      const response = await api.get('/categories', {
+        params: { include_global: 'true' }
+      });
+      return response.data.categories || [];
+    }
+  });
+
+  // Fetch customers
+  const { data: customersData } = useQuery({
+    queryKey: ['customers'],
+    queryFn: async () => {
+      const response = await api.get('/customers');
+      return response.data.customers || [];
+    }
   });
 
   // Fetch recipes
@@ -33,40 +111,83 @@ const POS = () => {
     }
   });
 
-  const recipes = recipesData || [];
-
-  // Create sale mutation
+  // Mutations
   const createSaleMutation = useMutation({
     mutationFn: async (saleData) => {
-      const response = await api.post('/sales', saleData);
+      if (!selectedBranch) throw new Error('Please select a branch');
+      const response = await api.post('/sales', { ...saleData, branch_id: selectedBranch });
+      return response.data;
+    },
+    onSuccess: (data) => {
+      setCart([]);
+      setSelectedCustomer(null);
+
+      // If sale is pending approval (from backend which we will implement)
+      if (data.sale?.discount_status === 'pending') {
+        alert('Sale created! Discount approval requested.');
+      } else {
+        alert('Sale created successfully!');
+      }
+    },
+    onError: (error) => {
+      alert(error.response?.data?.error || error.message || 'Failed to create sale');
+    },
+  });
+
+  const holdOrderMutation = useMutation({
+    mutationFn: async (saleData) => {
+      if (!selectedBranch) throw new Error('Please select a branch');
+      const response = await api.post('/sales', { ...saleData, order_type: 'draft', branch_id: selectedBranch });
       return response.data;
     },
     onSuccess: () => {
       setCart([]);
-      alert('Sale created successfully!');
-      navigate('/');
+      setSelectedCustomer(null);
+      alert('Order saved as draft!');
     },
     onError: (error) => {
-      alert(error.response?.data?.error || 'Failed to create sale');
+      alert(error.response?.data?.error || error.message || 'Failed to hold order');
     },
   });
 
+  const products = productsData?.products || [];
+  const categories = categoriesData || [];
+  const customers = customersData || [];
+  const recipes = recipesData || [];
+  const branches = branchesData || [];
+
+  // Logic for filtering, cart, etc. (Same as before)
+  const filteredProducts = useMemo(() => {
+    return products.filter(product => {
+      if (product.is_variant_child) return false;
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        const matchesSearch =
+          product.name?.toLowerCase().includes(query) ||
+          product.sku?.toLowerCase().includes(query);
+        if (!matchesSearch) return false;
+      }
+      if (selectedCategory && product.category_id !== selectedCategory) {
+        return false;
+      }
+      return true;
+    });
+  }, [products, searchQuery, selectedCategory]);
+
+  const hasRecipe = (productId) => recipes.some(r => r.virtual_product_id === productId);
+
   const addToCart = (product, quantity = 1) => {
-    // Check if product has a recipe
-    const hasRecipe = recipes.some(r => r.virtual_product_id === product.id);
-    if (hasRecipe) {
-      // Open coil selector modal
+    if (hasRecipe(product.id)) {
       setSelectedProduct(product);
       setSelectedQuantity(quantity);
       setShowCoilModal(true);
     } else {
-      // Add directly to cart
       const existingItem = cart.find((item) => item.product_id === product.id);
       if (existingItem) {
         setCart(
           cart.map((item) =>
             item.product_id === product.id
-              ? { ...item, quantity: item.quantity + quantity }
+              ? { ...item, quantity: item.quantity + quantity, subtotal: item.unit_price * (item.quantity + quantity) }
               : item
           )
         );
@@ -78,8 +199,9 @@ const POS = () => {
             product_name: product.name,
             product_sku: product.sku,
             quantity: quantity,
-            unit_price: product.sale_price,
-            subtotal: product.sale_price * quantity,
+            unit_price: parseFloat(product.sale_price) || 0,
+            original_price: parseFloat(product.sale_price) || 0, // Track original for discount detection
+            subtotal: (parseFloat(product.sale_price) || 0) * quantity,
           },
         ]);
       }
@@ -87,7 +209,7 @@ const POS = () => {
   };
 
   const handleCoilSelection = (assignments) => {
-    // Add product to cart with assignments
+    if (!selectedProduct) return;
     setCart([
       ...cart,
       {
@@ -95,8 +217,9 @@ const POS = () => {
         product_name: selectedProduct.name,
         product_sku: selectedProduct.sku,
         quantity: selectedQuantity,
-        unit_price: selectedProduct.sale_price,
-        subtotal: selectedProduct.sale_price * selectedQuantity,
+        unit_price: parseFloat(selectedProduct.sale_price) || 0,
+        original_price: parseFloat(selectedProduct.sale_price) || 0,
+        subtotal: (parseFloat(selectedProduct.sale_price) || 0) * selectedQuantity,
         item_assignments: assignments,
       },
     ]);
@@ -120,177 +243,164 @@ const POS = () => {
     );
   };
 
-  const removeFromCart = (productId) => {
-    setCart(cart.filter((item) => item.product_id !== productId));
+  const updateCartPrice = (productId, newPrice) => {
+    setCart(
+      cart.map((item) => {
+        if (item.product_id === productId) {
+          const price = parseFloat(newPrice) || 0;
+          return {
+            ...item,
+            unit_price: price,
+            subtotal: price * item.quantity,
+          };
+        }
+        return item;
+      })
+    );
   };
 
-  const totalAmount = cart.reduce((sum, item) => sum + item.subtotal, 0);
+  const removeFromCart = (productId) => setCart(cart.filter((item) => item.product_id !== productId));
+  const clearCart = () => { if (cart.length > 0 && window.confirm('Clear all items from cart?')) setCart([]); };
 
   const handleCheckout = () => {
-    if (cart.length === 0) {
-      alert('Cart is empty');
+    if (cart.length === 0) return;
+    if (!selectedBranch) {
+      alert('Please select a branch before creating a sale');
       return;
     }
-
     const items = cart.map((item) => ({
       product_id: item.product_id,
       quantity: item.quantity,
       unit_price: item.unit_price,
       item_assignments: item.item_assignments || [],
     }));
+    createSaleMutation.mutate({ customer_id: selectedCustomer?.id || null, items, payment_status: 'unpaid' });
+  };
 
-    createSaleMutation.mutate({
-      items,
-      payment_status: 'unpaid',
-    });
+  const handleHoldOrder = () => {
+    if (cart.length === 0) return;
+    if (!selectedBranch) {
+      alert('Please select a branch before holding the order');
+      return;
+    }
+    const items = cart.map((item) => ({
+      product_id: item.product_id,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      item_assignments: item.item_assignments || [],
+    }));
+    holdOrderMutation.mutate({ customer_id: selectedCustomer?.id || null, items, payment_status: 'unpaid' });
+  };
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch((e) => {
+        console.error(`Error attempting to enable fullscreen mode: ${e.message} (${e.name})`);
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  };
+
+  const exitPOS = () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    }
+    navigate('/');
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-gray-900">Point of Sale</h1>
-        <div className="text-sm text-gray-600">
-          {cart.length} item{cart.length !== 1 ? 's' : ''} in cart
-        </div>
-      </div>
+    <div className={`flex h-[calc(100vh-80px)] bg-gray-50/50 -m-6 ${isFullscreen ? 'fixed inset-0 z-50 h-screen m-0' : ''}`}>
+      {/* Left Area: Product Browser */}
+      <div className="flex-1 flex flex-col overflow-hidden relative">
+        {/* Modern Header */}
+        <header className="px-6 py-4 flex items-center justify-between bg-white/80 backdrop-blur-md sticky top-0 z-10 border-b border-gray-100">
+          <div className="flex items-center gap-4 flex-1">
+            {/* Exit Button */}
+            <button
+              onClick={exitPOS}
+              className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all flex items-center gap-2"
+              title="Exit POS"
+            >
+              <LogOut className="h-5 w-5" />
+              <span className="font-medium text-sm hidden sm:inline">Exit</span>
+            </button>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Product Search - Left Column */}
-        <div className="lg:col-span-2 bg-white rounded-lg shadow border border-gray-200 p-6">
-          <div className="relative mb-6">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
-            <input
-              type="text"
-              placeholder="Search products by name or SKU..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+            <div className="relative flex-1 max-w-lg group">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search className="h-5 w-5 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
+              </div>
+              <input
+                type="text"
+                placeholder="Search products..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="block w-full pl-10 pr-3 py-2.5 border-none bg-gray-100 text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-0 focus:bg-white focus:shadow-md rounded-xl transition-all duration-300 sm:text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="flex bg-gray-100 p-1 rounded-lg">
+              <button title="Grid View" className="p-2 bg-white rounded-md shadow-sm text-gray-900">
+                <LayoutGrid className="h-4 w-4 text-gray-700" />
+              </button>
+            </div>
+
+            <button
+              onClick={toggleFullscreen}
+              className="p-2.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-all"
+              title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+            >
+              {isFullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
+            </button>
+          </div>
+        </header>
+
+        {/* Content Area */}
+        <div className="flex-1 overflow-y-auto p-6 scroll-smooth">
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold text-gray-900 mb-4 tracking-tight">Catalog</h2>
+            <CategoryTabs
+              categories={categories.filter(c => !c.parent_id)}
+              selectedCategory={selectedCategory}
+              onSelectCategory={setSelectedCategory}
             />
           </div>
 
-          {searchQuery && (
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {searchResults?.products?.length > 0 ? (
-                searchResults.products.map((product) => (
-                  <div
-                    key={product.id}
-                    className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:border-primary-500 transition-colors"
-                  >
-                    <div className="flex-1">
-                      <div className="font-medium text-gray-900">{product.name}</div>
-                      <div className="text-sm text-gray-600">SKU: {product.sku}</div>
-                      <div className="text-sm text-gray-600">
-                        {product.type} • ₦{parseFloat(product.sale_price).toLocaleString()}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => addToCart(product, 1)}
-                      className="ml-4 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center space-x-2"
-                    >
-                      <Plus className="h-5 w-5" />
-                      <span>Add</span>
-                    </button>
-                  </div>
-                ))
-              ) : searchQuery ? (
-                <div className="text-center py-8 text-gray-600">No products found</div>
-              ) : null}
-            </div>
-          )}
-
-          {!searchQuery && (
-            <div className="text-center py-12 text-gray-500">
-              <Search className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-              <p>Start typing to search for products</p>
-            </div>
-          )}
-        </div>
-
-        {/* Cart - Right Column */}
-        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
-          <div className="flex items-center space-x-2 mb-6">
-            <ShoppingCart className="h-6 w-6 text-gray-700" />
-            <h2 className="text-xl font-bold text-gray-900">Cart</h2>
-          </div>
-
-          {cart.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              <ShoppingCart className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-              <p>Cart is empty</p>
-            </div>
-          ) : (
-            <>
-              <div className="space-y-3 mb-6 max-h-96 overflow-y-auto">
-                {cart.map((item) => (
-                  <div
-                    key={item.product_id}
-                    className="border border-gray-200 rounded-lg p-4"
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1">
-                        <div className="font-medium text-gray-900">{item.product_name}</div>
-                        <div className="text-sm text-gray-600">SKU: {item.product_sku}</div>
-                        {item.item_assignments && item.item_assignments.length > 0 && (
-                          <div className="text-xs text-primary-600 mt-1">
-                            {item.item_assignments.length} coil(s) assigned
-                          </div>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => removeFromCart(item.product_id)}
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <button
-                          onClick={() => updateCartQuantity(item.product_id, -1)}
-                          className="p-1 border border-gray-300 rounded hover:bg-gray-100"
-                        >
-                          <Minus className="h-4 w-4" />
-                        </button>
-                        <span className="w-12 text-center font-medium">{item.quantity}</span>
-                        <button
-                          onClick={() => updateCartQuantity(item.product_id, 1)}
-                          className="p-1 border border-gray-300 rounded hover:bg-gray-100"
-                        >
-                          <Plus className="h-4 w-4" />
-                        </button>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-medium text-gray-900">
-                          ₦{item.subtotal.toLocaleString()}
-                        </div>
-                        <div className="text-sm text-gray-600">
-                          ₦{item.unit_price.toLocaleString()} each
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="border-t border-gray-200 pt-4 space-y-4">
-                <div className="flex justify-between items-center text-lg font-bold">
-                  <span>Total:</span>
-                  <span>₦{totalAmount.toLocaleString()}</span>
-                </div>
-                <button
-                  onClick={handleCheckout}
-                  disabled={createSaleMutation.isPending}
-                  className="w-full py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
-                >
-                  {createSaleMutation.isPending ? 'Processing...' : 'Complete Sale'}
-                </button>
-              </div>
-            </>
-          )}
+          <ProductGrid
+            products={filteredProducts}
+            onAddToCart={addToCart}
+            isLoading={productsLoading}
+          />
         </div>
       </div>
 
-      {/* Coil Selector Modal */}
+      {/* Right Area: Cart Sidebar */}
+      <div className="w-[420px] flex-shrink-0 z-20">
+        <CartSidebar
+          cart={cart}
+          onUpdateQuantity={updateCartQuantity}
+          onUpdatePrice={updateCartPrice}
+          onRemoveItem={removeFromCart}
+          onClearCart={clearCart}
+          onCheckout={handleCheckout}
+          onHoldOrder={handleHoldOrder}
+          customers={customers}
+          selectedCustomer={selectedCustomer}
+          onSelectCustomer={setSelectedCustomer}
+          isProcessing={createSaleMutation.isPending || holdOrderMutation.isPending}
+          canEditPrice={canEditPrice}
+          branches={branches}
+          selectedBranch={selectedBranch}
+          onSelectBranch={setSelectedBranch}
+          canSelectBranch={canSelectBranch}
+          user={user}
+        />
+      </div>
+
       <CoilSelectorModal
         isOpen={showCoilModal}
         onClose={() => {
@@ -306,4 +416,3 @@ const POS = () => {
 };
 
 export default POS;
-

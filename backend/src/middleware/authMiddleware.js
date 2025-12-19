@@ -47,8 +47,14 @@ export const authenticate = async (req, res, next) => {
       ]
     });
 
-    if (!user || !user.is_active) {
-      return res.status(401).json({ error: 'User not found or inactive' });
+    if (!user) {
+      console.log(`[Auth] User not found for ID: ${decoded.userId}`);
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    if (!user.is_active) {
+      console.log(`[Auth] User ${user.email} is inactive`);
+      return res.status(401).json({ error: 'User is inactive' });
     }
 
     // Extract permission slugs from the nested include

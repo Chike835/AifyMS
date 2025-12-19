@@ -1,17 +1,22 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import DateFilterDropdown from '../components/common/DateFilterDropdown';
 import { ArrowLeft, Download, FileText, Building2 } from 'lucide-react';
+import SaleDetailModal from '../components/sales/SaleDetailModal';
+import SaleActionDropdown from '../components/sales/SaleActionDropdown';
 
 const CustomerLedger = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user, hasPermission } = useAuth();
+  const queryClient = useQueryClient();
   const [dateRange, setDateRange] = useState({ startDate: null, endDate: null });
   const [selectedBranch, setSelectedBranch] = useState(null);
+  const [selectedSaleId, setSelectedSaleId] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Fetch customer details
   const { data: customerData } = useQuery({
@@ -33,7 +38,7 @@ const CustomerLedger = () => {
   });
 
   // Fetch ledger entries
-  const { data: ledgerData, isLoading } = useQuery({
+  const { data: ledgerData, isLoading, refetch } = useQuery({
     queryKey: ['customerLedger', id, dateRange.startDate, dateRange.endDate, selectedBranch],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -91,11 +96,11 @@ const CustomerLedger = () => {
       if (dateRange.endDate) params.append('end_date', dateRange.endDate);
       if (selectedBranch) params.append('branch_id', selectedBranch);
       params.append('format', 'csv');
-      
+
       const response = await api.get(`/ledger/export/customer/${id}?${params.toString()}`, {
         responseType: 'blob'
       });
-      
+
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -109,10 +114,58 @@ const CustomerLedger = () => {
   };
 
   const handleDrillDown = (entry) => {
-    if (entry.transaction_type === 'INVOICE' && entry.transaction_id) {
-      navigate(`/sales/${entry.transaction_id}`);
+    if ((entry.transaction_type === 'INVOICE' || entry.transaction_type === 'PENDING_APPROVAL') && entry.transaction_id) {
+      setSelectedSaleId(entry.transaction_id);
+      setIsModalOpen(true);
     } else if (entry.transaction_type === 'PAYMENT' && entry.transaction_id) {
       navigate(`/payments`);
+    } else if (entry.transaction_type === 'SALE_RETURN' && entry.transaction_id) {
+      // Handle return view if needed, or just show sale detail if ID matches
+      // For now, assuming standard flow
+    }
+  };
+
+  const handleDeleteSale = async (saleId) => {
+    if (window.confirm('Are you sure you want to delete this sale? This action cannot be undone.')) {
+      try {
+        await api.delete(`/sales/${saleId}`);
+        queryClient.invalidateQueries(['customerLedger', id]);
+        queryClient.invalidateQueries(['sales']);
+        refetch();
+        alert('Sale deleted successfully');
+      } catch (error) {
+        alert('Failed to delete sale: ' + (error.response?.data?.error || error.message));
+      }
+    }
+  };
+
+  const handleApproveDiscount = async (saleId) => {
+    if (window.confirm('Are you sure you want to approve this discount?')) {
+      try {
+        await api.put(`/discount-approvals/${saleId}/approve`);
+        queryClient.invalidateQueries(['customerLedger', id]);
+        queryClient.invalidateQueries(['sales']);
+        queryClient.invalidateQueries(['sale', saleId]);
+        refetch();
+        alert('Discount approved successfully');
+      } catch (error) {
+        alert('Failed to approve discount: ' + (error.response?.data?.error || error.message));
+      }
+    }
+  };
+
+  const handleApproveSale = async (saleId) => {
+    if (window.confirm('Are you sure you want to approve this sale for production?')) {
+      try {
+        await api.put(`/sales/${saleId}/approve-manufacturing`);
+        queryClient.invalidateQueries(['customerLedger', id]);
+        queryClient.invalidateQueries(['sales']);
+        queryClient.invalidateQueries(['sale', saleId]);
+        refetch();
+        alert('Sale approved for production successfully');
+      } catch (error) {
+        alert('Failed to approve sale: ' + (error.response?.data?.error || error.message));
+      }
     }
   };
 
@@ -166,9 +219,8 @@ const CustomerLedger = () => {
             </div>
             <div>
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Current Balance</h2>
-              <div className={`text-4xl font-bold ${
-                parseFloat(currentBalance) >= 0 ? 'text-green-600' : 'text-red-600'
-              }`}>
+              <div className={`text-4xl font-bold ${parseFloat(currentBalance) >= 0 ? 'text-green-600' : 'text-red-600'
+                }`}>
                 {formatCurrency(currentBalance)}
               </div>
               <p className="text-sm text-gray-500 mt-2">
@@ -242,7 +294,7 @@ const CustomerLedger = () => {
       </div>
 
       {/* Ledger Table */}
-      <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-lg shadow border border-gray-200 overflow-visible">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
@@ -253,7 +305,7 @@ const CustomerLedger = () => {
             <p>No ledger entries found for the selected period</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-visible">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
@@ -275,6 +327,9 @@ const CustomerLedger = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Branch
                   </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -289,7 +344,14 @@ const CustomerLedger = () => {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
                       <div>
-                        <div className="font-medium">{entry.description || entry.transaction_type}</div>
+                        <div className="font-medium">
+                          {entry.description || entry.transaction_type}
+                          {entry.is_pending && (
+                            <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
+                              Pending Approval
+                            </span>
+                          )}
+                        </div>
                         <div className="text-xs text-gray-500">{entry.transaction_type}</div>
                       </div>
                     </td>
@@ -312,14 +374,35 @@ const CustomerLedger = () => {
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
-                      <span className={`font-bold ${
-                        parseFloat(entry.running_balance) >= 0 ? 'text-green-600' : 'text-red-600'
-                      }`}>
+                      <span className={`font-bold ${parseFloat(entry.running_balance) >= 0 ? 'text-green-600' : 'text-red-600'
+                        }`}>
                         {formatCurrency(entry.running_balance)}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {entry.branch?.name || '—'}
+                    </td>
+                    <td className="px-6 py-4 text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
+                      {(entry.transaction_type === 'INVOICE' || entry.transaction_type === 'PENDING_APPROVAL') && entry.transaction_id && (
+                        <SaleActionDropdown
+                          sale={{
+                            id: entry.transaction_id,
+                            invoice_number: entry.description?.split(' ')[0] || entry.transaction_id,
+                            payment_status: entry.is_pending ? 'pending' : 'unpaid',
+                            discount_status: entry.is_pending ? 'pending' : null,
+                            production_status: 'na',
+                            customer_id: id,
+                            order_type: 'invoice'
+                          }}
+                          onView={() => {
+                            setSelectedSaleId(entry.transaction_id);
+                            setIsModalOpen(true);
+                          }}
+                          onDelete={() => handleDeleteSale(entry.transaction_id)}
+                          onApproveSale={() => handleApproveSale(entry.transaction_id)}
+                          onApproveDiscount={() => handleApproveDiscount(entry.transaction_id)}
+                        />
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -337,9 +420,18 @@ const CustomerLedger = () => {
           </p>
         </div>
       )}
+
+      {/* Sale Detail Modal */}
+      <SaleDetailModal
+        isOpen={isModalOpen}
+        onClose={() => {
+          setIsModalOpen(false);
+          setSelectedSaleId(null);
+        }}
+        saleId={selectedSaleId}
+      />
     </div>
   );
 };
 
 export default CustomerLedger;
-

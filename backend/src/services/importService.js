@@ -684,6 +684,7 @@ export const importSuppliers = async (data, user, errors = []) => {
 /**
  * Import categories from CSV/JSON data
  * Expected columns: name, parent_name, description, is_active
+ * Categories are sorted to process parent categories before their children
  */
 export const importCategories = async (data, user, errors = []) => {
   const results = {
@@ -693,51 +694,124 @@ export const importCategories = async (data, user, errors = []) => {
     errors: []
   };
 
+  // First, validate and build a map of categories
+  const categoryMap = new Map(); // name -> { row, parentName, originalIndex }
+  const validRows = [];
+
   for (let i = 0; i < data.length; i++) {
     const row = data[i];
     const rowNum = i + 2;
 
-    try {
-      // Validate required fields
-      if (!row.name) {
-        results.errors.push({
-          row: rowNum,
-          error: 'Missing required field: name'
-        });
-        results.skipped++;
-        continue;
-      }
+    // Validate required fields
+    if (!row.name || String(row.name).trim() === '') {
+      results.errors.push({
+        row: rowNum,
+        error: 'Missing required field: name'
+      });
+      results.skipped++;
+      continue;
+    }
 
-      // Find parent category if parent_name is provided
+    const categoryName = String(row.name).trim();
+    const parentName = row.parent_name ? String(row.parent_name).trim() : '';
+
+    // Check for duplicate names in import data
+    if (categoryMap.has(categoryName)) {
+      results.errors.push({
+        row: rowNum,
+        error: `Duplicate category name "${categoryName}" in import data`
+      });
+      results.skipped++;
+      continue;
+    }
+
+    categoryMap.set(categoryName, {
+      row,
+      parentName,
+      originalIndex: rowNum
+    });
+
+    validRows.push({
+      name: categoryName,
+      parentName,
+      row,
+      rowNum
+    });
+  }
+
+  // Sort categories: parents first, then children by depth
+  // Helper function to get depth level (0 = top level, 1 = child of top level, etc.)
+  const getDepth = (categoryName, categoryMap, visited = new Set()) => {
+    if (visited.has(categoryName)) {
+      // Circular reference detected
+      return -1;
+    }
+    visited.add(categoryName);
+
+    const category = categoryMap.get(categoryName);
+    if (!category || !category.parentName || category.parentName === '') {
+      return 0; // Top level
+    }
+
+    // Check if parent is in the import data
+    if (!categoryMap.has(category.parentName)) {
+      return 0; // Parent not in import, treat as top level (will lookup in DB)
+    }
+
+    const parentDepth = getDepth(category.parentName, categoryMap, new Set(visited));
+    if (parentDepth === -1) {
+      return -1; // Circular reference
+    }
+
+    return parentDepth + 1;
+  };
+
+  // Sort by depth (ascending - parents before children)
+  validRows.sort((a, b) => {
+    const depthA = getDepth(a.name, categoryMap);
+    const depthB = getDepth(b.name, categoryMap);
+    
+    // Handle circular references (depth -1) by putting them at the end
+    if (depthA === -1) return 1;
+    if (depthB === -1) return -1;
+    
+    return depthA - depthB;
+  });
+
+  // Process sorted categories
+  for (const { name, row, parentName, rowNum } of validRows) {
+    try {
+      // Find parent category using parent_name only
       let parentId = null;
-      if (row.parent_name) {
+      if (parentName !== '') {
         const parentCategory = await Category.findOne({
-          where: { name: row.parent_name.trim() }
+          where: { name: parentName }
         });
-        if (parentCategory) {
-          parentId = parentCategory.id;
-        } else {
+        
+        if (!parentCategory) {
           results.errors.push({
             row: rowNum,
-            error: `Parent category "${row.parent_name}" not found`
+            error: `Parent category "${parentName}" not found`
           });
           results.skipped++;
           continue;
         }
+        
+        parentId = parentCategory.id;
       }
 
       // Check if category exists (by name and parent_id)
       const existingCategory = await Category.findOne({
         where: {
-          name: row.name.trim(),
+          name: name,
           parent_id: parentId
         }
       });
 
       const categoryData = {
-        name: row.name.trim(),
+        name: name,
         parent_id: parentId,
-        description: row.description ? row.description.trim() : null,
+        description: row.description ? String(row.description).trim() : null,
         is_active: row.is_active !== undefined
           ? (String(row.is_active).toLowerCase() === 'true' || row.is_active === '1' || row.is_active === 1)
           : true

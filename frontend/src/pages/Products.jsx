@@ -905,7 +905,10 @@ const Products = () => {
 
 // Product View Modal Component
 const ProductViewModal = ({ product, onClose }) => {
+  const navigate = useNavigate();
+  const { hasPermission } = useAuth();
   const [selectedVariantForLedger, setSelectedVariantForLedger] = useState(null);
+  const [variantSearchTerm, setVariantSearchTerm] = useState('');
 
   // Fetch full product data with variants if not already loaded
   const { data: productData, isLoading: isLoadingProduct } = useQuery({
@@ -1036,49 +1039,80 @@ const ProductViewModal = ({ product, onClose }) => {
                   </div>
                 </div>
 
-                {/* Variants Section */}
                 {displayProduct.type === 'variable' && displayProduct.variants && displayProduct.variants.length > 0 && (
-              <div className="mt-6 border-t border-gray-200 pt-6">
-                <h4 className="mb-3 text-lg font-semibold text-gray-900">Variants</h4>
-                <div className="overflow-hidden rounded-lg border border-gray-200">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-600">Variant</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-600">SKU</th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-gray-600">Price</th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-gray-600">Stock</th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-gray-600">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200 bg-white">
-                      {displayProduct.variants.map((variant) => {
-                        const child = variant.child || {};
-                        return (
-                          <tr key={variant.id} className="hover:bg-gray-50">
-                            <td className="px-4 py-2 text-sm text-gray-900">{child.name || 'Unknown Variant'}</td>
-                            <td className="px-4 py-2 text-sm text-gray-500">{child.sku || '—'}</td>
-                            <td className="px-4 py-2 text-right text-sm text-gray-900">
-                              {formatCurrency(child.sale_price)}
-                            </td>
-                            <td className="px-4 py-2 text-right text-sm text-gray-900">
-                              {parseFloat(child.current_stock || 0).toLocaleString()} {displayProduct.base_unit}
-                            </td>
-                            <td className="px-4 py-2 text-right text-sm">
-                              <button
-                                onClick={() => setSelectedVariantForLedger(child)}
-                                className="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
-                              >
-                                <Eye className="h-3 w-3" /> View Ledger
-                              </button>
-                            </td>
+                  <div className="mt-6 border-t border-gray-200 pt-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+                      <h4 className="text-lg font-semibold text-gray-900">Variants</h4>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                        <input
+                          type="text"
+                          value={variantSearchTerm}
+                          onChange={(e) => setVariantSearchTerm(e.target.value)}
+                          placeholder="Search variants..."
+                          className="pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 w-full sm:w-64"
+                        />
+                      </div>
+                    </div>
+                    <div className="overflow-hidden rounded-lg border border-gray-200">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-600">Variant</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-600">SKU</th>
+                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-gray-600">Price</th>
+                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-gray-600">Stock</th>
+                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-gray-600">Action</th>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200 bg-white">
+                          {displayProduct.variants
+                            .filter((variant) => {
+                              if (!variantSearchTerm) return true;
+                              const term = variantSearchTerm.toLowerCase();
+                              const child = variant.child || {};
+                              return (
+                                (child.name?.toLowerCase() || '').includes(term) ||
+                                (child.sku?.toLowerCase() || '').includes(term)
+                              );
+                            })
+                            .map((variant) => {
+                              const child = variant.child || {};
+                              return (
+                                <tr key={variant.id} className="hover:bg-gray-50">
+                                  <td className="px-4 py-2 text-sm text-gray-900">{child.name || 'Unknown Variant'}</td>
+                                  <td className="px-4 py-2 text-sm text-gray-500">{child.sku || '—'}</td>
+                                  <td className="px-4 py-2 text-right text-sm text-gray-900">
+                                    {formatCurrency(child.sale_price)}
+                                  </td>
+                                  <td className="px-4 py-2 text-right text-sm text-gray-900">
+                                    {parseFloat(child.current_stock || 0).toLocaleString()} {displayProduct.base_unit}
+                                  </td>
+                                  <td className="px-4 py-2 text-right text-sm">
+                                    <div className="flex items-center justify-end gap-2">
+                                      <button
+                                        onClick={() => setSelectedVariantForLedger(child)}
+                                        className="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                                      >
+                                        <Eye className="h-3 w-3" /> View
+                                      </button>
+                                      {hasPermission('product_edit') && (
+                                        <button
+                                          onClick={() => navigate(`/products/${child.id}/edit`, { state: { editProduct: child } })}
+                                          className="inline-flex items-center gap-1 rounded bg-orange-50 px-2 py-1 text-xs font-medium text-orange-700 hover:bg-orange-100"
+                                        >
+                                          <Edit2 className="h-3 w-3" /> Edit
+                                        </button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 )}
               </>
             )}
@@ -1186,8 +1220,8 @@ const VariantLedgerModal = ({ variant, onClose }) => {
                       key={tab}
                       onClick={() => setActiveTab(tab)}
                       className={`border-b-2 px-1 py-4 text-sm font-medium ${activeTab === tab
-                          ? 'border-primary-500 text-primary-600'
-                          : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                        ? 'border-primary-500 text-primary-600'
+                        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
                         }`}
                     >
                       {tab.charAt(0).toUpperCase() + tab.slice(1)}

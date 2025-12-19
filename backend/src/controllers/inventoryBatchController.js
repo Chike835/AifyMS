@@ -1,4 +1,4 @@
-import { InventoryBatch, Product, Branch, Category, BatchType, CategoryBatchType, SalesItem, ItemAssignment, User } from '../models/index.js';
+import { InventoryBatch, Product, Branch, Category, BatchType, CategoryBatchType, SalesItem, ItemAssignment, User, ActivityLog } from '../models/index.js';
 import { generateNextInstanceCode } from '../utils/instanceCodeGenerator.js';
 import { Op } from 'sequelize';
 import sequelize from '../config/db.js';
@@ -24,6 +24,7 @@ const buildCategoryAccessError = (req, category, branchId) => {
  * Create a new inventory batch
  */
 export const createBatch = async (req, res, next) => {
+  let transaction;
   try {
     const {
       product_id,
@@ -160,6 +161,8 @@ export const createBatch = async (req, res, next) => {
     }
 
     // Create inventory batch
+    // Create inventory batch
+    transaction = await sequelize.transaction();
     const batch = await InventoryBatch.create({
       product_id,
       branch_id,
@@ -172,7 +175,21 @@ export const createBatch = async (req, res, next) => {
       remaining_quantity: initial_quantity,
       status: 'in_stock',
       attribute_data
-    });
+    }, { transaction });
+
+    // Log the activity
+    await ActivityLog.create({
+      user_id: req.user.id,
+      action_type: 'CREATE',
+      module: 'INVENTORY_BATCH',
+      description: `Created batch ${batch.instance_code || batch.batch_identifier} (${batch.grouped ? 'Grouped' : 'Individual'}) for product ${product.name}`,
+      branch_id: branch_id,
+      reference_type: 'InventoryBatch',
+      reference_id: batch.id,
+      ip_address: req.ip
+    }, { transaction });
+
+    await transaction.commit();
 
     // Load with associations
     const batchWithDetails = await InventoryBatch.findByPk(batch.id, {
@@ -189,6 +206,7 @@ export const createBatch = async (req, res, next) => {
       batch: batchWithDetails
     });
   } catch (error) {
+    if (transaction) await safeRollback(transaction);
     next(error);
   }
 };
@@ -395,300 +413,326 @@ export const updateBatch = async (req, res, next) => {
       return res.status(404).json({ error: 'Inventory batch not found' });
     }
 
-    // Check permissions - user must have access to batch's branch
-    if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id !== batch.branch_id) {
-      await safeRollback(transaction);
-      return res.status(403).json({ error: 'You do not have permission to update this batch' });
-    }
-
-    // Anti-Theft Check: Prevent updating if it would affect linked sales
-    // Note: We allow updates to non-critical fields, but prevent quantity changes through this endpoint
-    // Quantity changes should go through stock adjustment endpoint
-
-    // Update fields
-    if (category_id !== undefined) {
-      if (category_id) {
-        const category = await Category.findByPk(category_id, { transaction });
-        const categoryAccessError = buildCategoryAccessError(req, category, batch.branch_id);
-        if (categoryAccessError) {
-          await safeRollback(transaction);
-          return res.status(categoryAccessError.status).json({ error: categoryAccessError.message });
-        }
-      }
-      batch.category_id = category_id;
-    }
-
-    if (instance_code !== undefined && batch.grouped) {
-      // Check uniqueness if changing instance_code
-      if (instance_code !== batch.instance_code) {
-        const existingBatch = await InventoryBatch.findOne({
-          where: { instance_code },
-          transaction
-        });
-        if (existingBatch) {
-          await safeRollback(transaction);
-          return res.status(409).json({ error: 'Instance code already exists' });
-        }
-      }
-      batch.instance_code = instance_code;
-    }
-
-    if (batch_type_id !== undefined) {
-      // Verify batch type exists and is active
-      const batchType = await BatchType.findByPk(batch_type_id);
-      if (!batchType) {
+      // Check permissions - user must have access to batch's branch
+      if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id !== batch.branch_id) {
         await safeRollback(transaction);
-        return res.status(404).json({ error: 'Batch type not found' });
-      }
-      if (!batchType.is_active) {
-        await safeRollback(transaction);
-        return res.status(400).json({ error: 'Cannot assign inactive batch type' });
+        return res.status(403).json({ error: 'You do not have permission to update this batch' });
       }
 
-      // Validate batch type is assigned to category (if category exists)
-      if (batch.category_id) {
-        const assignment = await CategoryBatchType.findOne({
-          where: { category_id: batch.category_id, batch_type_id },
-          transaction
-        });
-        if (!assignment) {
-          await safeRollback(transaction);
-          return res.status(400).json({
-            error: `Batch type "${batchType.name}" is not assigned to this category. Please assign it in Batch Settings first.`
+      // Anti-Theft Check: Prevent updating if it would affect linked sales
+      // Note: We allow updates to non-critical fields, but prevent quantity changes through this endpoint
+      // Quantity changes should go through stock adjustment endpoint
+
+      // Update fields
+      if (category_id !== undefined) {
+        if (category_id) {
+          const category = await Category.findByPk(category_id, { transaction });
+          const categoryAccessError = buildCategoryAccessError(req, category, batch.branch_id);
+          if (categoryAccessError) {
+            await safeRollback(transaction);
+            return res.status(categoryAccessError.status).json({ error: categoryAccessError.message });
+          }
+        }
+        batch.category_id = category_id;
+      }
+
+      if (instance_code !== undefined && batch.grouped) {
+        // Check uniqueness if changing instance_code
+        if (instance_code !== batch.instance_code) {
+          const existingBatch = await InventoryBatch.findOne({
+            where: { instance_code },
+            transaction
           });
+          if (existingBatch) {
+            await safeRollback(transaction);
+            return res.status(409).json({ error: 'Instance code already exists' });
+          }
         }
+        batch.instance_code = instance_code;
       }
 
-      batch.batch_type_id = batch_type_id;
-    }
-
-    if (grouped !== undefined) {
-      batch.grouped = grouped;
-      // If ungrouping, clear instance_code
-      if (!grouped) {
-        batch.instance_code = null;
-      } else if (!batch.instance_code) {
-        await safeRollback(transaction);
-        return res.status(400).json({ error: 'instance_code is required when grouped is true' });
-      }
-    }
-
-    if (batch_identifier !== undefined) {
-      batch.batch_identifier = batch_identifier;
-    }
-
-    if (attribute_data !== undefined) {
-      // Validate against category schema if category exists
-      if (batch.category_id) {
-        const category = await Category.findByPk(batch.category_id, { transaction });
-        const categoryAccessError = buildCategoryAccessError(req, category, batch.branch_id);
-        if (categoryAccessError) {
+      if (batch_type_id !== undefined) {
+        // Verify batch type exists and is active
+        const batchType = await BatchType.findByPk(batch_type_id);
+        if (!batchType) {
           await safeRollback(transaction);
-          return res.status(categoryAccessError.status).json({ error: categoryAccessError.message });
+          return res.status(404).json({ error: 'Batch type not found' });
         }
-        if (category?.attribute_schema && Array.isArray(category.attribute_schema)) {
-          const requiredAttrs = category.attribute_schema.filter(attr => attr.required);
-          for (const attr of requiredAttrs) {
-            if (!attribute_data[attr.name]) {
-              await safeRollback(transaction);
-              return res.status(400).json({
-                error: `Required attribute '${attr.name}' is missing`
-              });
+        if (!batchType.is_active) {
+          await safeRollback(transaction);
+          return res.status(400).json({ error: 'Cannot assign inactive batch type' });
+        }
+
+        // Validate batch type is assigned to category (if category exists)
+        if (batch.category_id) {
+          const assignment = await CategoryBatchType.findOne({
+            where: { category_id: batch.category_id, batch_type_id },
+            transaction
+          });
+          if (!assignment) {
+            await safeRollback(transaction);
+            return res.status(400).json({
+              error: `Batch type "${batchType.name}" is not assigned to this category. Please assign it in Batch Settings first.`
+            });
+          }
+        }
+
+        batch.batch_type_id = batch_type_id;
+      }
+
+      if (grouped !== undefined) {
+        batch.grouped = grouped;
+        // If ungrouping, clear instance_code
+        if (!grouped) {
+          batch.instance_code = null;
+        } else if (!batch.instance_code) {
+          await safeRollback(transaction);
+          return res.status(400).json({ error: 'instance_code is required when grouped is true' });
+        }
+      }
+
+      if (batch_identifier !== undefined) {
+        batch.batch_identifier = batch_identifier;
+      }
+
+      if (attribute_data !== undefined) {
+        // Validate against category schema if category exists
+        if (batch.category_id) {
+          const category = await Category.findByPk(batch.category_id, { transaction });
+          const categoryAccessError = buildCategoryAccessError(req, category, batch.branch_id);
+          if (categoryAccessError) {
+            await safeRollback(transaction);
+            return res.status(categoryAccessError.status).json({ error: categoryAccessError.message });
+          }
+          if (category?.attribute_schema && Array.isArray(category.attribute_schema)) {
+            const requiredAttrs = category.attribute_schema.filter(attr => attr.required);
+            for (const attr of requiredAttrs) {
+              if (!attribute_data[attr.name]) {
+                await safeRollback(transaction);
+                return res.status(400).json({
+                  error: `Required attribute '${attr.name}' is missing`
+                });
+              }
             }
           }
         }
+        batch.attribute_data = attribute_data;
       }
-      batch.attribute_data = attribute_data;
-    }
 
-    if (status !== undefined) {
-      batch.status = status;
-    }
+      if (status !== undefined) {
+        batch.status = status;
+      }
 
-    await batch.save({ transaction });
-    await transaction.commit();
+      await batch.save({ transaction });
 
-    // Reload with associations
-    const updatedBatch = await InventoryBatch.findByPk(id, {
-      include: [
-        { model: Product, as: 'product' },
-        { model: Branch, as: 'branch' },
-        { model: Category, as: 'category' },
-        { model: BatchType, as: 'batch_type' }
-      ]
-    });
+      // Log activity
+      await ActivityLog.create({
+        user_id: req.user.id,
+        action_type: 'UPDATE',
+        module: 'INVENTORY_BATCH',
+        description: `Updated batch ${batch.instance_code || batch.batch_identifier || batch.id} (Status: ${batch.status})`,
+        branch_id: batch.branch_id,
+        reference_type: 'InventoryBatch',
+        reference_id: batch.id,
+        ip_address: req.ip
+      }, { transaction });
 
-    res.json({
-      message: 'Inventory batch updated successfully',
-      batch: updatedBatch
-    });
-  } catch (error) {
-    await transaction.rollback();
-    next(error);
-  }
-};
+      await transaction.commit();
 
-/**
- * DELETE /api/inventory/batches/:id
- * Delete inventory batch (with anti-theft checks)
- */
-export const deleteBatch = async (req, res, next) => {
-  const transaction = await sequelize.transaction();
-  try {
-    const { id } = req.params;
-
-    // Get the batch
-    const batch = await InventoryBatch.findByPk(id, { transaction });
-    if (!batch) {
-      await safeRollback(transaction);
-      return res.status(404).json({ error: 'Inventory batch not found' });
-    }
-
-    // Check permissions
-    if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id !== batch.branch_id) {
-      await safeRollback(transaction);
-      return res.status(403).json({ error: 'You do not have permission to delete this batch' });
-    }
-
-    // ANTI-THEFT CHECK: Prevent deletion if linked to SalesItems
-    const linkedSalesItems = await SalesItem.count({
-      where: { inventory_batch_id: id },
-      transaction
-    });
-
-    if (linkedSalesItems > 0) {
-      await safeRollback(transaction);
-      return res.status(403).json({
-        error: 'Cannot delete batch: Linked to sales transactions. This prevents theft tracking. Archive the batch instead by setting status to "scrapped".'
+      // Reload with associations
+      const updatedBatch = await InventoryBatch.findByPk(id, {
+        include: [
+          { model: Product, as: 'product' },
+          { model: Branch, as: 'branch' },
+          { model: Category, as: 'category' },
+          { model: BatchType, as: 'batch_type' }
+        ]
       });
-    }
 
-    // Check if batch has any ItemAssignments
-    const linkedAssignments = await ItemAssignment.count({
-      where: { inventory_batch_id: id },
-      transaction
-    });
-
-    if (linkedAssignments > 0) {
-      await safeRollback(transaction);
-      return res.status(403).json({
-        error: 'Cannot delete batch: Has historical assignments. Archive the batch instead by setting status to "scrapped".'
+      res.json({
+        message: 'Inventory batch updated successfully',
+        batch: updatedBatch
       });
+    } catch (error) {
+      await transaction.rollback();
+      next(error);
     }
+  };
 
-    // Safe to delete
-    await batch.destroy({ transaction });
-    await transaction.commit();
+  /**
+   * DELETE /api/inventory/batches/:id
+   * Delete inventory batch (with anti-theft checks)
+   */
+  export const deleteBatch = async (req, res, next) => {
+    const transaction = await sequelize.transaction();
+    try {
+      const { id } = req.params;
 
-    res.json({
-      message: 'Inventory batch deleted successfully'
-    });
-  } catch (error) {
-    await transaction.rollback();
-    next(error);
-  }
-};
+      // Get the batch
+      const batch = await InventoryBatch.findByPk(id, { transaction });
+      if (!batch) {
+        await safeRollback(transaction);
+        return res.status(404).json({ error: 'Inventory batch not found' });
+      }
 
-/**
- * GET /api/inventory/batches/available/:productId
- * Get available inventory batches for a specific product
- * Used in POS for batch selection
- */
-export const getAvailableBatches = async (req, res, next) => {
-  try {
-    const { productId } = req.params;
-    const { branch_id } = req.query;
+      // Check permissions
+      if (req.user?.role_name !== 'Super Admin' && req.user?.branch_id !== batch.branch_id) {
+        await safeRollback(transaction);
+        return res.status(403).json({ error: 'You do not have permission to delete this batch' });
+      }
 
-    const where = {
-      product_id: productId,
-      status: 'in_stock',
-      remaining_quantity: { [Op.gt]: 0 }
-    };
+      // ANTI-THEFT CHECK: Prevent deletion if linked to SalesItems
+      const linkedSalesItems = await SalesItem.count({
+        where: { inventory_batch_id: id },
+        transaction
+      });
 
-    // Filter by branch if provided, or use user's branch
-    if (branch_id) {
-      where.branch_id = branch_id;
-    } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
-      where.branch_id = req.user.branch_id;
+      if (linkedSalesItems > 0) {
+        await safeRollback(transaction);
+        return res.status(403).json({
+          error: 'Cannot delete batch: Linked to sales transactions. This prevents theft tracking. Archive the batch instead by setting status to "scrapped".'
+        });
+      }
+
+      // Check if batch has any ItemAssignments
+      const linkedAssignments = await ItemAssignment.count({
+        where: { inventory_batch_id: id },
+        transaction
+      });
+
+      if (linkedAssignments > 0) {
+        await safeRollback(transaction);
+        return res.status(403).json({
+          error: 'Cannot delete batch: Has historical assignments. Archive the batch instead by setting status to "scrapped".'
+        });
+      }
+
+      // Safe to delete
+      await batch.destroy({ transaction });
+
+      // Log activity
+      await ActivityLog.create({
+        user_id: req.user.id,
+        action_type: 'DELETE',
+        module: 'INVENTORY_BATCH',
+        description: `Deleted batch ${batch.instance_code || batch.batch_identifier} for product ID ${batch.product_id}`,
+        branch_id: batch.branch_id,
+        reference_type: 'InventoryBatch',
+        reference_id: batch.id,
+        ip_address: req.ip
+      }, { transaction });
+
+      await transaction.commit();
+
+      res.json({
+        message: 'Inventory batch deleted successfully'
+      });
+    } catch (error) {
+      await transaction.rollback();
+      next(error);
     }
+  };
 
-    const batches = await InventoryBatch.findAll({
-      where,
-      include: [
-        {
-          model: Product,
-          as: 'product',
-          attributes: ['id', 'sku', 'name', 'base_unit']
-        },
-        {
-          model: Branch,
-          as: 'branch',
-          attributes: ['id', 'name', 'code']
-        },
-        {
-          model: BatchType,
-          as: 'batch_type',
-          attributes: ['id', 'name', 'description', 'can_slit']
-        }
-      ],
-      order: [['instance_code', 'ASC']]
-    });
+  /**
+   * GET /api/inventory/batches/available/:productId
+   * Get available inventory batches for a specific product
+   * Used in POS for batch selection
+   */
+  export const getAvailableBatches = async (req, res, next) => {
+    try {
+      const { productId } = req.params;
+      const { branch_id } = req.query;
 
-    res.json({ batches });
-  } catch (error) {
-    next(error);
-  }
-};
+      const where = {
+        product_id: productId,
+        status: 'in_stock',
+        remaining_quantity: { [Op.gt]: 0 }
+      };
 
-/**
- * GET /api/inventory/batches/suggest-code
- * Suggest next instance code for a product+branch+batch_type combination
- * Query params: product_id (required), branch_id (required), batch_type_id (required)
- * Returns: { suggested_code: "SKU-LOOSE-001" } (example with LOOSE batch type)
- */
-export const suggestInstanceCode = async (req, res, next) => {
-  try {
-    const { product_id, branch_id, batch_type_id } = req.query;
+      // Filter by branch if provided, or use user's branch
+      if (branch_id) {
+        where.branch_id = branch_id;
+      } else if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
+        where.branch_id = req.user.branch_id;
+      }
 
-    if (!product_id) {
-      return res.status(400).json({ error: 'product_id is required' });
+      const batches = await InventoryBatch.findAll({
+        where,
+        include: [
+          {
+            model: Product,
+            as: 'product',
+            attributes: ['id', 'sku', 'name', 'base_unit']
+          },
+          {
+            model: Branch,
+            as: 'branch',
+            attributes: ['id', 'name', 'code']
+          },
+          {
+            model: BatchType,
+            as: 'batch_type',
+            attributes: ['id', 'name', 'description', 'can_slit']
+          }
+        ],
+        order: [['instance_code', 'ASC']]
+      });
+
+      res.json({ batches });
+    } catch (error) {
+      next(error);
     }
+  };
 
-    if (!branch_id) {
-      return res.status(400).json({ error: 'branch_id is required' });
+  /**
+   * GET /api/inventory/batches/suggest-code
+   * Suggest next instance code for a product+branch+batch_type combination
+   * Query params: product_id (required), branch_id (required), batch_type_id (required)
+   * Returns: { suggested_code: "SKU-LOOSE-001" } (example with LOOSE batch type)
+   */
+  export const suggestInstanceCode = async (req, res, next) => {
+    try {
+      const { product_id, branch_id, batch_type_id } = req.query;
+
+      if (!product_id) {
+        return res.status(400).json({ error: 'product_id is required' });
+      }
+
+      if (!branch_id) {
+        return res.status(400).json({ error: 'branch_id is required' });
+      }
+
+      if (!batch_type_id) {
+        return res.status(400).json({ error: 'batch_type_id is required' });
+      }
+
+      // Verify product exists
+      const product = await Product.findByPk(product_id);
+      if (!product) {
+        return res.status(404).json({ error: 'Product not found' });
+      }
+
+      // Verify branch exists
+      const branch = await Branch.findByPk(branch_id);
+      if (!branch) {
+        return res.status(404).json({ error: 'Branch not found' });
+      }
+
+      // Verify batch type exists and is active
+      const batchType = await BatchType.findByPk(batch_type_id);
+      if (!batchType) {
+        return res.status(404).json({ error: 'Batch type not found' });
+      }
+
+      if (!batchType.is_active) {
+        return res.status(400).json({ error: 'Batch type is not active' });
+      }
+
+      const suggested_code = await generateNextInstanceCode(product_id, branch_id, batch_type_id);
+
+      res.json({ suggested_code });
+    } catch (error) {
+      next(error);
     }
-
-    if (!batch_type_id) {
-      return res.status(400).json({ error: 'batch_type_id is required' });
-    }
-
-    // Verify product exists
-    const product = await Product.findByPk(product_id);
-    if (!product) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-
-    // Verify branch exists
-    const branch = await Branch.findByPk(branch_id);
-    if (!branch) {
-      return res.status(404).json({ error: 'Branch not found' });
-    }
-
-    // Verify batch type exists and is active
-    const batchType = await BatchType.findByPk(batch_type_id);
-    if (!batchType) {
-      return res.status(404).json({ error: 'Batch type not found' });
-    }
-
-    if (!batchType.is_active) {
-      return res.status(400).json({ error: 'Batch type is not active' });
-    }
-
-    const suggested_code = await generateNextInstanceCode(product_id, branch_id, batch_type_id);
-
-    res.json({ suggested_code });
-  } catch (error) {
-    next(error);
-  }
-};
+  };
 

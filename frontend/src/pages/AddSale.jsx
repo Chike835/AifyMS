@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
-import { ClipboardList, Plus, Trash2, AlertCircle, CheckCircle, ArrowLeft, Package } from 'lucide-react';
-import CoilSelectorModal from '../components/pos/CoilSelectorModal';
+import { ClipboardList, Plus, Trash2, AlertCircle, CheckCircle, ArrowLeft, Package, Loader2 } from 'lucide-react';
+import BatchSelectorModal from '../components/sales/BatchSelectorModal';
+import SearchableSelect from '../components/common/SearchableSelect';
 import Decimal from 'decimal.js';
 
 const AddSale = () => {
@@ -20,38 +21,100 @@ const AddSale = () => {
     { product_id: '', quantity: '', unit_price: '', item_assignments: [] }
   ]);
 
-  // Coil selection modal state
-  const [showCoilModal, setShowCoilModal] = useState(false);
+  // Batch/Coil selection modal state
+  const [showBatchModal, setShowBatchModal] = useState(false);
   const [currentItemIndex, setCurrentItemIndex] = useState(null);
   const [currentProduct, setCurrentProduct] = useState(null);
   const [currentQuantity, setCurrentQuantity] = useState(0);
 
-  // Fetch customers
-  const { data: customersData } = useQuery({
-    queryKey: ['customers'],
-    queryFn: async () => {
-      const response = await api.get('/customers');
-      return response.data.customers || [];
-    }
-  });
+  // Caches for async data
+  const [knownProducts, setKnownProducts] = useState(new Map());
+  const [knownRecipes, setKnownRecipes] = useState(new Map());
+  const [knownCustomers, setKnownCustomers] = useState(new Map());
 
-  // Fetch products
-  const { data: productsData } = useQuery({
-    queryKey: ['products'],
-    queryFn: async () => {
-      const response = await api.get('/products');
-      return response.data.products || [];
+  // Search handlers
+  const handleProductSearch = async (term) => {
+    try {
+      const response = await api.get('/products', {
+        params: { search: term, limit: 20, status: 'active' }
+      });
+      const products = response.data.products || [];
+      // Note: We don't flood the knownProducts cache with search results to keep memory low,
+      // we only add to cache when selected. But we return formatted options.
+      return products.map(p => ({
+        label: `${p.name} (${p.sku})`,
+        value: p.id,
+        ...p // Pass full object to be used in onChange
+      }));
+    } catch (error) {
+      console.error("Product search error", error);
+      return [];
     }
-  });
+  };
 
-  // Fetch recipes for manufactured products
-  const { data: recipesData } = useQuery({
-    queryKey: ['recipes'],
-    queryFn: async () => {
-      const response = await api.get('/recipes');
-      return response.data.recipes || [];
+  const handleCustomerSearch = async (term) => {
+    try {
+      const response = await api.get('/customers', {
+        params: { search: term, limit: 20 }
+      });
+      const customers = response.data.customers || [];
+      return customers.map(c => ({
+        label: `${c.name} ${c.phone ? `(${c.phone})` : ''}`,
+        value: c.id,
+        ...c
+      }));
+    } catch (error) {
+      console.error("Customer search error", error);
+      return [];
     }
-  });
+  };
+
+  // Fetch recipe on demand
+  const fetchRecipe = async (productId) => {
+    if (knownRecipes.has(productId)) return knownRecipes.get(productId);
+
+    try {
+      const response = await api.get(`/recipes/by-virtual/${productId}`);
+      const recipe = response.data.recipe;
+      if (recipe) {
+        setKnownRecipes(prev => new Map(prev).set(productId, recipe));
+        return recipe;
+      }
+    } catch (error) {
+      // Ignore 404 (not found)
+      if (error.response?.status !== 404) {
+        console.error("Recipe fetch error", error);
+      }
+    }
+    return null;
+  };
+
+  const onProductSelect = async (index, productId, productObj) => {
+    // Add to cache
+    if (productObj) {
+      setKnownProducts(prev => new Map(prev).set(productId, productObj));
+
+      // Update item
+      updateItem(index, 'product_id', productId);
+
+      // Check for recipe
+      // We assume 'manufactured_virtual' type implies recipe, or we just try to fetch
+      // Better to check type if possible or just try fetching
+      if (productObj.type === 'manufactured' || productObj.type === 'manufactured_virtual') {
+        await fetchRecipe(productId);
+      }
+    } else {
+      // Clear if cleared
+      updateItem(index, 'product_id', '');
+    }
+  };
+
+  const onCustomerSelect = (customerId, customerObj) => {
+    if (customerObj) {
+      setKnownCustomers(prev => new Map(prev).set(customerId, customerObj));
+    }
+    setCustomerId(customerId);
+  };
 
   // Create sale mutation
   const createMutation = useMutation({
@@ -72,18 +135,14 @@ const AddSale = () => {
     }
   });
 
-  const customers = customersData || [];
-  const products = productsData || [];
-  const recipes = recipesData || [];
-
-  // Get product by ID
+  // Get product by ID from cache
   const getProduct = (productId) => {
-    return products.find(p => p.id === productId);
+    return knownProducts.get(productId);
   };
 
-  // Get recipe for a product (any product can have a recipe)
+  // Get recipe for a product
   const getRecipe = (productId) => {
-    return recipes.find(r => r.virtual_product_id === productId);
+    return knownRecipes.get(productId);
   };
 
   // Check if product has a recipe
@@ -133,8 +192,8 @@ const AddSale = () => {
     setItems(newItems);
   };
 
-  // Open coil selector modal
-  const openCoilSelector = (index) => {
+  // Open batch selector modal
+  const openBatchSelector = (index) => {
     const item = items[index];
     if (!item.quantity || parseFloat(item.quantity) <= 0) {
       setFormError('Please enter quantity first');
@@ -145,17 +204,17 @@ const AddSale = () => {
     setCurrentItemIndex(index);
     setCurrentProduct(product);
     setCurrentQuantity(parseFloat(item.quantity));
-    setShowCoilModal(true);
+    setShowBatchModal(true);
   };
 
-  // Handle coil selection from modal
-  const handleCoilSelection = (assignments) => {
+  // Handle batch selection from modal
+  const handleBatchSelection = (assignments) => {
     if (currentItemIndex === null) return;
 
     const newItems = [...items];
     newItems[currentItemIndex].item_assignments = assignments;
     setItems(newItems);
-    setShowCoilModal(false);
+    setShowBatchModal(false);
     setCurrentItemIndex(null);
   };
 
@@ -293,18 +352,15 @@ const AddSale = () => {
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Customer (Optional)
               </label>
-              <select
+
+              <SearchableSelect
+                placeholder="Search Customer..."
                 value={customerId}
-                onChange={(e) => setCustomerId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-              >
-                <option value="">Walk-in Customer</option>
-                {customers.map((customer) => (
-                  <option key={customer.id} value={customer.id}>
-                    {customer.name} {customer.phone ? `(${customer.phone})` : ''}
-                  </option>
-                ))}
-              </select>
+                onChange={onCustomerSelect}
+                onSearch={handleCustomerSearch}
+                debounceMs={400}
+                className="w-full"
+              />
             </div>
             {orderType === 'quotation' && (
               <>
@@ -371,19 +427,15 @@ const AddSale = () => {
                       <label className="block text-xs font-medium text-gray-500 mb-1">
                         Product *
                       </label>
-                      <select
+                      <SearchableSelect
+                        placeholder="Select Product..."
                         value={item.product_id}
-                        onChange={(e) => updateItem(index, 'product_id', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                        // onChange with 2 args: value, optionObj
+                        onChange={(val, opt) => onProductSelect(index, val, opt)}
+                        onSearch={handleProductSearch}
                         required
-                      >
-                        <option value="">Select Product</option>
-                        {products.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} ({p.sku})
-                          </option>
-                        ))}
-                      </select>
+                        className="w-full text-sm"
+                      />
                     </div>
 
                     {/* Quantity */}
@@ -421,37 +473,33 @@ const AddSale = () => {
                       />
                     </div>
 
-                    {/* Coil Selection (for manufactured) */}
+                    {/* Batch/Coil Selection */}
                     <div className="md:col-span-2">
                       <label className="block text-xs font-medium text-gray-500 mb-1">
-                        {isManuf ? 'Coil Selection *' : 'Material'}
+                        {isManuf ? 'Raw Material *' : 'Batch (Optional)'}
                       </label>
-                      {isManuf ? (
-                        <button
-                          type="button"
-                          onClick={() => openCoilSelector(index)}
-                          className={`w-full px-3 py-2 rounded-lg text-sm font-medium transition-colors ${hasValidAssignments
+                      <button
+                        type="button"
+                        onClick={() => openBatchSelector(index)}
+                        className={`w-full px-3 py-2 rounded-lg text-sm font-medium transition-colors ${item.item_assignments.length > 0
                             ? 'bg-green-100 text-green-700 border border-green-300'
-                            : 'bg-orange-100 text-orange-700 border border-orange-300 hover:bg-orange-200'
-                            }`}
-                        >
-                          {hasValidAssignments ? (
-                            <span className="flex items-center justify-center space-x-1">
-                              <CheckCircle className="h-4 w-4" />
-                              <span>{item.item_assignments.length} coil(s)</span>
-                            </span>
-                          ) : (
-                            <span className="flex items-center justify-center space-x-1">
-                              <Package className="h-4 w-4" />
-                              <span>Select Coils</span>
-                            </span>
-                          )}
-                        </button>
-                      ) : (
-                        <div className="px-3 py-2 bg-gray-100 rounded-lg text-sm text-gray-500">
-                          N/A
-                        </div>
-                      )}
+                            : isManuf
+                              ? 'bg-orange-100 text-orange-700 border border-orange-300 hover:bg-orange-200'
+                              : 'bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200'
+                          }`}
+                      >
+                        {item.item_assignments.length > 0 ? (
+                          <span className="flex items-center justify-center space-x-1">
+                            <CheckCircle className="h-4 w-4" />
+                            <span>{item.item_assignments.length} batch(es)</span>
+                          </span>
+                        ) : (
+                          <span className="flex items-center justify-center space-x-1">
+                            <Package className="h-4 w-4" />
+                            <span>Select Batches</span>
+                          </span>
+                        )}
+                      </button>
                     </div>
 
                     {/* Subtotal & Delete */}
@@ -567,21 +615,23 @@ const AddSale = () => {
             )}
           </button>
         </div>
-      </form>
+      </form >
 
-      {/* Coil Selector Modal */}
-      <CoilSelectorModal
-        isOpen={showCoilModal && currentProduct !== null}
-        product={currentProduct}
-        quantity={currentQuantity}
-        onConfirm={handleCoilSelection}
-        onClose={() => {
-          setShowCoilModal(false);
-          setCurrentItemIndex(null);
-          setCurrentProduct(null);
-        }}
-      />
-    </div>
+      {/* Batch Selector Modal */}
+      {showBatchModal && currentProduct && (
+        <BatchSelectorModal
+          isOpen={showBatchModal}
+          product={currentProduct}
+          quantity={currentQuantity}
+          onConfirm={handleBatchSelection}
+          onClose={() => {
+            setShowBatchModal(false);
+            setCurrentItemIndex(null);
+            setCurrentProduct(null);
+          }}
+        />
+      )}
+    </div >
   );
 };
 

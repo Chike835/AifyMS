@@ -240,6 +240,13 @@ const BatchSettings = () => {
     );
   }
 
+  // System Requirement Checks
+  const coilType = batchTypes.find(bt => bt.name === 'Coil');
+  const looseType = batchTypes.find(bt => bt.name === 'Loose');
+  const missingTypes = [];
+  if (!coilType) missingTypes.push('Coil');
+  if (!looseType) missingTypes.push('Loose');
+
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-8">
@@ -260,6 +267,21 @@ const BatchSettings = () => {
           </button>
         )}
       </div>
+
+      {/* System Warning */}
+      {missingTypes.length > 0 && (
+        <div className="mb-6 bg-yellow-50 border border-yellow-200 p-4 rounded-lg flex items-start space-x-3">
+          <Star className="h-5 w-5 text-yellow-500 mt-0.5" />
+          <div>
+            <h3 className="text-sm font-semibold text-yellow-800">Missing System Batch Types</h3>
+            <p className="text-sm text-yellow-700 mt-1">
+              The following reserved batch types are required for advanced inventory operations (e.g., Slitting):
+              <span className="font-bold"> {missingTypes.join(', ')}</span>.
+              Please create them exactly as named to enable these features.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Batch Types List */}
@@ -290,8 +312,8 @@ const BatchSettings = () => {
                     <div className="flex items-center space-x-2 mt-1">
                       <span
                         className={`px-2 py-0.5 text-xs rounded-full ${type.is_active
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-gray-100 text-gray-800'
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-gray-100 text-gray-800'
                           }`}
                       >
                         {type.is_active ? 'Active' : 'Inactive'}
@@ -372,8 +394,8 @@ const BatchSettings = () => {
                         <label
                           key={batchType.id}
                           className={`flex items-center space-x-2 p-2 rounded cursor-pointer transition-colors ${shouldBeChecked
-                              ? 'bg-blue-50 border-2 border-blue-300'
-                              : 'bg-gray-50 border border-gray-200 hover:bg-gray-100'
+                            ? 'bg-blue-50 border-2 border-blue-300'
+                            : 'bg-gray-50 border border-gray-200 hover:bg-gray-100'
                             }`}
                         >
                           <input

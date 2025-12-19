@@ -98,6 +98,26 @@ const SalesOrder = sequelize.define('SalesOrder', {
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW
+  },
+  discount_status: {
+    type: DataTypes.ENUM('pending', 'approved', 'declined'),
+    allowNull: true
+  },
+  discount_approved_by: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    references: {
+      model: 'users',
+      key: 'id'
+    }
+  },
+  discount_approved_at: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
+  discount_declined_reason: {
+    type: DataTypes.TEXT,
+    allowNull: true
   }
 }, {
   tableName: 'sales_orders',

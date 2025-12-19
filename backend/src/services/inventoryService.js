@@ -138,9 +138,9 @@ export const processManufacturedVirtualItem = async ({
     // Get inventory batch with lock (FOR UPDATE)
     const inventoryBatch = await InventoryBatch.findByPk(
       inventory_batch_id,
-      { 
+      {
         lock: transaction.LOCK.UPDATE,
-        transaction 
+        transaction
       }
     );
 
@@ -170,7 +170,7 @@ export const processManufacturedVirtualItem = async ({
 
     // Deduct from inventory using precision math
     inventoryBatch.remaining_quantity = subtract(inventoryBatch.remaining_quantity, qtyToDeduct);
-    
+
     // Update status if depleted
     if (lessThanOrEqual(inventoryBatch.remaining_quantity, 0)) {
       inventoryBatch.status = 'depleted';
@@ -284,13 +284,180 @@ export const processManufacturedVirtualItemForConversion = async ({
   return { success: true };
 };
 
+/**
+ * Process regular product inventory deduction (FIFO)
+ * 
+ * @param {Object} params - Processing parameters
+ * @param {Object} params.product - Product model instance
+ * @param {number|string} params.quantity - Quantity to deduct
+ * @param {string} params.branchId - Branch ID to deduct from
+ * @param {Object} params.salesItem - SalesItem model instance
+ * @param {Object} params.transaction - Sequelize transaction object
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+export const processRegularItem = async ({
+  product,
+  quantity,
+  branchId,
+  salesItem,
+  transaction
+}) => {
+  try {
+    if (!product || !quantity || !branchId || !salesItem) {
+      return { success: false, error: 'Missing required parameters for stock deduction' };
+    }
+
+    let remainingToDeduct = parseFloat(quantity);
+
+    // Fetch available batches in FIFO order with LOCK
+    const batches = await InventoryBatch.findAll({
+      where: {
+        product_id: product.id,
+        branch_id: branchId,
+        status: 'in_stock',
+        remaining_quantity: { [InventoryBatch.sequelize.Op.gt]: 0 }
+      },
+      order: [['received_date', 'ASC'], ['created_at', 'ASC']],
+      lock: transaction.LOCK.UPDATE, // Critical for TOCTOU protection
+      transaction
+    });
+
+    // Calculate total available
+    const totalAvailable = batches.reduce((sum, b) => sum + parseFloat(b.remaining_quantity), 0);
+
+    if (lessThan(totalAvailable, remainingToDeduct)) {
+      return {
+        success: false,
+        error: `Insufficient stock for ${product.name}. Requested: ${remainingToDeduct}, Available: ${totalAvailable}`
+      };
+    }
+
+    // Deduct from batches
+    for (const batch of batches) {
+      if (remainingToDeduct <= 0) break;
+
+      const currentBatchQty = parseFloat(batch.remaining_quantity);
+      const deductionAmount = Math.min(currentBatchQty, remainingToDeduct);
+
+      // Update batch
+      batch.remaining_quantity = subtract(currentBatchQty, deductionAmount);
+      if (lessThanOrEqual(batch.remaining_quantity, 0)) {
+        batch.status = 'depleted';
+      }
+      await batch.save({ transaction });
+
+      // Create assignment reference
+      await ItemAssignment.create({
+        sales_item_id: salesItem.id,
+        inventory_batch_id: batch.id,
+        quantity_deducted: deductionAmount
+      }, { transaction });
+
+      remainingToDeduct = subtract(remainingToDeduct, deductionAmount);
+    }
+
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Process regular item with specific batch assignments
+ * 
+ * @param {Object} params - Processing parameters
+ * @param {Object} params.product - Product model instance
+ * @param {number|string} params.quantity - Quantity to deduct
+ * @param {Array} params.itemAssignments - Array of { inventory_batch_id, quantity_deducted }
+ * @param {Object} params.salesItem - SalesItem model instance
+ * @param {Object} params.transaction - Sequelize transaction object
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+export const processRegularItemWithBatches = async ({
+  product,
+  quantity,
+  itemAssignments,
+  salesItem,
+  transaction
+}) => {
+  if (!itemAssignments || !Array.isArray(itemAssignments) || itemAssignments.length === 0) {
+    return { success: false, error: 'Assignments array required for manual batch selection' };
+  }
+
+  // Calculate total assigned
+  const assignedQuantities = itemAssignments.map(a => parseFloat(a.quantity_deducted || 0));
+  const totalAssigned = sum(assignedQuantities);
+
+  // Validate total matches quantity
+  if (!equals(totalAssigned, parseFloat(quantity))) {
+    return {
+      success: false,
+      error: `Total assigned quantity (${totalAssigned}) does not match sale quantity (${quantity}) for product ${product.name}`
+    };
+  }
+
+  // Process each assignment
+  for (const assignment of itemAssignments) {
+    const { inventory_batch_id, quantity_deducted } = assignment;
+
+    if (!inventory_batch_id || quantity_deducted === undefined) {
+      return {
+        success: false,
+        error: 'Each assignment must have inventory_batch_id and quantity_deducted'
+      };
+    }
+
+    // Get inventory batch with lock
+    const batch = await InventoryBatch.findByPk(inventory_batch_id, {
+      lock: transaction.LOCK.UPDATE,
+      transaction
+    });
+
+    if (!batch) {
+      return {
+        success: false,
+        error: `Inventory batch not found: ${inventory_batch_id}`
+      };
+    }
+
+    // Verify product match
+    if (batch.product_id !== product.id) {
+      return {
+        success: false,
+        error: `Batch ${batch.instance_code} does not belong to product ${product.name}`
+      };
+    }
+
+    // Check stock
+    if (lessThan(batch.remaining_quantity, quantity_deducted)) {
+      return {
+        success: false,
+        error: `Insufficient stock in ${batch.instance_code}. Available: ${batch.remaining_quantity}, Required: ${quantity_deducted}`
+      };
+    }
+
+    // Deduct
+    batch.remaining_quantity = subtract(batch.remaining_quantity, quantity_deducted);
+    if (lessThanOrEqual(batch.remaining_quantity, 0)) {
+      batch.status = 'depleted';
+    }
+    await batch.save({ transaction });
+
+    // Create assignment
+    await ItemAssignment.create({
+      sales_item_id: salesItem.id,
+      inventory_batch_id,
+      quantity_deducted
+    }, { transaction });
+  }
+
+  return { success: true };
+};
+
 export default {
   processManufacturedVirtualItem,
   processManufacturedVirtualItemForConversion,
-  calculateRequiredRawMaterial
+  calculateRequiredRawMaterial,
+  processRegularItem,
+  processRegularItemWithBatches
 };
-
-
-
-
-

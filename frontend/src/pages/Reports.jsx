@@ -7,19 +7,20 @@ import RevenueChart from '../components/reports/RevenueChart';
 import ExpenseChart from '../components/reports/ExpenseChart';
 import ProfitChart from '../components/reports/ProfitChart';
 import { printReport, exportToPDF, exportToExcel, generateFilename } from '../utils/exportUtils';
-import { 
-  BarChart3, 
-  TrendingUp, 
-  DollarSign, 
-  Package, 
-  Users, 
+import {
+  BarChart3,
+  TrendingUp,
+  DollarSign,
+  Package,
+  Users,
   ShoppingBag,
   FileText,
   Download,
   Calendar,
   Building2,
   Printer,
-  FileDown
+  FileDown,
+  Activity
 } from 'lucide-react';
 
 const Reports = () => {
@@ -353,6 +354,20 @@ const Reports = () => {
     enabled: activeTab === 'activity-log' && hasPermission('report_view_sales')
   });
 
+  // Batch Operations Report
+  const { data: batchOperationsData, isLoading: batchOperationsLoading } = useQuery({
+    queryKey: ['batchOperationsReport', startDate, endDate, selectedBranch],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
+      if (selectedBranch) params.append('branch_id', selectedBranch);
+      const response = await api.get(`/reports/batch-operations?${params.toString()}`);
+      return response.data;
+    },
+    enabled: activeTab === 'batch-operations' && hasPermission('report_view_stock_value')
+  });
+
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
@@ -392,7 +407,8 @@ const Reports = () => {
     { id: 'sell-payment', name: 'Sell Payment', icon: DollarSign, permission: 'report_view_financial' },
     { id: 'register', name: 'Register Report', icon: FileText, permission: 'report_view_register' },
     { id: 'sales-representative', name: 'Sales Representative', icon: Users, permission: 'report_view_sales' },
-    { id: 'activity-log', name: 'Activity Log', icon: FileText, permission: 'report_view_sales' }
+    { id: 'activity-log', name: 'Activity Log', icon: FileText, permission: 'report_view_sales' },
+    { id: 'batch-operations', name: 'Batch Operations', icon: Activity, permission: 'report_view_stock_value' }
   ];
 
   const visibleTabs = tabs.filter(tab => !tab.permission || hasPermission(tab.permission));
@@ -493,7 +509,7 @@ const Reports = () => {
         {/* Daily Trend Chart */}
         {daily_trend && daily_trend.length > 0 && (
           <div className="mt-6">
-            <RevenueChart 
+            <RevenueChart
               data={daily_trend.map(day => ({ date: day.date, amount: day.amount }))}
               title="Daily Sales Trend"
             />
@@ -641,7 +657,7 @@ const Reports = () => {
         {/* Expenses by Category Chart */}
         {by_category && by_category.length > 0 && (
           <div className="mb-6">
-            <ExpenseChart 
+            <ExpenseChart
               data={by_category}
               title="Expenses by Category"
             />
@@ -858,7 +874,7 @@ const Reports = () => {
             <h3 className="text-lg font-semibold">Balance Sheet</h3>
             <p className="text-sm text-gray-600">As of {formatDate(balanceSheetData.as_of_date)}</p>
           </div>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Assets */}
             <div>
@@ -965,7 +981,7 @@ const Reports = () => {
             <h3 className="text-lg font-semibold">Trial Balance</h3>
             <p className="text-sm text-gray-600">As of {formatDate(trialBalanceData.as_of_date)}</p>
           </div>
-          
+
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50">
@@ -1028,7 +1044,7 @@ const Reports = () => {
               {formatDate(startDate)} to {formatDate(endDate)}
             </p>
           </div>
-          
+
           <div className="space-y-6">
             {/* Operating Activities */}
             <div>
@@ -1083,7 +1099,7 @@ const Reports = () => {
             <div className="flex justify-between font-bold text-lg border-t-2 pt-4 mt-4">
               <span>Net Increase (Decrease) in Cash</span>
               <span>{formatCurrency(net_increase_in_cash || 0)}</span>
-                </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1493,11 +1509,10 @@ const Reports = () => {
                   <td className="px-6 py-4 whitespace-nowrap text-sm">{purchase.supplier?.name || 'Unknown'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{formatCurrency(purchase.total_amount)}</td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                      purchase.payment_status === 'paid' ? 'bg-green-100 text-green-800' :
-                      purchase.payment_status === 'partial' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-red-100 text-red-800'
-                    }`}>
+                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${purchase.payment_status === 'paid' ? 'bg-green-100 text-green-800' :
+                        purchase.payment_status === 'partial' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-red-100 text-red-800'
+                      }`}>
                       {purchase.payment_status}
                     </span>
                   </td>
@@ -1557,11 +1572,10 @@ const Reports = () => {
                   <td className="px-6 py-4 whitespace-nowrap text-sm">{sale.customer?.name || 'Walk-in'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{formatCurrency(sale.total_amount)}</td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                      sale.payment_status === 'paid' ? 'bg-green-100 text-green-800' :
-                      sale.payment_status === 'partial' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-red-100 text-red-800'
-                    }`}>
+                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${sale.payment_status === 'paid' ? 'bg-green-100 text-green-800' :
+                        sale.payment_status === 'partial' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-red-100 text-red-800'
+                      }`}>
                       {sale.payment_status}
                     </span>
                   </td>
@@ -1679,7 +1693,7 @@ const Reports = () => {
   const renderActivityLogReport = () => {
     if (activityLogLoading) return <div className="text-center py-12">Loading activity log...</div>;
     if (!activityLogData) return <div className="text-center py-12 text-gray-500">No data available</div>;
-    
+
     const formatDateTime = (dateString) => {
       if (!dateString) return '—';
       return new Date(dateString).toLocaleString('en-NG', {
@@ -1803,14 +1817,13 @@ const Reports = () => {
                         {activity.user?.full_name || '—'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                          activity.action_type === 'LOGIN' ? 'bg-blue-100 text-blue-800' :
-                          activity.action_type === 'CREATE' ? 'bg-green-100 text-green-800' :
-                          activity.action_type === 'UPDATE' ? 'bg-yellow-100 text-yellow-800' :
-                          activity.action_type === 'DELETE' ? 'bg-red-100 text-red-800' :
-                          activity.action_type === 'CONFIRM' ? 'bg-purple-100 text-purple-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${activity.action_type === 'LOGIN' ? 'bg-blue-100 text-blue-800' :
+                            activity.action_type === 'CREATE' ? 'bg-green-100 text-green-800' :
+                              activity.action_type === 'UPDATE' ? 'bg-yellow-100 text-yellow-800' :
+                                activity.action_type === 'DELETE' ? 'bg-red-100 text-red-800' :
+                                  activity.action_type === 'CONFIRM' ? 'bg-purple-100 text-purple-800' :
+                                    'bg-gray-100 text-gray-800'
+                          }`}>
                           {activity.action_type}
                         </span>
                       </td>
@@ -1837,6 +1850,64 @@ const Reports = () => {
               <p>No activities found for the selected filters</p>
             </div>
           )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderBatchOperationsReport = () => {
+    if (batchOperationsLoading) return <div className="text-center py-12">Loading batch operations...</div>;
+    if (!batchOperationsData || !batchOperationsData.logs) return <div className="text-center py-12 text-gray-500">No data available</div>;
+
+    const logs = batchOperationsData.logs;
+
+    return (
+      <div className="space-y-6">
+        <div className="bg-white rounded-lg shadow">
+          <div className="p-4 border-b flex justify-between items-center">
+            <h3 className="text-lg font-semibold">Batch Operations History</h3>
+            <button
+              onClick={() => handleExportExcel()}
+              className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700"
+            >
+              <Download className="h-4 w-4" />
+              <span>Export Excel</span>
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Date/Time</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">User</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Branch</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Action</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Description</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {logs.map((log) => (
+                  <tr key={log.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {new Date(log.timestamp).toLocaleString('en-NG')}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {log.user ? `${log.user.first_name} ${log.user.last_name}` : 'System'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">{log.branch?.name || 'All Branches'}</td>
+                    <td className="px-4 py-3 text-sm">
+                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${log.action_type === 'CREATE' ? 'bg-green-100 text-green-800' :
+                          log.action_type === 'DELETE' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'
+                        }`}>
+                        {log.action_type}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">{log.description}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     );
@@ -1890,6 +1961,8 @@ const Reports = () => {
         return renderSalesRepresentativeReport();
       case 'activity-log':
         return renderActivityLogReport();
+      case 'batch-operations':
+        return renderBatchOperationsReport();
       default:
         return <div className="text-center py-12 text-gray-500">Select a report type</div>;
     }
@@ -1927,7 +2000,7 @@ const Reports = () => {
               />
             </div>
           )}
-          
+
           {/* Export Buttons */}
           <div className="flex items-center space-x-2 ml-auto">
             <button
@@ -1956,26 +2029,26 @@ const Reports = () => {
             </button>
           </div>
         </div>
-          {user?.role_name === 'Super Admin' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Branch</label>
-              <div className="relative">
-                <Building2 className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <select
-                  value={selectedBranch}
-                  onChange={(e) => setSelectedBranch(e.target.value)}
-                  className="pl-10 w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                >
-                  <option value="">All Branches</option>
-                  {branchesData?.map((branch) => (
-                    <option key={branch.id} value={branch.id}>
-                      {branch.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+        {user?.role_name === 'Super Admin' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Branch</label>
+            <div className="relative">
+              <Building2 className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <select
+                value={selectedBranch}
+                onChange={(e) => setSelectedBranch(e.target.value)}
+                className="pl-10 w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              >
+                <option value="">All Branches</option>
+                {branchesData?.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
             </div>
-          )}
+          </div>
+        )}
       </div>
 
       {/* Tabs - Responsive Navigation */}
@@ -1993,10 +2066,10 @@ const Reports = () => {
               ))}
             </select>
           </div>
-          
+
           {/* Desktop: Scrollable tabs */}
-          <nav 
-            className="hidden md:flex space-x-8 px-6 overflow-x-auto" 
+          <nav
+            className="hidden md:flex space-x-8 px-6 overflow-x-auto"
             style={{ scrollbarWidth: 'thin', WebkitOverflowScrolling: 'touch' }}
             aria-label="Tabs"
           >
@@ -2006,11 +2079,10 @@ const Reports = () => {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex-shrink-0 ${
-                    activeTab === tab.id
+                  className={`flex-shrink-0 ${activeTab === tab.id
                       ? 'border-primary-500 text-primary-600'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  } flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap`}
+                    } flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap`}
                 >
                   <Icon className="h-5 w-5" />
                   <span>{tab.name}</span>

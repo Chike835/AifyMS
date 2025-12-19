@@ -23,7 +23,8 @@ import {
   getSalesRepresentativeReport,
   getCustomerGroupsReport,
   getRegisterReport,
-  getActivityLogReport
+  getActivityLogReport,
+  getBatchOperationsReport
 } from '../controllers/reportController.js';
 
 const router = express.Router();
@@ -70,6 +71,7 @@ router.get('/sales-representative', requirePermission('report_view_sales'), getS
 router.get('/customer-groups', requirePermission('report_view_sales'), getCustomerGroupsReport);
 router.get('/register', requirePermission('report_view_register'), getRegisterReport);
 router.get('/activity-log', requirePermission('report_view_sales'), getActivityLogReport);
+router.get('/batch-operations', requirePermission('report_view_stock_value'), getBatchOperationsReport);
 
 export default router;
 

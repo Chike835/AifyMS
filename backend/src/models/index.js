@@ -46,6 +46,7 @@ import ActivityLog from './ActivityLog.js';
 import ProductBusinessLocation from './ProductBusinessLocation.js';
 import ProductVariationAssignment from './ProductVariationAssignment.js';
 import ProductVariant from './ProductVariant.js';
+import Notification from './Notification.js';
 
 // Define all associations
 export const associateModels = () => {
@@ -998,6 +999,22 @@ export const associateModels = () => {
     foreignKey: 'branch_id',
     as: 'activity_logs'
   });
+
+  // Notification - User (Many-to-One)
+  Notification.belongsTo(User, {
+    foreignKey: 'user_id',
+    as: 'recipient'
+  });
+  User.hasMany(Notification, {
+    foreignKey: 'user_id',
+    as: 'notifications'
+  });
+
+  // SalesOrder - User (Discount Approver)
+  SalesOrder.belongsTo(User, {
+    foreignKey: 'discount_approved_by',
+    as: 'discountApprover'
+  });
 };
 
 // Export all models
@@ -1049,6 +1066,7 @@ export {
   LedgerEntry,
   ActivityLog,
   ProductVariant,
-  ProductVariationAssignment
+  ProductVariationAssignment,
+  Notification
 };
 

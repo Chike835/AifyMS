@@ -280,7 +280,6 @@ export const exportData = async (req, res, next) => {
               return {
                 name: row.name,
                 parent_name: record.parent ? record.parent.name : '',
-                parent_id: row.parent_id || '',
                 description: row.description || '',
                 is_active: row.is_active ? 'true' : 'false'
               };

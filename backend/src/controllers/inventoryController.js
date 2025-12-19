@@ -15,8 +15,8 @@ export const transferBatch = async (req, res, next) => {
 
     if (!inventory_batch_id || !to_branch_id || !quantity) {
       await safeRollback(transaction);
-      return res.status(400).json({ 
-        error: 'Missing required fields: inventory_batch_id, to_branch_id, quantity' 
+      return res.status(400).json({
+        error: 'Missing required fields: inventory_batch_id, to_branch_id, quantity'
       });
     }
 
@@ -49,8 +49,8 @@ export const transferBatch = async (req, res, next) => {
     // Check if sufficient quantity available
     if (parseFloat(quantity) > parseFloat(batch.remaining_quantity)) {
       await safeRollback(transaction);
-      return res.status(400).json({ 
-        error: `Insufficient quantity. Available: ${batch.remaining_quantity}, Requested: ${quantity}` 
+      return res.status(400).json({
+        error: `Insufficient quantity. Available: ${batch.remaining_quantity}, Requested: ${quantity}`
       });
     }
 
@@ -104,6 +104,18 @@ export const transferBatch = async (req, res, next) => {
       transaction
     });
 
+    // Log activity
+    await ActivityLog.create({
+      user_id: req.user.id,
+      action_type: 'TRANSFER',
+      module: 'INVENTORY_BATCH',
+      description: `Transferred ${quantity} of batch ${batch.instance_code || batch.batch_identifier} to ${toBranch.name}`,
+      branch_id: from_branch_id,
+      reference_type: 'StockTransfer',
+      reference_id: transfer.id,
+      ip_address: req.ip
+    }, { transaction });
+
     await transaction.commit();
 
     res.status(201).json({
@@ -134,7 +146,7 @@ export const getTransfers = async (req, res, next) => {
       if (branch_id && branch_id !== req.user.branch_id) {
         return res.status(403).json({ error: 'You do not have permission to view transfers for this branch' });
       }
-      
+
       where[Op.or] = [
         { from_branch_id: req.user.branch_id },
         { to_branch_id: req.user.branch_id }
@@ -149,8 +161,8 @@ export const getTransfers = async (req, res, next) => {
     const transfers = await StockTransfer.findAll({
       where,
       include: [
-        { 
-          model: InventoryBatch, 
+        {
+          model: InventoryBatch,
           as: 'inventory_batch',
           include: [{ model: Product, as: 'product' }]
         },
@@ -179,8 +191,8 @@ export const adjustStock = async (req, res, next) => {
 
     if (!inventory_batch_id || !quantity || !reason || !adjustment_type) {
       await safeRollback(transaction);
-      return res.status(400).json({ 
-        error: 'Missing required fields: inventory_batch_id, adjustment_type, quantity, reason' 
+      return res.status(400).json({
+        error: 'Missing required fields: inventory_batch_id, adjustment_type, quantity, reason'
       });
     }
 
@@ -221,15 +233,15 @@ export const adjustStock = async (req, res, next) => {
       new_quantity = old_quantity - parseFloat(quantity);
       if (new_quantity < 0) {
         await safeRollback(transaction);
-        return res.status(400).json({ 
-          error: `Cannot decrease by ${quantity}. Current quantity: ${old_quantity}` 
+        return res.status(400).json({
+          error: `Cannot decrease by ${quantity}. Current quantity: ${old_quantity}`
         });
       }
     }
 
     // Update batch quantity
     batch.remaining_quantity = new_quantity;
-    
+
     // Update status if depleted
     if (new_quantity === 0) {
       batch.status = 'depleted';
@@ -251,8 +263,8 @@ export const adjustStock = async (req, res, next) => {
     // Load with associations
     const adjustmentWithDetails = await StockAdjustment.findByPk(adjustment.id, {
       include: [
-        { 
-          model: InventoryBatch, 
+        {
+          model: InventoryBatch,
           as: 'inventory_batch',
           include: [{ model: Product, as: 'product' }]
         },
@@ -260,6 +272,18 @@ export const adjustStock = async (req, res, next) => {
       ],
       transaction
     });
+
+    // Log activity
+    await ActivityLog.create({
+      user_id: req.user.id,
+      action_type: 'ADJUSTMENT',
+      module: 'INVENTORY_BATCH',
+      description: `Stock Adjusted (${adjustment_type}): ${Math.abs(old_quantity - new_quantity)} for batch ${batch.instance_code || batch.batch_identifier}. Reason: ${reason}`,
+      branch_id: batch.branch_id,
+      reference_type: 'StockAdjustment',
+      reference_id: adjustment.id,
+      ip_address: req.ip
+    }, { transaction });
 
     await transaction.commit();
 
@@ -289,8 +313,8 @@ export const getAdjustments = async (req, res, next) => {
     const adjustments = await StockAdjustment.findAll({
       where,
       include: [
-        { 
-          model: InventoryBatch, 
+        {
+          model: InventoryBatch,
           as: 'inventory_batch',
           include: [
             { model: Product, as: 'product' },
@@ -304,17 +328,17 @@ export const getAdjustments = async (req, res, next) => {
 
     // Filter by branch if needed
     let filteredAdjustments = adjustments;
-    
+
     if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
       if (branch_id && branch_id !== req.user.branch_id) {
         return res.status(403).json({ error: 'You do not have permission to view adjustments for this branch' });
       }
-      
-      filteredAdjustments = adjustments.filter(adj => 
+
+      filteredAdjustments = adjustments.filter(adj =>
         adj.inventory_batch?.branch_id === req.user.branch_id
       );
     } else if (branch_id) {
-      filteredAdjustments = adjustments.filter(adj => 
+      filteredAdjustments = adjustments.filter(adj =>
         adj.inventory_batch?.branch_id === branch_id
       );
     }
@@ -334,8 +358,8 @@ export const generateLabels = async (req, res, next) => {
     const { batch_ids, format = 'barcode', size = 'medium' } = req.body;
 
     if (!batch_ids || !Array.isArray(batch_ids) || batch_ids.length === 0) {
-      return res.status(400).json({ 
-        error: 'batch_ids array is required and must not be empty' 
+      return res.status(400).json({
+        error: 'batch_ids array is required and must not be empty'
       });
     }
 
@@ -358,8 +382,8 @@ export const generateLabels = async (req, res, next) => {
     if (req.user?.branch_id && req.user?.role_name !== 'Super Admin') {
       const invalidBatches = batches.filter(batch => batch.branch_id !== req.user.branch_id);
       if (invalidBatches.length > 0) {
-        return res.status(403).json({ 
-          error: 'You do not have permission to generate labels for batches from other branches' 
+        return res.status(403).json({
+          error: 'You do not have permission to generate labels for batches from other branches'
         });
       }
     }
@@ -438,7 +462,7 @@ export const getLowStock = async (req, res, next) => {
       order: [['remaining_quantity', 'ASC']]
     });
 
-    res.json({ 
+    res.json({
       batches,
       threshold: thresholdValue,
       count: batches.length
@@ -460,8 +484,8 @@ export const convertBatch = async (req, res, next) => {
 
     if (!source_batch_id || !new_instance_code || !weight) {
       await safeRollback(transaction);
-      return res.status(400).json({ 
-        error: 'Missing required fields: source_batch_id, new_instance_code, weight' 
+      return res.status(400).json({
+        error: 'Missing required fields: source_batch_id, new_instance_code, weight'
       });
     }
 
@@ -501,8 +525,8 @@ export const convertBatch = async (req, res, next) => {
 
     if (!looseBatchType || sourceBatch.batch_type_id !== looseBatchType.id) {
       await safeRollback(transaction);
-      return res.status(400).json({ 
-        error: 'Source batch must be of type "Loose" for slitting operation' 
+      return res.status(400).json({
+        error: 'Source batch must be of type "Loose" for slitting operation'
       });
     }
 
@@ -510,8 +534,8 @@ export const convertBatch = async (req, res, next) => {
     const weightToConvert = parseFloat(weight);
     if (weightToConvert > parseFloat(sourceBatch.remaining_quantity)) {
       await safeRollback(transaction);
-      return res.status(400).json({ 
-        error: `Insufficient quantity. Available: ${sourceBatch.remaining_quantity}, Requested: ${weight}` 
+      return res.status(400).json({
+        error: `Insufficient quantity. Available: ${sourceBatch.remaining_quantity}, Requested: ${weight}`
       });
     }
 
@@ -523,8 +547,8 @@ export const convertBatch = async (req, res, next) => {
 
     if (existingBatch) {
       await safeRollback(transaction);
-      return res.status(409).json({ 
-        error: `Instance code "${new_instance_code}" already exists` 
+      return res.status(409).json({
+        error: `Instance code "${new_instance_code}" already exists`
       });
     }
 

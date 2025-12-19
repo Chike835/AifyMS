@@ -81,11 +81,16 @@ const InventoryBatches = () => {
     },
   });
 
-  // Fetch all products
+  // Fetch all products (with managed stock)
   const { data: products } = useQuery({
-    queryKey: ['products', 'all'],
+    queryKey: ['products', 'all_managed'],
     queryFn: async () => {
-      const response = await api.get('/products');
+      const response = await api.get('/products', {
+        params: {
+          limit: -1,
+          manage_stock: true
+        }
+      });
       return response.data.products || [];
     },
   });

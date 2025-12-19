@@ -172,6 +172,7 @@ const Sidebar = ({ isCollapsed, onToggle }) => {
       permission: 'production_view_queue',
       items: [
         { name: 'Check Status', path: '/manufacturing/status', icon: Factory, permission: 'production_view_queue' },
+        { name: 'Approvals', path: '/sales/manufacturing-approvals', icon: FileCheck, permission: 'production_update_status' },
         { name: 'Recipes', path: '/manufacturing/recipes', icon: FileText, permission: 'recipe_manage' },
         { name: 'Production List', path: '/production-queue', icon: List, permission: 'production_view_queue' },
       ],
