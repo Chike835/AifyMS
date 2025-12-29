@@ -1,23 +1,25 @@
 import { useState, useEffect } from 'react';
-import { X, Check } from 'lucide-react';
+import { X, Check, Wand2 } from 'lucide-react';
 import api from '../../utils/api';
 
-const CoilSelectorModal = ({ isOpen, onClose, product, quantity, onConfirm }) => {
+// Generic material selector for recipe-based products
+const MaterialSelectorModal = ({ isOpen, onClose, product, quantity, onConfirm, branchId }) => {
   const [recipe, setRecipe] = useState(null);
   const [availableCoils, setAvailableCoils] = useState([]);
   const [selectedCoils, setSelectedCoils] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [autoLoading, setAutoLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const requiredKg = recipe ? parseFloat(quantity) * parseFloat(recipe.conversion_factor) : 0;
+  const requiredQuantity = recipe ? parseFloat(quantity) * parseFloat(recipe.conversion_factor) : 0;
   const selectedTotal = selectedCoils.reduce((sum, coil) => sum + parseFloat(coil.quantity_deducted || 0), 0);
-  const isValid = selectedTotal >= requiredKg - 0.001; // Allow small floating point differences
+  const isValid = selectedTotal >= requiredQuantity - 0.001;
+  const rawProductUnit = recipe?.raw_product?.base_unit || 'KG';
 
   useEffect(() => {
     if (isOpen && product) {
       fetchRecipeAndCoils();
     } else {
-      // Reset state when modal closes
       setRecipe(null);
       setAvailableCoils([]);
       setSelectedCoils([]);
@@ -29,18 +31,68 @@ const CoilSelectorModal = ({ isOpen, onClose, product, quantity, onConfirm }) =>
     setLoading(true);
     setError('');
     try {
-      // Fetch recipe for the virtual product
       const recipeResponse = await api.get(`/recipes/by-virtual/${product.id}`);
       const recipeData = recipeResponse.data.recipe;
       setRecipe(recipeData);
 
-      // Fetch available coils for the raw product
-      const batchesResponse = await api.get(`/inventory/batches/available/${recipeData.raw_product_id}`);
+      const batchesResponse = await api.get(`/inventory/batches/available/${recipeData.raw_product_id}`, {
+        params: branchId ? { branch_id: branchId } : undefined
+      });
       setAvailableCoils(batchesResponse.data.batches || []);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to load recipe or available coils');
+      setError(err.response?.data?.error || 'Failed to load recipe or available materials');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const applySuggestions = (suggestions = []) => {
+    setSelectedCoils(
+      suggestions.map((s) => ({
+        inventory_batch_id: s.inventory_batch_id,
+        instance_code: s.instance_code,
+        available_quantity: parseFloat(s.available_quantity || s.remaining_quantity || 0),
+        quantity_deducted: parseFloat(s.quantity_deducted || 0),
+        batch_identifier: s.batch_identifier || null,
+      }))
+    );
+  };
+
+  const handleAutoSelect = async () => {
+    if (!product) return;
+    setAutoLoading(true);
+    setError('');
+    try {
+      const response = await api.post('/production/assign-material/proposal', {
+        product_id: product.id,
+        quantity,
+        branch_id: branchId || null,
+        recipe_id: recipe?.id || null, // Pass current recipe_id to ensure same recipe is used
+      });
+      const proposal = response.data?.proposal;
+      if (!proposal?.suggestions?.length) {
+        setError('No automatic proposal available for this quantity');
+        return;
+      }
+
+      // Update recipe state with the proposal's recipe (should match if recipe_id was passed)
+      if (proposal.recipe) {
+        setRecipe({
+          id: proposal.recipe.id,
+          conversion_factor: proposal.recipe.conversion_factor,
+          raw_product_id: proposal.recipe.raw_product_id,
+          raw_product: {
+            name: proposal.recipe.raw_product_name,
+            base_unit: proposal.recipe.raw_product_base_unit,
+          },
+        });
+      }
+
+      applySuggestions(proposal.suggestions);
+    } catch (err) {
+      setError(err?.response?.data?.error || err?.message || 'Failed to auto-select materials');
+    } finally {
+      setAutoLoading(false);
     }
   };
 
@@ -48,38 +100,69 @@ const CoilSelectorModal = ({ isOpen, onClose, product, quantity, onConfirm }) =>
     setSelectedCoils((prev) => {
       const existing = prev.find((c) => c.inventory_batch_id === coil.id);
       if (existing) {
+        // Deselect: remove from selection
         return prev.filter((c) => c.inventory_batch_id !== coil.id);
       } else {
-        // Add coil with max available quantity
+        // Select: calculate remaining required quantity
+        const currentSelectedTotal = prev.reduce((sum, c) => sum + parseFloat(c.quantity_deducted || 0), 0);
+        const remainingRequired = Math.max(0, requiredQuantity - currentSelectedTotal);
+        
+        // Autofill with minimum of available quantity and remaining required
+        const availableQty = parseFloat(coil.remaining_quantity);
+        const quantityToDeduct = Math.min(availableQty, remainingRequired);
+        
         return [
           ...prev,
           {
             inventory_batch_id: coil.id,
             instance_code: coil.instance_code,
-            available_quantity: parseFloat(coil.remaining_quantity),
-            quantity_deducted: parseFloat(coil.remaining_quantity),
+            available_quantity: availableQty,
+            quantity_deducted: quantityToDeduct,
+            batch_identifier: coil.batch_identifier || null,
           },
         ];
       }
     });
   };
 
-  const updateQuantity = (coilId, quantity) => {
-    setSelectedCoils((prev) =>
-      prev.map((c) =>
+  const updateQuantity = (coilId, quantityValue) => {
+    setSelectedCoils((prev) => {
+      // Calculate current total excluding the coil being edited
+      const totalWithoutCurrent = prev
+        .filter((c) => c.inventory_batch_id !== coilId)
+        .reduce((sum, c) => sum + parseFloat(c.quantity_deducted || 0), 0);
+      
+      // Find the coil being edited
+      const currentCoil = prev.find((c) => c.inventory_batch_id === coilId);
+      if (!currentCoil) return prev;
+      
+      // Calculate maximum allowed: min(available_quantity, remaining_required)
+      const remainingRequired = Math.max(0, requiredQuantity - totalWithoutCurrent);
+      const maxAllowed = Math.min(currentCoil.available_quantity, remainingRequired);
+      
+      // Clamp the input value between 0 and maxAllowed
+      const parsedValue = parseFloat(quantityValue) || 0;
+      const clampedValue = Math.max(0, Math.min(parsedValue, maxAllowed));
+      
+      return prev.map((c) =>
         c.inventory_batch_id === coilId
-          ? { ...c, quantity_deducted: Math.max(0, Math.min(parseFloat(quantity), c.available_quantity)) }
+          ? { ...c, quantity_deducted: clampedValue }
           : c
-      )
-    );
+      );
+    });
   };
 
   const handleConfirm = () => {
     if (!isValid) {
-      setError(`Selected quantity (${selectedTotal.toFixed(3)} KG) is less than required (${requiredKg.toFixed(3)} KG)`);
+      const unit = recipe?.raw_product?.base_unit || 'KG';
+      setError(`Selected quantity (${selectedTotal.toFixed(3)} ${unit}) is less than required (${requiredQuantity.toFixed(3)} ${unit})`);
       return;
     }
-    onConfirm(selectedCoils);
+    // Include recipe_id to ensure backend uses the same recipe
+    onConfirm({
+      assignments: selectedCoils,
+      recipe_id: recipe?.id || null
+    });
     onClose();
   };
 
@@ -91,22 +174,33 @@ const CoilSelectorModal = ({ isOpen, onClose, product, quantity, onConfirm }) =>
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Select Coils</h2>
+            <h2 className="text-2xl font-bold text-gray-900">Select Materials</h2>
             <p className="text-sm text-gray-600 mt-1">
               {product.name} - {quantity} {product.base_unit}
             </p>
             {recipe && (
               <p className="text-sm font-medium text-primary-600 mt-2">
-                Required: {requiredKg.toFixed(3)} KG (Raw Material: {recipe.raw_product?.name})
+                Required: {requiredQuantity.toFixed(3)} {rawProductUnit} (Raw Material: {recipe.raw_product?.name})
               </p>
             )}
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <X className="h-6 w-6" />
-          </button>
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={handleAutoSelect}
+              disabled={autoLoading}
+              className="px-3 py-2 border border-primary-200 text-primary-700 bg-primary-50 rounded-lg hover:bg-primary-100 disabled:opacity-50 flex items-center space-x-2 transition-colors"
+              title="Auto-select batches based on recipe (no stock deducted until you confirm)"
+            >
+              <Wand2 className="h-4 w-4" />
+              <span>{autoLoading ? 'Proposing...' : 'Auto-select from recipe'}</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <X className="h-6 w-6" />
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -114,7 +208,7 @@ const CoilSelectorModal = ({ isOpen, onClose, product, quantity, onConfirm }) =>
           {loading ? (
             <div className="text-center py-12">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
-              <p className="mt-4 text-gray-600">Loading available coils...</p>
+              <p className="mt-4 text-gray-600">Loading available materials...</p>
             </div>
           ) : error ? (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
@@ -124,20 +218,25 @@ const CoilSelectorModal = ({ isOpen, onClose, product, quantity, onConfirm }) =>
             <>
               {availableCoils.length === 0 ? (
                 <div className="text-center py-12 text-gray-600">
-                  No available coils found for this product
+                  No available materials found for this product
                 </div>
               ) : (
                 <div className="space-y-3">
                   {availableCoils.map((coil) => {
                     const isSelected = selectedCoils.some((c) => c.inventory_batch_id === coil.id);
                     const selectedCoil = selectedCoils.find((c) => c.inventory_batch_id === coil.id);
+                    
+                    // Calculate max allowed for this coil: min(available, remaining_required)
+                    const totalWithoutCurrent = selectedCoils
+                      .filter((c) => c.inventory_batch_id !== coil.id)
+                      .reduce((sum, c) => sum + parseFloat(c.quantity_deducted || 0), 0);
+                    const remainingRequired = Math.max(0, requiredQuantity - totalWithoutCurrent);
+                    const maxAllowed = Math.min(parseFloat(coil.remaining_quantity), remainingRequired);
 
                     return (
                       <div
                         key={coil.id}
-                        className={`border rounded-lg p-4 ${
-                          isSelected ? 'border-primary-500 bg-primary-50' : 'border-gray-200'
-                        }`}
+                        className={`border rounded-lg p-4 ${isSelected ? 'border-primary-500 bg-primary-50' : 'border-gray-200'}`}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-4">
@@ -161,7 +260,7 @@ const CoilSelectorModal = ({ isOpen, onClose, product, quantity, onConfirm }) =>
                               <input
                                 type="number"
                                 min="0"
-                                max={coil.remaining_quantity}
+                                max={maxAllowed}
                                 step="0.001"
                                 value={selectedCoil?.quantity_deducted || 0}
                                 onChange={(e) => updateQuantity(coil.id, e.target.value)}
@@ -182,18 +281,18 @@ const CoilSelectorModal = ({ isOpen, onClose, product, quantity, onConfirm }) =>
                   <div className="flex justify-between items-center">
                     <span className="font-medium text-gray-700">Selected Total:</span>
                     <span className={`text-lg font-bold ${isValid ? 'text-green-600' : 'text-red-600'}`}>
-                      {selectedTotal.toFixed(3)} KG
+                      {selectedTotal.toFixed(3)} {rawProductUnit}
                     </span>
                   </div>
                   <div className="flex justify-between items-center mt-2">
                     <span className="text-sm text-gray-600">Required:</span>
                     <span className="text-sm font-medium text-gray-900">
-                      {requiredKg.toFixed(3)} KG
+                      {requiredQuantity.toFixed(3)} {rawProductUnit}
                     </span>
                   </div>
                   {!isValid && (
                     <p className="text-sm text-red-600 mt-2">
-                      Need {((requiredKg - selectedTotal).toFixed(3))} KG more
+                      Need {(requiredQuantity - selectedTotal).toFixed(3)} {rawProductUnit} more
                     </p>
                   )}
                 </div>
@@ -224,5 +323,7 @@ const CoilSelectorModal = ({ isOpen, onClose, product, quantity, onConfirm }) =>
   );
 };
 
-export default CoilSelectorModal;
+export default MaterialSelectorModal;
+
+
 

@@ -103,6 +103,15 @@ export const generatePaymentAccountsTemplate = () => {
 };
 
 /**
+ * Generate CSV template for recipes
+ */
+export const generateRecipesTemplate = () => {
+  const headers = ['name', 'virtual_product_sku', 'raw_product_sku', 'conversion_factor', 'wastage_margin'];
+  const sampleRow = ['Longspan to Coil', 'LONGSPAN-001', 'COIL-001', '0.8', '5'];
+  return [headers.join(','), sampleRow.join(',')].join('\n');
+};
+
+/**
  * Download template as CSV file
  */
 export const downloadTemplate = (csvContent, filename) => {
@@ -131,7 +140,8 @@ export const getTemplateGenerator = (entity) => {
     warranties: generateWarrantiesTemplate,
     customers: generateCustomersTemplate,
     suppliers: generateSuppliersTemplate,
-    payment_accounts: generatePaymentAccountsTemplate
+    payment_accounts: generatePaymentAccountsTemplate,
+    recipes: generateRecipesTemplate
   };
 
   return generators[entity] || null;

@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
-import { BookOpen, Plus, Edit, Trash2, X, Calculator, CheckCircle, AlertCircle } from 'lucide-react';
+import { BookOpen, Plus, Edit, Trash2, X, Calculator, CheckCircle, AlertCircle, Upload } from 'lucide-react';
 import ListToolbar from '../components/common/ListToolbar';
 import ExportModal from '../components/import/ExportModal';
+import ImportModal from '../components/import/ImportModal';
+import SearchableSelect from '../components/common/SearchableSelect';
 
 import { sortData } from '../utils/sortUtils';
 import SortIndicator from '../components/common/SortIndicator';
@@ -16,6 +18,7 @@ const Recipes = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showCalculationModal, setShowCalculationModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [selectedRecipe, setSelectedRecipe] = useState(null);
   const [calculationQuantity, setCalculationQuantity] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -51,6 +54,53 @@ const Recipes = () => {
     }
   };
 
+  // Product search handler for Virtual Products (Output) - exclude not_for_selling
+  const handleVirtualProductSearch = async (term) => {
+    try {
+      const response = await api.get('/products', {
+        params: { 
+          search: term, 
+          limit: 50, 
+          include_variants: 'true',
+          status: 'active',
+          not_for_selling: 'false'
+        }
+      });
+      const products = response.data.products || [];
+      return products.map(p => ({
+        label: `${p.name} (${p.sku})`,
+        value: p.id,
+        ...p
+      }));
+    } catch (error) {
+      console.error("Product search error", error);
+      return [];
+    }
+  };
+
+  // Product search handler for Raw Materials - include all products (including not_for_selling)
+  const handleRawMaterialSearch = async (term) => {
+    try {
+      const response = await api.get('/products', {
+        params: { 
+          search: term, 
+          limit: 50, 
+          include_variants: 'true',
+          status: 'active'
+        }
+      });
+      const products = response.data.products || [];
+      return products.map(p => ({
+        label: `${p.name} (${p.sku})`,
+        value: p.id,
+        ...p
+      }));
+    } catch (error) {
+      console.error("Product search error", error);
+      return [];
+    }
+  };
+
   // Fetch recipes
   const { data, isLoading, error } = useQuery({
     queryKey: ['recipes'],
@@ -60,14 +110,6 @@ const Recipes = () => {
     }
   });
 
-  // Fetch all products for recipe selection
-  const { data: allProductsData } = useQuery({
-    queryKey: ['allProducts'],
-    queryFn: async () => {
-      const response = await api.get('/products');
-      return response.data.products || [];
-    }
-  });
 
   // Create mutation
   const createMutation = useMutation({
@@ -269,23 +311,32 @@ const Recipes = () => {
           <p className="text-gray-600">Manage manufacturing recipes and conversion factors</p>
         </div>
         {hasPermission('recipe_manage') && (
-          <button
-            onClick={() => {
-              setShowCreateModal(true);
-              setFormData({
-                name: '',
-                virtual_product_id: '',
-                raw_product_id: '',
-                conversion_factor: '',
-                wastage_margin: '0'
-              });
-              setFormError('');
-            }}
-            className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-          >
-            <Plus className="h-5 w-5" />
-            <span>Add Recipe</span>
-          </button>
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+            >
+              <Upload className="h-5 w-5" />
+              <span>Import</span>
+            </button>
+            <button
+              onClick={() => {
+                setShowCreateModal(true);
+                setFormData({
+                  name: '',
+                  virtual_product_id: '',
+                  raw_product_id: '',
+                  conversion_factor: '',
+                  wastage_margin: '0'
+                });
+                setFormError('');
+              }}
+              className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+            >
+              <Plus className="h-5 w-5" />
+              <span>Add Recipe</span>
+            </button>
+          </div>
         )}
       </div>
 
@@ -322,6 +373,26 @@ const Recipes = () => {
         onClose={() => setShowExportModal(false)}
         entity="recipes"
         title="Export Recipes"
+      />
+
+      {/* Import Modal */}
+      <ImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        entity="recipes"
+        title="Import Recipes"
+        targetEndpoint="/import/recipes"
+        onSuccess={(data) => {
+          const results = data?.results || {};
+          const created = results.created || 0;
+          const updated = results.updated || 0;
+          const total = created + updated;
+          if (total > 0) {
+            setFormSuccess(`Successfully imported ${total} recipe(s) (${created} created, ${updated} updated)`);
+            setTimeout(() => setFormSuccess(''), 5000);
+          }
+          queryClient.invalidateQueries(['recipes']);
+        }}
       />
 
       {/* Recipes Table */}
@@ -488,37 +559,29 @@ const Recipes = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Product *
                   </label>
-                  <select
+                  <SearchableSelect
                     value={formData.virtual_product_id}
-                    onChange={(e) => setFormData({ ...formData, virtual_product_id: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500"
+                    onChange={(value) => setFormData({ ...formData, virtual_product_id: value })}
+                    onSearch={handleVirtualProductSearch}
+                    placeholder="Search Product..."
                     required
-                  >
-                    <option value="">Select Product</option>
-                    {allProductsData?.map((product) => (
-                      <option key={product.id} value={product.id}>
-                        {product.name} ({product.sku})
-                      </option>
-                    ))}
-                  </select>
+                    debounceMs={400}
+                    className="w-full"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Raw Material *
                   </label>
-                  <select
+                  <SearchableSelect
                     value={formData.raw_product_id}
-                    onChange={(e) => setFormData({ ...formData, raw_product_id: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500"
+                    onChange={(value) => setFormData({ ...formData, raw_product_id: value })}
+                    onSearch={handleRawMaterialSearch}
+                    placeholder="Search Raw Material..."
                     required
-                  >
-                    <option value="">Select Raw Material</option>
-                    {allProductsData?.map((product) => (
-                      <option key={product.id} value={product.id}>
-                        {product.name} ({product.sku})
-                      </option>
-                    ))}
-                  </select>
+                    debounceMs={400}
+                    className="w-full"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -613,37 +676,29 @@ const Recipes = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Product *
                   </label>
-                  <select
+                  <SearchableSelect
                     value={formData.virtual_product_id}
-                    onChange={(e) => setFormData({ ...formData, virtual_product_id: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500"
+                    onChange={(value) => setFormData({ ...formData, virtual_product_id: value })}
+                    onSearch={handleVirtualProductSearch}
+                    placeholder="Search Product..."
                     required
-                  >
-                    <option value="">Select Product</option>
-                    {allProductsData?.map((product) => (
-                      <option key={product.id} value={product.id}>
-                        {product.name} ({product.sku})
-                      </option>
-                    ))}
-                  </select>
+                    debounceMs={400}
+                    className="w-full"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Raw Material *
                   </label>
-                  <select
+                  <SearchableSelect
                     value={formData.raw_product_id}
-                    onChange={(e) => setFormData({ ...formData, raw_product_id: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500"
+                    onChange={(value) => setFormData({ ...formData, raw_product_id: value })}
+                    onSearch={handleRawMaterialSearch}
+                    placeholder="Search Raw Material..."
                     required
-                  >
-                    <option value="">Select Raw Material</option>
-                    {allProductsData?.map((product) => (
-                      <option key={product.id} value={product.id}>
-                        {product.name} ({product.sku})
-                      </option>
-                    ))}
-                  </select>
+                    debounceMs={400}
+                    className="w-full"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">

@@ -51,7 +51,7 @@ export const getDashboardStats = async (req, res, next) => {
       }
     });
 
-    // Items in production queue
+    // Items in queue
     const productionQueueCount = await SalesOrder.count({
       where: {
         ...orderWhere,
@@ -79,7 +79,7 @@ export const getDashboardStats = async (req, res, next) => {
     res.json({
       today_sales: parseFloat(todaySales),
       pending_payments: pendingPayments,
-      items_in_production: productionQueueCount,
+      items_in_queue: productionQueueCount,
       low_stock_count: lowStockCount
     });
   } catch (error) {

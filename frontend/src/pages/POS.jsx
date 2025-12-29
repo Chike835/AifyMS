@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
-import CoilSelectorModal from '../components/pos/CoilSelectorModal';
+import MaterialSelectorModal from '../components/pos/MaterialSelectorModal';
 import ProductGrid from '../components/pos/ProductGrid';
 import CategoryTabs from '../components/pos/CategoryTabs';
 import CartSidebar from '../components/pos/CartSidebar';
@@ -69,17 +69,21 @@ const POS = () => {
 
   // Fetch products
   const { data: productsData, isLoading: productsLoading } = useQuery({
-    queryKey: ['products', 'pos'],
+    queryKey: ['products', 'pos', selectedBranch],
     queryFn: async () => {
       const response = await api.get('/products', {
         params: {
           status: 'active',
           not_for_selling: 'false',
-          limit: 500
+          include_variants: 'true',
+          limit: 500,
+          branch_id: selectedBranch || undefined
         }
       });
       return response.data;
-    }
+    },
+    // Allow loading when no branch yet; backend will default or error handled in UI
+    enabled: true
   });
 
   // Fetch categories
@@ -121,13 +125,7 @@ const POS = () => {
     onSuccess: (data) => {
       setCart([]);
       setSelectedCustomer(null);
-
-      // If sale is pending approval (from backend which we will implement)
-      if (data.sale?.discount_status === 'pending') {
-        alert('Sale created! Discount approval requested.');
-      } else {
-        alert('Sale created successfully!');
-      }
+      alert('Sale created successfully!');
     },
     onError: (error) => {
       alert(error.response?.data?.error || error.message || 'Failed to create sale');
@@ -158,8 +156,9 @@ const POS = () => {
 
   // Logic for filtering, cart, etc. (Same as before)
   const filteredProducts = useMemo(() => {
-    return products.filter(product => {
-      if (product.is_variant_child) return false;
+    const filtered = products.filter(product => {
+      // Exclude parent variable products - we want to show variants instead
+      if (product.type === 'variable' && !product.is_variant_child) return false;
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
         const matchesSearch =
@@ -172,59 +171,150 @@ const POS = () => {
       }
       return true;
     });
+    
+    // Sort by stock: products with stock > 0 appear first
+    return filtered.sort((a, b) => {
+      const stockA = parseFloat(a.current_stock) || 0;
+      const stockB = parseFloat(b.current_stock) || 0;
+      if (stockA > 0 && stockB <= 0) return -1;
+      if (stockA <= 0 && stockB > 0) return 1;
+      return 0; // Maintain relative order for products with same stock status
+    });
   }, [products, searchQuery, selectedCategory]);
 
   const hasRecipe = (productId) => recipes.some(r => r.virtual_product_id === productId);
 
-  const addToCart = (product, quantity = 1) => {
-    if (hasRecipe(product.id)) {
-      setSelectedProduct(product);
-      setSelectedQuantity(quantity);
-      setShowCoilModal(true);
-    } else {
-      const existingItem = cart.find((item) => item.product_id === product.id);
-      if (existingItem) {
-        setCart(
-          cart.map((item) =>
-            item.product_id === product.id
-              ? { ...item, quantity: item.quantity + quantity, subtotal: item.unit_price * (item.quantity + quantity) }
-              : item
-          )
-        );
-      } else {
-        setCart([
-          ...cart,
-          {
-            product_id: product.id,
-            product_name: product.name,
-            product_sku: product.sku,
-            quantity: quantity,
-            unit_price: parseFloat(product.sale_price) || 0,
-            original_price: parseFloat(product.sale_price) || 0, // Track original for discount detection
-            subtotal: (parseFloat(product.sale_price) || 0) * quantity,
-          },
-        ]);
+  /**
+   * Validate item assignments for manufactured products before checkout
+   * Ensures assignments exist and are properly structured
+   * Note: Full validation (checking batch product_ids match recipe raw_product_ids) 
+   * is done on the backend due to requiring batch details
+   * @param {Array} cartItems - Cart items to validate
+   * @returns {{valid: boolean, error?: string}} Validation result
+   */
+  const validateItemAssignments = (cartItems) => {
+    for (const item of cartItems) {
+      if (item.requires_material_assignment) {
+        // Check that assignments exist
+        if (!item.item_assignments || !Array.isArray(item.item_assignments) || item.item_assignments.length === 0) {
+          return {
+            valid: false,
+            error: `Missing material assignments for "${item.product_name}". Please assign materials before checkout.`
+          };
+        }
+
+        // Validate assignment structure
+        for (const assignment of item.item_assignments) {
+          if (!assignment.inventory_batch_id || assignment.quantity_deducted === undefined || assignment.quantity_deducted === null) {
+            return {
+              valid: false,
+              error: `Invalid assignment structure for "${item.product_name}". Each assignment must have inventory_batch_id and quantity_deducted.`
+            };
+          }
+
+          const qty = parseFloat(assignment.quantity_deducted);
+          if (isNaN(qty) || qty <= 0) {
+            return {
+              valid: false,
+              error: `Invalid quantity in assignment for "${item.product_name}". Quantity must be greater than 0.`
+            };
+          }
+        }
+
+        // Check if recipe exists (should always exist if requires_material_assignment is true)
+        const recipe = recipes.find(r => r.virtual_product_id === item.product_id);
+        if (!recipe) {
+          console.warn(`Recipe not found for product ${item.product_id} (${item.product_name}) that requires material assignment`);
+          // Don't block checkout, but log warning - backend will validate
+        }
       }
     }
+
+    return { valid: true };
   };
 
-  const handleCoilSelection = (assignments) => {
-    if (!selectedProduct) return;
+  const addToCart = (product, quantity = 1) => {
+    const requiresMaterialAssignment = hasRecipe(product.id);
+    const existingItem = cart.find((item) => item.product_id === product.id);
+    const unitPrice = parseFloat(product.sale_price) || 0;
+
+    if (existingItem) {
+      setCart(
+        cart.map((item) => {
+          if (item.product_id !== product.id) return item;
+          const newQuantity = (parseFloat(item.quantity) || 0) + (parseFloat(quantity) || 0);
+
+          // If quantity changes for recipe-based products, clear any existing assignments (they're now stale)
+          const shouldClearAssignments = requiresMaterialAssignment && item.item_assignments && item.item_assignments.length > 0;
+
+          return {
+            ...item,
+            quantity: newQuantity,
+            subtotal: item.unit_price * newQuantity,
+            requires_material_assignment: requiresMaterialAssignment,
+            base_unit: product.base_unit || item.base_unit,
+            item_assignments: shouldClearAssignments ? [] : (item.item_assignments || []),
+            recipe_id: shouldClearAssignments ? null : (item.recipe_id || null) // Clear recipe_id when assignments are cleared
+          };
+        })
+      );
+      return;
+    }
+
     setCart([
       ...cart,
       {
-        product_id: selectedProduct.id,
-        product_name: selectedProduct.name,
-        product_sku: selectedProduct.sku,
-        quantity: selectedQuantity,
-        unit_price: parseFloat(selectedProduct.sale_price) || 0,
-        original_price: parseFloat(selectedProduct.sale_price) || 0,
-        subtotal: (parseFloat(selectedProduct.sale_price) || 0) * selectedQuantity,
-        item_assignments: assignments,
+        product_id: product.id,
+        product_name: product.name,
+        product_sku: product.sku,
+        base_unit: product.base_unit,
+        quantity: quantity,
+        unit_price: unitPrice,
+        original_price: unitPrice, // Track original for discount detection
+        subtotal: unitPrice * quantity,
+        requires_material_assignment: requiresMaterialAssignment,
+        item_assignments: [],
       },
     ]);
+  };
+
+  const handleCoilSelection = (selectionData) => {
+    if (!selectedProduct) return;
+    
+    // Handle both new format { assignments, recipe_id } and legacy array format
+    const assignments = selectionData?.assignments || (Array.isArray(selectionData) ? selectionData : []);
+    const recipe_id = selectionData?.recipe_id || null;
+    
+    setCart(
+      cart.map((item) => {
+        if (item.product_id !== selectedProduct.id) return item;
+        return {
+          ...item,
+          item_assignments: assignments,
+          recipe_id: recipe_id, // Store recipe_id to ensure backend uses the same recipe
+        };
+      })
+    );
     setShowCoilModal(false);
     setSelectedProduct(null);
+  };
+
+  const handleAssignMaterial = (productId) => {
+    const cartItem = cart.find((i) => i.product_id === productId);
+    if (!cartItem) return;
+
+    const productDetails =
+      products.find((p) => p.id === productId) || {
+        id: cartItem.product_id,
+        name: cartItem.product_name,
+        sku: cartItem.product_sku,
+        base_unit: cartItem.base_unit,
+        sale_price: cartItem.unit_price
+      };
+
+    setSelectedProduct(productDetails);
+    setSelectedQuantity(cartItem.quantity);
+    setShowCoilModal(true);
   };
 
   const updateCartQuantity = (productId, delta) => {
@@ -232,10 +322,33 @@ const POS = () => {
       cart.map((item) => {
         if (item.product_id === productId) {
           const newQuantity = Math.max(1, item.quantity + delta);
+          const shouldClearAssignments = item.requires_material_assignment && item.item_assignments && item.item_assignments.length > 0;
           return {
             ...item,
             quantity: newQuantity,
             subtotal: item.unit_price * newQuantity,
+            item_assignments: shouldClearAssignments ? [] : (item.item_assignments || [])
+          };
+        }
+        return item;
+      })
+    );
+  };
+
+  const setCartQuantity = (productId, quantity) => {
+    const parsedQuantity = parseFloat(quantity);
+    if (isNaN(parsedQuantity) || parsedQuantity <= 0) {
+      return; // Invalid quantity, don't update
+    }
+    setCart(
+      cart.map((item) => {
+        if (item.product_id === productId) {
+          const shouldClearAssignments = item.requires_material_assignment && item.item_assignments && item.item_assignments.length > 0;
+          return {
+            ...item,
+            quantity: parsedQuantity,
+            subtotal: item.unit_price * parsedQuantity,
+            item_assignments: shouldClearAssignments ? [] : (item.item_assignments || [])
           };
         }
         return item;
@@ -268,11 +381,20 @@ const POS = () => {
       alert('Please select a branch before creating a sale');
       return;
     }
+
+    // Validate item assignments before checkout
+    const validation = validateItemAssignments(cart);
+    if (!validation.valid) {
+      alert(validation.error);
+      return;
+    }
+
     const items = cart.map((item) => ({
       product_id: item.product_id,
       quantity: item.quantity,
       unit_price: item.unit_price,
       item_assignments: item.item_assignments || [],
+      recipe_id: item.recipe_id || null, // Pass recipe_id to ensure backend uses the same recipe
     }));
     createSaleMutation.mutate({ customer_id: selectedCustomer?.id || null, items, payment_status: 'unpaid' });
   };
@@ -283,11 +405,20 @@ const POS = () => {
       alert('Please select a branch before holding the order');
       return;
     }
+
+    // Validate item assignments before holding order
+    const validation = validateItemAssignments(cart);
+    if (!validation.valid) {
+      alert(validation.error);
+      return;
+    }
+
     const items = cart.map((item) => ({
       product_id: item.product_id,
       quantity: item.quantity,
       unit_price: item.unit_price,
       item_assignments: item.item_assignments || [],
+      recipe_id: item.recipe_id || null, // Pass recipe_id to ensure backend uses the same recipe
     }));
     holdOrderMutation.mutate({ customer_id: selectedCustomer?.id || null, items, payment_status: 'unpaid' });
   };
@@ -308,11 +439,18 @@ const POS = () => {
     if (document.fullscreenElement) {
       document.exitFullscreen();
     }
-    navigate('/');
+    // If opened in a new window/tab, close it; otherwise navigate home
+    if (window.opener || window.history.length <= 1) {
+      // Opened in new window/tab - close it
+      window.close();
+    } else {
+      // Opened in same window - navigate home
+      navigate('/');
+    }
   };
 
   return (
-    <div className={`flex h-[calc(100vh-80px)] bg-gray-50/50 -m-6 ${isFullscreen ? 'fixed inset-0 z-50 h-screen m-0' : ''}`}>
+    <div className={`flex h-screen bg-gray-50/50 ${isFullscreen ? 'fixed inset-0 z-50' : ''}`}>
       {/* Left Area: Product Browser */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
         {/* Modern Header */}
@@ -383,11 +521,13 @@ const POS = () => {
         <CartSidebar
           cart={cart}
           onUpdateQuantity={updateCartQuantity}
+          onSetQuantity={setCartQuantity}
           onUpdatePrice={updateCartPrice}
           onRemoveItem={removeFromCart}
           onClearCart={clearCart}
           onCheckout={handleCheckout}
           onHoldOrder={handleHoldOrder}
+          onAssignMaterial={handleAssignMaterial}
           customers={customers}
           selectedCustomer={selectedCustomer}
           onSelectCustomer={setSelectedCustomer}
@@ -401,7 +541,7 @@ const POS = () => {
         />
       </div>
 
-      <CoilSelectorModal
+      <MaterialSelectorModal
         isOpen={showCoilModal}
         onClose={() => {
           setShowCoilModal(false);
@@ -410,6 +550,7 @@ const POS = () => {
         product={selectedProduct}
         quantity={selectedQuantity}
         onConfirm={handleCoilSelection}
+        branchId={selectedBranch}
       />
     </div>
   );

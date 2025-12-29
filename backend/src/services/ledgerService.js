@@ -254,25 +254,43 @@ export const getLedger = async (contactId, contactType, startDate = null, endDat
     where.branch_id = branchId;
   }
 
+  const includes = [
+    {
+      model: contactType === 'customer' ? Customer : Supplier,
+      as: contactType,
+      attributes: ['id', 'name', 'phone', 'email', 'address', 'ledger_balance']
+    },
+    {
+      model: Branch,
+      as: 'branch',
+      attributes: ['id', 'name', 'code']
+    },
+    {
+      model: User,
+      as: 'creator',
+      attributes: ['id', 'full_name', 'email']
+    },
+    {
+      model: Payment,
+      as: 'payment',
+      required: false,
+      attributes: ['id', 'status']
+    }
+  ];
+
+  // Add SalesOrder association for customer INVOICE entries to get payment_status and production_status
+  if (contactType === 'customer') {
+    includes.push({
+      model: SalesOrder,
+      as: 'sales_order',
+      required: false,
+      attributes: ['id', 'payment_status', 'production_status']
+    });
+  }
+
   const entries = await LedgerEntry.findAll({
     where,
-    include: [
-      {
-        model: contactType === 'customer' ? Customer : Supplier,
-        as: contactType,
-        attributes: ['id', 'name', 'phone', 'email', 'address', 'ledger_balance']
-      },
-      {
-        model: Branch,
-        as: 'branch',
-        attributes: ['id', 'name', 'code']
-      },
-      {
-        model: User,
-        as: 'creator',
-        attributes: ['id', 'full_name', 'email']
-      }
-    ],
+    include: includes,
     order: [['transaction_date', 'ASC'], ['created_at', 'ASC']]
   });
 

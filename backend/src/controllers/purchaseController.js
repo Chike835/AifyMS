@@ -7,7 +7,10 @@ import {
   Branch,
   User,
   InventoryBatch,
-  Unit
+  Unit,
+  BatchType,
+  CategoryBatchType,
+  Category
 } from '../models/index.js';
 import { Op } from 'sequelize';
 import { safeRollback } from '../utils/transactionUtils.js';
@@ -186,8 +189,112 @@ export const getPurchaseById = async (req, res, next) => {
 };
 
 /**
+ * Find or create a default batch for a product
+ * Priority: 1) is_default batch type, 2) "Loose" batch type by name
+ * @param {string} product_id - Product ID
+ * @param {string} branch_id - Branch ID
+ * @param {Object} transaction - Sequelize transaction
+ * @returns {Promise<Object>} InventoryBatch instance
+ */
+const findOrCreateDefaultBatch = async (product_id, branch_id, transaction) => {
+  // Get product to check category
+  const product = await Product.findByPk(product_id, { transaction });
+  if (!product) {
+    throw new Error('Product not found');
+  }
+
+  let batchType = null;
+
+  // Priority 1: Find batch type marked is_default
+  batchType = await BatchType.findOne({
+    where: { is_default: true, is_active: true },
+    transaction
+  });
+
+  // Priority 2: If no default, find "Loose" by name
+  if (!batchType) {
+    batchType = await BatchType.findOne({
+      where: { name: 'Loose', is_active: true },
+      transaction
+    });
+  }
+
+  // Priority 3: Try category-assigned batch types (prefer is_default or "Loose" if exists)
+  if (!batchType && product.category_id) {
+    const category = await Category.findByPk(product.category_id, {
+      include: [{
+        model: BatchType,
+        as: 'batch_types',
+        where: { is_active: true },
+        required: false
+      }],
+      transaction
+    });
+
+    if (category?.batch_types?.length > 0) {
+      // Prefer is_default or "Loose" from category batch types
+      batchType = category.batch_types.find(bt => bt.is_default) ||
+                  category.batch_types.find(bt => bt.name === 'Loose') ||
+                  category.batch_types[0];
+    }
+  }
+
+  if (!batchType) {
+    throw new Error('No batch type available. Please configure a default batch type or assign batch types to the product category.');
+  }
+
+  // Verify batch type is assigned to category if product has category
+  if (product.category_id) {
+    const assignment = await CategoryBatchType.findOne({
+      where: { category_id: product.category_id, batch_type_id: batchType.id },
+      transaction
+    });
+
+    // If not assigned and not the global default, this might be an issue
+    // But we'll proceed with the batch type we found (it could be global default)
+    if (!assignment && !batchType.is_default) {
+      // This is acceptable if it's a global default, but log a warning
+      // We'll still use it as a fallback
+    }
+  }
+
+  // Find existing batch: product + branch + batch_type where instance_code IS NULL and grouped = false
+  let batch = await InventoryBatch.findOne({
+    where: {
+      product_id,
+      branch_id,
+      batch_type_id: batchType.id,
+      instance_code: { [Op.is]: null },
+      grouped: false
+    },
+    transaction,
+    lock: transaction.LOCK.UPDATE // Lock for concurrent purchase safety
+  });
+
+  if (!batch) {
+    // Create new batch
+    batch = await InventoryBatch.create({
+      product_id,
+      branch_id,
+      category_id: product.category_id || null,
+      batch_type_id: batchType.id,
+      grouped: false,
+      instance_code: null,
+      batch_identifier: null,
+      initial_quantity: 0,
+      remaining_quantity: 0,
+      status: 'in_stock',
+      attribute_data: {}
+    }, { transaction });
+  }
+
+  return batch;
+};
+
+/**
  * Create a new purchase with items
  * CRITICAL: For products with instance codes, automatically creates inventory instances
+ * For products without instance codes, automatically adds to default/Loose batch
  * Uses database transaction for atomicity - rolls back on any failure
  */
 export const createPurchase = async (req, res, next) => {
@@ -378,7 +485,8 @@ export const createPurchase = async (req, res, next) => {
       notes: notes?.trim() || null
     }, { transaction });
 
-    // Create purchase items and inventory batches for products with instance codes
+    // Create purchase items and inventory batches
+    // ALL purchases must create/update batches - either with instance_code or default batch
     const createdItems = [];
     const createdBatches = [];
 
@@ -389,8 +497,9 @@ export const createPurchase = async (req, res, next) => {
       const subtotal = purchasedQty * parseFloat(item.unit_cost);
 
       let inventoryBatchId = null;
+      let batchWasCreated = false;
 
-      // Create inventory batch if instance_code is provided (for any product type)
+      // If instance_code is provided, create new batch with that code
       if (item.instance_code && item.instance_code.trim() !== '') {
         const inventoryBatch = await InventoryBatch.create({
           product_id: item.product_id,
@@ -403,6 +512,45 @@ export const createPurchase = async (req, res, next) => {
 
         inventoryBatchId = inventoryBatch.id;
         createdBatches.push(inventoryBatch);
+        batchWasCreated = true;
+      } else {
+        // No instance_code provided - find or create default batch and add quantity
+        try {
+          const defaultBatch = await findOrCreateDefaultBatch(
+            item.product_id,
+            purchaseBranchId,
+            transaction
+          );
+
+          inventoryBatchId = defaultBatch.id;
+
+          // Check if batch was just created (both quantities are 0, which is how we create new default batches)
+          const isNewlyCreated = parseFloat(defaultBatch.initial_quantity) === 0 && 
+                                 parseFloat(defaultBatch.remaining_quantity) === 0;
+
+          if (isNewlyCreated) {
+            // Newly created batch - set initial and remaining quantities
+            defaultBatch.initial_quantity = baseQuantity;
+            defaultBatch.remaining_quantity = baseQuantity;
+            batchWasCreated = true;
+            createdBatches.push(defaultBatch);
+          } else {
+            // Existing batch - only update remaining quantity (preserve initial_quantity)
+            const currentRemaining = parseFloat(defaultBatch.remaining_quantity);
+            defaultBatch.remaining_quantity = currentRemaining + baseQuantity;
+            // If batch was depleted, set status back to in_stock
+            if (defaultBatch.status === 'depleted') {
+              defaultBatch.status = 'in_stock';
+            }
+          }
+
+          await defaultBatch.save({ transaction });
+        } catch (batchError) {
+          await safeRollback(transaction);
+          return res.status(400).json({
+            error: `Failed to create/update batch for product ${product.name}: ${batchError.message}`
+          });
+        }
       }
 
       // Create purchase item (store both purchased and base quantities)

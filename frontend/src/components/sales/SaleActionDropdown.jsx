@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { MoreVertical, Eye, Edit2, Trash2, FileText, Printer, DollarSign, CheckCircle, Percent, RotateCcw, Truck } from 'lucide-react';
+import { MoreVertical, Eye, Edit2, Trash2, FileText, Printer, DollarSign, CheckCircle, RotateCcw, Truck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -7,8 +7,7 @@ const SaleActionDropdown = ({
     sale,
     onView,
     onDelete,
-    onApproveSale,
-    onApproveDiscount
+    onApproveSale
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef(null);
@@ -37,15 +36,25 @@ const SaleActionDropdown = ({
     const canAddPayment = () => {
         // Must have permission
         if (!hasPermission('payment_create')) return false;
-        // Must be unpaid or partial
-        if (sale.payment_status === 'paid') return false;
-        // Logic for customer balance check would be ideally done in parent or passed down, 
-        // but simple status check is a good start. 
+        // Must be unpaid or partial - explicitly check for paid status
+        // Hide for paid invoices only when invoice isn't paid
+        const paymentStatus = sale.payment_status?.toLowerCase();
+        if (paymentStatus === 'paid') return false;
+        
+        // Check if customer has sufficient account balance to cover the sale
+        if (sale.customer_id && sale.customer?.ledger_balance !== undefined) {
+            const customerBalance = parseFloat(sale.customer.ledger_balance || 0);
+            const totalAmount = parseFloat(sale.total_amount || 0);
+            
+            // ledger_balance is (Debits - Credits). Negative means Credit (money in account).
+            // If customer has enough credit (negative balance) to cover the total, hide the button
+            // For partial payments, we still show the button to allow paying the remaining amount
+            if (customerBalance <= -totalAmount) {
+                return false; // Customer has sufficient balance, hide button
+            }
+        }
+        
         return true;
-    };
-
-    const canApproveDiscount = () => {
-        return hasPermission('sale_discount_approve') && sale.discount_status === 'pending';
     };
 
     const canEdit = hasPermission('sale_edit') || hasPermission('sale_edit_price');
@@ -124,17 +133,8 @@ const SaleActionDropdown = ({
                         <Printer className="h-4 w-4" /> Print Invoice
                     </button>
 
-                    {/* Approve Discount */}
-                    {canApproveDiscount() && (
-                        <button
-                            onClick={() => handleAction(onApproveDiscount)}
-                            className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-orange-600"
-                        >
-                            <Percent className="h-4 w-4" /> Approve Discount
-                        </button>
-                    )}
-
-                    {/* Approve Sale (Manufacturing) */}
+                    {/* Approve Sale (Manufacturing) - Only show if status is exactly 'na' (not approved yet) */}
+                    {/* Hide for invoices that have already been approved (status would be 'queue', 'produced', or 'delivered') */}
                     {onApproveSale && hasPermission('production_update_status') && sale.production_status === 'na' && (
                         <button
                             onClick={() => handleAction(onApproveSale)}
@@ -156,8 +156,8 @@ const SaleActionDropdown = ({
 
                     <div className="border-t border-gray-100 my-1"></div>
 
-                    {/* Delete */}
-                    {hasPermission('sale_delete') && (
+                    {/* Delete - Hide for produced or delivered orders */}
+                    {hasPermission('sale_delete') && sale.production_status !== 'produced' && sale.production_status !== 'delivered' && (
                         <button
                             onClick={() => handleAction(onDelete)}
                             className="w-full text-left px-4 py-2 hover:bg-red-50 flex items-center gap-2 text-red-600"

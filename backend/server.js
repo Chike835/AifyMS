@@ -105,7 +105,14 @@ app.use((req, res) => {
 // Initialize database and start server
 const startServer = async () => {
   try {
-    // Test database connection
+    // Security Check
+    if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
+      console.error('FATAL ERROR: JWT_SECRET is not defined in production environment.');
+      process.exit(1);
+    }
+
+    // Database Connection
+    await sequelize.authenticate(); // Test connection
     const connected = await testConnection();
     if (!connected) {
       console.error('❌ Failed to connect to database. Exiting...');

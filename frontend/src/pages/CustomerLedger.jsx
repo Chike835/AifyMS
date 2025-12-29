@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import DateFilterDropdown from '../components/common/DateFilterDropdown';
-import { ArrowLeft, Download, FileText, Building2 } from 'lucide-react';
+import { ArrowLeft, Download, FileText, Building2, MoreVertical, Trash2 } from 'lucide-react';
 import SaleDetailModal from '../components/sales/SaleDetailModal';
 import SaleActionDropdown from '../components/sales/SaleActionDropdown';
 
@@ -89,6 +89,30 @@ const CustomerLedger = () => {
     });
   };
 
+  const getPaymentStatusColor = (status) => {
+    switch (status) {
+      case 'paid': return 'bg-green-100 text-green-800';
+      case 'partial': return 'bg-yellow-100 text-yellow-800';
+      case 'unpaid': return 'bg-red-100 text-red-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getProductionStatusColor = (status) => {
+    switch (status) {
+      case 'queue': return 'bg-orange-100 text-orange-800';
+      case 'produced': return 'bg-blue-100 text-blue-800';
+      case 'delivered': return 'bg-green-100 text-green-800';
+      case 'na': return 'bg-gray-100 text-gray-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const formatProductionStatus = (status) => {
+    if (status === 'na') return 'N/A';
+    return status;
+  };
+
   const handleExportCSV = async () => {
     try {
       const params = new URLSearchParams();
@@ -139,21 +163,6 @@ const CustomerLedger = () => {
     }
   };
 
-  const handleApproveDiscount = async (saleId) => {
-    if (window.confirm('Are you sure you want to approve this discount?')) {
-      try {
-        await api.put(`/discount-approvals/${saleId}/approve`);
-        queryClient.invalidateQueries(['customerLedger', id]);
-        queryClient.invalidateQueries(['sales']);
-        queryClient.invalidateQueries(['sale', saleId]);
-        refetch();
-        alert('Discount approved successfully');
-      } catch (error) {
-        alert('Failed to approve discount: ' + (error.response?.data?.error || error.message));
-      }
-    }
-  };
-
   const handleApproveSale = async (saleId) => {
     if (window.confirm('Are you sure you want to approve this sale for production?')) {
       try {
@@ -165,6 +174,21 @@ const CustomerLedger = () => {
         alert('Sale approved for production successfully');
       } catch (error) {
         alert('Failed to approve sale: ' + (error.response?.data?.error || error.message));
+      }
+    }
+  };
+
+  const handleDeletePayment = async (paymentId) => {
+    if (window.confirm('Are you sure you want to delete this payment? This action cannot be undone and will refresh sales order payment statuses.')) {
+      try {
+        await api.delete(`/payments/${paymentId}`);
+        queryClient.invalidateQueries(['customerLedger', id]);
+        queryClient.invalidateQueries(['customerLedgerSummary', id]);
+        queryClient.invalidateQueries(['sales']);
+        refetch();
+        alert('Payment deleted successfully');
+      } catch (error) {
+        alert('Failed to delete payment: ' + (error.response?.data?.error || error.message));
       }
     }
   };
@@ -236,31 +260,31 @@ const CustomerLedger = () => {
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
           <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
             <p className="text-sm text-gray-500 mb-1">Opening Balance</p>
-            <p className="text-2xl font-bold text-gray-900">
+            <p className="text-xl md:text-2xl font-bold text-gray-900 break-words overflow-hidden">
               {formatCurrency(summaryData.opening_balance || 0)}
             </p>
           </div>
           <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
             <p className="text-sm text-gray-500 mb-1">Total Invoiced</p>
-            <p className="text-2xl font-bold text-red-600">
+            <p className="text-xl md:text-2xl font-bold text-red-600 break-words overflow-hidden">
               {formatCurrency(summaryData.total_invoiced || 0)}
             </p>
           </div>
           <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
             <p className="text-sm text-gray-500 mb-1">Total Paid</p>
-            <p className="text-2xl font-bold text-green-600">
+            <p className="text-xl md:text-2xl font-bold text-green-600 break-words overflow-hidden">
               {formatCurrency(summaryData.total_paid || 0)}
             </p>
           </div>
           <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
             <p className="text-sm text-gray-500 mb-1">Advance Balance</p>
-            <p className="text-2xl font-bold text-blue-600">
+            <p className="text-xl md:text-2xl font-bold text-blue-600 break-words overflow-hidden">
               {formatCurrency(summaryData.advance_balance || 0)}
             </p>
           </div>
           <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
             <p className="text-sm text-gray-500 mb-1">Balance Due</p>
-            <p className="text-2xl font-bold text-orange-600">
+            <p className="text-xl md:text-2xl font-bold text-orange-600 break-words overflow-hidden">
               {formatCurrency(summaryData.balance_due || 0)}
             </p>
           </div>
@@ -353,6 +377,21 @@ const CustomerLedger = () => {
                           )}
                         </div>
                         <div className="text-xs text-gray-500">{entry.transaction_type}</div>
+                        {/* Status badges for INVOICE entries */}
+                        {entry.transaction_type === 'INVOICE' && (entry.payment_status || entry.production_status) && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {entry.payment_status && (
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getPaymentStatusColor(entry.payment_status)}`}>
+                                {entry.payment_status}
+                              </span>
+                            )}
+                            {entry.production_status && (
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getProductionStatusColor(entry.production_status)}`}>
+                                {formatProductionStatus(entry.production_status)}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
@@ -389,7 +428,6 @@ const CustomerLedger = () => {
                             id: entry.transaction_id,
                             invoice_number: entry.description?.split(' ')[0] || entry.transaction_id,
                             payment_status: entry.is_pending ? 'pending' : 'unpaid',
-                            discount_status: entry.is_pending ? 'pending' : null,
                             production_status: 'na',
                             customer_id: id,
                             order_type: 'invoice'
@@ -400,7 +438,12 @@ const CustomerLedger = () => {
                           }}
                           onDelete={() => handleDeleteSale(entry.transaction_id)}
                           onApproveSale={() => handleApproveSale(entry.transaction_id)}
-                          onApproveDiscount={() => handleApproveDiscount(entry.transaction_id)}
+                        />
+                      )}
+                      {entry.transaction_type === 'PAYMENT' && entry.transaction_id && (
+                        <PaymentActionDropdown
+                          paymentId={entry.transaction_id}
+                          onDelete={() => handleDeletePayment(entry.transaction_id)}
                         />
                       )}
                     </td>
@@ -430,6 +473,63 @@ const CustomerLedger = () => {
         }}
         saleId={selectedSaleId}
       />
+    </div>
+  );
+};
+
+// Payment Action Dropdown Component
+const PaymentActionDropdown = ({ paymentId, onDelete }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+  const { hasPermission } = useAuth();
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  const handleAction = (action) => {
+    setIsOpen(false);
+    action();
+  };
+
+  if (!hasPermission('payment_delete')) {
+    return null;
+  }
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsOpen(!isOpen);
+        }}
+        className="p-1.5 hover:bg-gray-100 rounded-full text-gray-500 hover:text-gray-700 transition-colors"
+      >
+        <MoreVertical className="h-4 w-4" />
+      </button>
+
+      {isOpen && (
+        <div
+          className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50 text-sm"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={() => handleAction(onDelete)}
+            className="w-full text-left px-4 py-2 hover:bg-red-50 flex items-center gap-2 text-red-600"
+          >
+            <Trash2 className="h-4 w-4" /> Delete Payment
+          </button>
+        </div>
+      )}
     </div>
   );
 };

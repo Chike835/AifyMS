@@ -316,6 +316,8 @@ export const getInstances = async (req, res, next) => {
         {
           model: Product,
           as: 'product',
+          where: { manage_stock: true },  // Only include products that manage stock
+          required: true,
           attributes: ['id', 'sku', 'name', 'type', 'base_unit']
         },
         {

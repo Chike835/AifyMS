@@ -4,11 +4,13 @@ import { ShoppingBag, Trash2, Plus, Minus, User, X, Search, Pause, ChevronRight,
 const CartSidebar = ({
     cart,
     onUpdateQuantity,
+    onSetQuantity,
     onUpdatePrice,
     onRemoveItem,
     onClearCart,
     onCheckout,
     onHoldOrder,
+    onAssignMaterial,
     customers,
     selectedCustomer,
     onSelectCustomer,
@@ -27,6 +29,10 @@ const CartSidebar = ({
     // State for Price Editing
     const [editingItemId, setEditingItemId] = useState(null);
     const [editingPrice, setEditingPrice] = useState('');
+    
+    // State for Quantity Editing
+    const [editingQuantityId, setEditingQuantityId] = useState(null);
+    const [editingQuantity, setEditingQuantity] = useState('');
 
     const subtotal = cart.reduce((sum, item) => sum + item.subtotal, 0);
     const tax = 0;
@@ -58,6 +64,57 @@ const CartSidebar = ({
             onUpdatePrice(itemId, newPrice);
         }
         setEditingItemId(null);
+    };
+
+    const startEditingQuantity = (item) => {
+        setEditingQuantityId(item.product_id);
+        setEditingQuantity(item.quantity.toString());
+    };
+
+    const handleQuantityChange = (itemId, value) => {
+        setEditingQuantity(value);
+        // Allow typing any value (including decimals), validation on blur
+    };
+
+    const saveQuantity = (itemId) => {
+        const newQuantity = parseFloat(editingQuantity);
+        if (!isNaN(newQuantity) && newQuantity > 0 && onSetQuantity) {
+            onSetQuantity(itemId, newQuantity);
+        }
+        setEditingQuantityId(null);
+        setEditingQuantity('');
+    };
+
+    const handleQuantityIncrement = (itemId, itemQuantity) => {
+        if (onSetQuantity) {
+            const currentQty = parseFloat(itemQuantity) || 0;
+            // Increment by 0.01 for fine-grained control, or 1 for whole numbers
+            const increment = currentQty >= 1 ? 1 : 0.01;
+            onSetQuantity(itemId, currentQty + increment);
+        } else if (onUpdateQuantity) {
+            onUpdateQuantity(itemId, 1);
+        }
+    };
+
+    const handleQuantityDecrement = (itemId, itemQuantity) => {
+        const currentQty = parseFloat(itemQuantity) || 0;
+        if (currentQty <= 0.01) return; // Prevent going below minimum
+        
+        if (onSetQuantity) {
+            const decrement = currentQty > 1 ? 1 : 0.01;
+            const newQty = Math.max(0.01, currentQty - decrement);
+            onSetQuantity(itemId, newQty);
+        } else if (onUpdateQuantity) {
+            onUpdateQuantity(itemId, -1);
+        }
+    };
+
+    const getAssignmentCodes = (assignments = []) => {
+        if (!Array.isArray(assignments) || assignments.length === 0) return [];
+        const codes = assignments
+            .map((a) => a?.instance_code || a?.batch_identifier || a?.inventory_batch_id || a?.id)
+            .filter(Boolean);
+        return [...new Set(codes)];
     };
 
     return (
@@ -231,16 +288,46 @@ const CartSidebar = ({
 
                             {/* Controls */}
                             <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3 bg-white border border-gray-200 rounded-lg p-0.5 shadow-sm">
+                                <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg p-0.5 shadow-sm">
                                     <button
-                                        onClick={() => onUpdateQuantity(item.product_id, -1)}
+                                        onClick={() => handleQuantityDecrement(item.product_id, item.quantity)}
                                         className="p-1.5 hover:bg-gray-100 rounded text-gray-600 transition-colors"
                                     >
                                         <Minus className="h-3.5 w-3.5" />
                                     </button>
-                                    <span className="text-sm font-semibold min-w-[1.5rem] text-center">{item.quantity}</span>
+                                    {editingQuantityId === item.product_id ? (
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0.01"
+                                            value={editingQuantity}
+                                            onChange={(e) => handleQuantityChange(item.product_id, e.target.value)}
+                                            className="w-16 text-sm font-semibold text-center border-none outline-none focus:ring-1 focus:ring-primary-500 rounded px-1"
+                                            autoFocus
+                                            onBlur={() => saveQuantity(item.product_id)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    saveQuantity(item.product_id);
+                                                } else if (e.key === 'Escape') {
+                                                    setEditingQuantityId(null);
+                                                    setEditingQuantity('');
+                                                }
+                                            }}
+                                        />
+                                    ) : (
+                                        <span 
+                                            className="text-sm font-semibold min-w-[3rem] text-center cursor-text px-2 py-1 hover:bg-gray-50 rounded"
+                                            onClick={() => startEditingQuantity(item)}
+                                            title="Click to edit quantity"
+                                        >
+                                            {parseFloat(item.quantity).toLocaleString(undefined, {
+                                                minimumFractionDigits: 0,
+                                                maximumFractionDigits: 2
+                                            })}
+                                        </span>
+                                    )}
                                     <button
-                                        onClick={() => onUpdateQuantity(item.product_id, 1)}
+                                        onClick={() => handleQuantityIncrement(item.product_id, item.quantity)}
                                         className="p-1.5 hover:bg-gray-100 rounded text-gray-600 transition-colors"
                                     >
                                         <Plus className="h-3.5 w-3.5" />
@@ -256,9 +343,25 @@ const CartSidebar = ({
                             </div>
 
                             {item.item_assignments && item.item_assignments.length > 0 && (
-                                <div className="text-xs text-primary-600 bg-primary-50 px-2 py-1 rounded self-start">
-                                    Include {item.item_assignments.length} coil assignments
-                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => onAssignMaterial && onAssignMaterial(item.product_id)}
+                                    className="text-xs text-primary-700 bg-primary-50 hover:bg-primary-100 px-2 py-1 rounded self-start transition-colors"
+                                    title="Click to edit assigned materials"
+                                >
+                                    Materials: {getAssignmentCodes(item.item_assignments).join(', ')}
+                                </button>
+                            )}
+
+                            {item.requires_material_assignment && (!item.item_assignments || item.item_assignments.length === 0) && (
+                                <button
+                                    type="button"
+                                    onClick={() => onAssignMaterial && onAssignMaterial(item.product_id)}
+                                    className="text-xs text-red-700 bg-red-50 hover:bg-red-100 px-2 py-1 rounded self-start transition-colors"
+                                    title="Materials are required for this item"
+                                >
+                                    Assign material
+                                </button>
                             )}
                         </div>
                     ))

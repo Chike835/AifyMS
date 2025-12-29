@@ -164,14 +164,12 @@ const ManufacturingStatus = () => {
 
   // Group orders by status
   const queueOrders = filteredOrders.filter(o => o.production_status === 'queue');
-  const inProductionOrders = filteredOrders.filter(o => o.production_status === 'produced' && !o.dispatcher_name);
-  const producedOrders = filteredOrders.filter(o => o.production_status === 'produced' && o.dispatcher_name);
+  const producedOrders = filteredOrders.filter(o => o.production_status === 'produced');
   const deliveredOrders = filteredOrders.filter(o => o.production_status === 'delivered');
 
   // Statistics
   const stats = {
     queue: queueOrders.length,
-    in_production: inProductionOrders.length,
     produced: producedOrders.length,
     delivered: deliveredOrders.length,
     today_production: producedOrders.filter(o => {
@@ -368,14 +366,10 @@ const ManufacturingStatus = () => {
       </div>
 
       {/* Statistics Bar */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-sm text-gray-600">In Queue</div>
           <div className="text-2xl font-bold text-yellow-600">{stats.queue}</div>
-        </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="text-sm text-gray-600">In Production</div>
-          <div className="text-2xl font-bold text-blue-600">{stats.in_production}</div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-sm text-gray-600">Produced</div>
@@ -488,7 +482,7 @@ const ManufacturingStatus = () => {
       </div>
 
       {/* Kanban Board */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Queue Column */}
         <div 
           className="bg-gray-50 rounded-lg p-4"
@@ -518,28 +512,6 @@ const ManufacturingStatus = () => {
             ))}
             {queueOrders.length === 0 && (
               <div className="text-center py-8 text-gray-400 text-sm">No orders in queue</div>
-            )}
-          </div>
-        </div>
-
-        {/* In Production Column */}
-        <div 
-          className="bg-gray-50 rounded-lg p-4"
-          onDragOver={handleDragOver}
-          onDrop={(e) => handleDrop(e, 'produced')}
-        >
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-gray-900 flex items-center space-x-2">
-              <span className="w-3 h-3 bg-blue-500 rounded-full"></span>
-              <span>In Production ({stats.in_production})</span>
-            </h3>
-          </div>
-          <div className="space-y-2 max-h-[600px] overflow-y-auto">
-            {inProductionOrders.map((order) => (
-              <OrderCard key={order.id} order={order} columnStatus="produced" />
-            ))}
-            {inProductionOrders.length === 0 && (
-              <div className="text-center py-8 text-gray-400 text-sm">No orders in production</div>
             )}
           </div>
         </div>

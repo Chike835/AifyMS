@@ -127,20 +127,6 @@ const Sales = () => {
     }
   };
 
-  const handleApproveDiscount = async (saleId) => {
-    if (window.confirm('Are you sure you want to approve this discount?')) {
-      try {
-        await api.put(`/discount-approvals/${saleId}/approve`);
-        queryClient.invalidateQueries(['sales']);
-        queryClient.invalidateQueries(['sale', saleId]);
-        refetch();
-        alert('Discount approved successfully');
-      } catch (error) {
-        alert('Failed to approve discount: ' + (error.response?.data?.error || error.message));
-      }
-    }
-  };
-
   const handleApproveSale = async (saleId) => {
     if (window.confirm('Are you sure you want to approve this sale for production?')) {
       try {
@@ -261,7 +247,7 @@ const Sales = () => {
           </p>
         </div>
         <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
-          <p className="text-sm text-gray-500">In Production</p>
+          <p className="text-sm text-gray-500">In Queue</p>
           <p className="text-2xl font-bold text-orange-600">
             {orders.filter(o => o.production_status === 'queue').length}
           </p>
@@ -434,7 +420,6 @@ const Sales = () => {
                       }}
                       onDelete={() => handleDeleteSub(order.id)}
                       onApproveSale={() => handleApproveSale(order.id)}
-                      onApproveDiscount={() => handleApproveDiscount(order.id)}
                     />
                   </td>
                 </tr>

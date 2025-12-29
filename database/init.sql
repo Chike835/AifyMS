@@ -15,7 +15,7 @@ CREATE TYPE production_status AS ENUM ('queue', 'processing', 'produced', 'deliv
 CREATE TYPE instance_status AS ENUM ('in_stock', 'depleted', 'scrapped');
 CREATE TYPE contact_type AS ENUM ('customer', 'supplier');
 CREATE TYPE transaction_type AS ENUM ('INVOICE', 'PAYMENT', 'RETURN', 'ADJUSTMENT', 'OPENING_BALANCE', 'ADVANCE_PAYMENT', 'REFUND', 'REFUND_FEE');
-CREATE TYPE action_type AS ENUM ('LOGIN', 'CREATE', 'UPDATE', 'DELETE', 'PRINT', 'CONFIRM', 'VOID');
+CREATE TYPE action_type AS ENUM ('LOGIN', 'CREATE', 'UPDATE', 'DELETE', 'PRINT', 'CONFIRM', 'VOID', 'TRANSFER', 'ADJUSTMENT');
 
 -- ============================================
 -- ALTER ENUMS FOR EXISTING DATABASES
@@ -27,6 +27,8 @@ CREATE TYPE action_type AS ENUM ('LOGIN', 'CREATE', 'UPDATE', 'DELETE', 'PRINT',
 --   ALTER TYPE transaction_type ADD VALUE IF NOT EXISTS 'ADVANCE_PAYMENT';
 --   ALTER TYPE transaction_type ADD VALUE IF NOT EXISTS 'REFUND';
 --   ALTER TYPE transaction_type ADD VALUE IF NOT EXISTS 'REFUND_FEE';
+--   ALTER TYPE action_type ADD VALUE IF NOT EXISTS 'TRANSFER';
+--   ALTER TYPE action_type ADD VALUE IF NOT EXISTS 'ADJUSTMENT';
 -- EXCEPTION WHEN duplicate_object THEN null;
 -- END $$;
 
@@ -895,7 +897,7 @@ INSERT INTO permissions (slug, group_name) VALUES
     ('payment_view', 'payments'),
     ('payment_receive', 'payments'),
     ('payment_confirm', 'payments'),
-    ('payment_delete_unconfirmed', 'payments'),
+    ('payment_delete', 'payments'),
     ('payment_void_confirmed', 'payments'),
     ('supplier_payment', 'payments');
 
@@ -1016,7 +1018,7 @@ FROM roles r
 CROSS JOIN permissions p
 WHERE r.name = 'Cashier'
   AND p.slug IN (
-    'payment_view', 'payment_receive', 'payment_delete_unconfirmed',
+    'payment_view', 'payment_receive', 'payment_delete',
     'sale_view_own', 'product_view', 'customer_view'
   );
 

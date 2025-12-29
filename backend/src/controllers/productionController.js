@@ -2,6 +2,7 @@ import sequelize from '../config/db.js';
 import { SalesOrder, SalesItem, InventoryBatch, Product, Recipe, ItemAssignment } from '../models/index.js';
 import { multiply, subtract, lessThan, lessThanOrEqual } from '../utils/mathUtils.js';
 import { safeRollback } from '../utils/transactionUtils.js';
+import { proposeManufacturedVirtualAssignment } from '../services/inventoryService.js';
 
 /**
  * POST /api/production/assign-material
@@ -129,10 +130,7 @@ export const assignMaterial = async (req, res, next) => {
       quantity_deducted: requiredRawQuantity
     }, { transaction });
 
-    // Update order production status to 'processing'
-    const order = salesItem.order;
-    order.production_status = 'processing';
-    await order.save({ transaction });
+    // Order remains in 'queue' status until marked as 'produced'
 
     await transaction.commit();
 
@@ -216,6 +214,60 @@ export const getMaterialAssignments = async (req, res, next) => {
     });
 
     res.json({ assignments });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/production/assign-material/proposal
+ * Generate automatic batch proposal for a sales item or ad-hoc virtual product quantity.
+ * Uses recipe raw product, filters eligible batches (status in_stock), does not deduct stock.
+ */
+export const proposeMaterialAssignment = async (req, res, next) => {
+  try {
+    const { sales_item_id, product_id, quantity, branch_id } = req.body || {};
+
+    // Derive context either from sales item or direct payload
+    let virtualProductId = product_id || null;
+    let finalQuantity = quantity;
+    let finalBranchId = branch_id || null;
+
+    if (sales_item_id) {
+      const salesItem = await SalesItem.findByPk(sales_item_id, {
+        include: [
+          { model: Product, as: 'product' },
+          { model: SalesOrder, as: 'order' }
+        ]
+      });
+
+      if (!salesItem) {
+        return res.status(404).json({ error: 'Sales item not found' });
+      }
+
+      virtualProductId = salesItem.product_id;
+      finalQuantity = salesItem.quantity;
+      finalBranchId = finalBranchId || salesItem.order?.branch_id || null;
+    }
+
+    if (!virtualProductId || finalQuantity === undefined) {
+      return res.status(400).json({
+        error: 'Provide sales_item_id or product_id with quantity'
+      });
+    }
+
+    const proposalResult = await proposeManufacturedVirtualAssignment({
+      productId: virtualProductId,
+      quantity: finalQuantity,
+      branchId: finalBranchId,
+      recipe_id: req.body.recipe_id || null // Pass recipe_id if provided to ensure same recipe is used
+    });
+
+    if (!proposalResult.success) {
+      return res.status(400).json({ error: proposalResult.error });
+    }
+
+    return res.json({ proposal: proposalResult.proposal });
   } catch (error) {
     next(error);
   }

@@ -2,7 +2,10 @@ import { Package, Plus } from 'lucide-react';
 
 const ProductCard = ({ product, onAdd }) => {
     const price = parseFloat(product.sale_price || 0);
-    const hasStock = product.type === 'service' || (product.current_stock && product.current_stock > 0);
+    // Product is available if:
+    // 1. Stock management is disabled (manage_stock === false) - always available
+    // 2. Stock management is enabled and current_stock > 0
+    const hasStock = product.manage_stock === false || product.type === 'service' || (product.current_stock && parseFloat(product.current_stock) > 0);
 
     return (
         <div
@@ -68,11 +71,11 @@ const ProductCard = ({ product, onAdd }) => {
                     </p>
                 </div>
 
-                {hasStock && product.type !== 'service' && (
+                {hasStock && product.manage_stock !== false && product.type !== 'service' && product.current_stock !== undefined && (
                     <div className="mt-2 w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
                         <div
-                            className={`h-full rounded-full ${product.current_stock < 10 ? 'bg-orange-500' : 'bg-emerald-500'}`}
-                            style={{ width: `${Math.min(100, (product.current_stock / 50) * 100)}%` }}
+                            className={`h-full rounded-full ${parseFloat(product.current_stock) < 10 ? 'bg-orange-500' : 'bg-emerald-500'}`}
+                            style={{ width: `${Math.min(100, (parseFloat(product.current_stock) / 50) * 100)}%` }}
                         />
                     </div>
                 )}

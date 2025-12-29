@@ -256,27 +256,6 @@ const SaleDetailModal = ({ isOpen, onClose, saleId, onEdit }) => {
                                             </div>
                                         </div>
 
-                                        {order.discount_status && (
-                                            <div className="pt-4 border-t border-gray-100">
-                                                <p className="text-sm text-gray-500 mb-1">Discount Status</p>
-                                                <div className="flex items-center gap-2">
-                                                    {order.discount_status === 'approved' ? (
-                                                        <span className="flex items-center gap-1 text-green-700 bg-green-50 px-2 py-1 rounded text-sm font-medium">
-                                                            <CheckCircle className="h-3.5 w-3.5" /> Approved
-                                                        </span>
-                                                    ) : order.discount_status === 'pending' ? (
-                                                        <span className="flex items-center gap-1 text-yellow-700 bg-yellow-50 px-2 py-1 rounded text-sm font-medium">
-                                                            <Clock className="h-3.5 w-3.5" /> Pending Approval
-                                                        </span>
-                                                    ) : (
-                                                        <span className="flex items-center gap-1 text-gray-600 bg-gray-50 px-2 py-1 rounded text-sm font-medium">
-                                                            {order.discount_status}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        )}
-
                                         {order.dispatcher_name && (
                                             <div className="pt-4 border-t border-gray-100">
                                                 <p className="text-sm text-gray-500 mb-1">Dispatch Info</p>
@@ -291,17 +270,34 @@ const SaleDetailModal = ({ isOpen, onClose, saleId, onEdit }) => {
                                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                                     <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
                                     <div className="space-y-2">
-                                        {/* Actions handled by dropdown in list view, but could duplicate here if needed. 
-                                            For now, keeping the Payment button if unpaid + permission. 
-                                        */}
-                                        {order.payment_status !== 'paid' && hasPermission('payment_create') && (
-                                            <button
-                                                onClick={() => navigate('/payments', { state: { saleId: order.id, customerId: order.customer_id } })}
-                                                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                                            >
-                                                Record Payment
-                                            </button>
-                                        )}
+                                        {/* Payment button - hide if customer has sufficient account balance */}
+                                        {(() => {
+                                            // Check if payment button should be shown
+                                            if (order.payment_status === 'paid' || !hasPermission('payment_create')) {
+                                                return null;
+                                            }
+                                            
+                                            // Check if customer has sufficient balance
+                                            if (order.customer_id && order.customer?.ledger_balance !== undefined) {
+                                                const customerBalance = parseFloat(order.customer.ledger_balance || 0);
+                                                const totalAmount = parseFloat(order.total_amount || 0);
+                                                
+                                                // ledger_balance is (Debits - Credits). Negative means Credit (money in account).
+                                                // If customer has enough credit to cover the total, hide the button
+                                                if (customerBalance <= -totalAmount) {
+                                                    return null; // Customer has sufficient balance, hide button
+                                                }
+                                            }
+                                            
+                                            return (
+                                                <button
+                                                    onClick={() => navigate('/payments', { state: { saleId: order.id, customerId: order.customer_id } })}
+                                                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                                                >
+                                                    Record Payment
+                                                </button>
+                                            );
+                                        })()}
                                         {hasPermission('delivery_note_create') && (
                                             <button
                                                 onClick={() => navigate('/delivery-notes', { state: { saleId: order.id } })}

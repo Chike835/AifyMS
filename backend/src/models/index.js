@@ -980,6 +980,13 @@ export const associateModels = () => {
     as: 'payment'
   });
 
+  // LedgerEntry - SalesOrder (Many-to-One, for INVOICE entries to get payment_status and production_status)
+  LedgerEntry.belongsTo(SalesOrder, {
+    foreignKey: 'transaction_id',
+    constraints: false,
+    as: 'sales_order'
+  });
+
   // ActivityLog - User (Many-to-One)
   ActivityLog.belongsTo(User, {
     foreignKey: 'user_id',
@@ -1010,11 +1017,6 @@ export const associateModels = () => {
     as: 'notifications'
   });
 
-  // SalesOrder - User (Discount Approver)
-  SalesOrder.belongsTo(User, {
-    foreignKey: 'discount_approved_by',
-    as: 'discountApprover'
-  });
 };
 
 // Export all models

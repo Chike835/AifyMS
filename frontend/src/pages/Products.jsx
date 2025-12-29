@@ -21,7 +21,8 @@ import {
   Printer,
   ChevronLeft,
   ChevronRight,
-  Upload
+  Upload,
+  Search
 } from 'lucide-react';
 
 import { sortData } from '../utils/sortUtils';

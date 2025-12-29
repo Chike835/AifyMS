@@ -213,8 +213,8 @@ const Dashboard = () => {
       link: '/payments'
     },
     {
-      name: 'Items in Production',
-      value: statsData?.items_in_production || 0,
+      name: 'In Queue',
+      value: statsData?.items_in_queue || 0,
       icon: Factory,
       color: 'bg-blue-500',
       link: '/production-queue'
@@ -629,7 +629,7 @@ const Dashboard = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {hasPermission('pos_access') && (
             <button
-              onClick={() => navigate('/pos')}
+              onClick={() => window.open('/pos', '_blank')}
               className="p-4 border border-gray-200 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-colors text-left"
             >
               <h3 className="font-medium text-gray-900">Create Sale</h3>

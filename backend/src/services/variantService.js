@@ -174,8 +174,14 @@ export const generateVariants = async (parentProductId, variationIds, options = 
             category: parentProduct.category,
             category_id: parentProduct.category_id,
             sub_category_id: parentProduct.sub_category_id,
+            weight: parentProduct.weight,
             manage_stock: parentProduct.manage_stock,
-            not_for_selling: false, // Usually variants are for selling
+            not_for_selling: parentProduct.not_for_selling,
+            alert_quantity: parentProduct.alert_quantity,
+            reorder_quantity: parentProduct.reorder_quantity,
+            barcode_type: parentProduct.barcode_type,
+            woocommerce_enabled: parentProduct.woocommerce_enabled,
+            is_active: parentProduct.is_active,
             attribute_default_values: parentProduct.attribute_default_values,
             is_variant_child: true
         }, { transaction });
@@ -192,4 +198,90 @@ export const generateVariants = async (parentProductId, variationIds, options = 
     }
 
     return createdVariants;
+};
+
+/**
+ * Propagate parent product settings to all variant child products
+ * @param {string} parentProductId - ID of the parent variable product
+ * @param {Object} settings - Settings object containing fields to propagate (from updateData)
+ * @param {Object} options - Options object (transaction)
+ * @returns {Promise<Array>} - Array of updated variant products
+ */
+export const propagateSettingsToVariants = async (parentProductId, settings, options = {}) => {
+    const transaction = options.transaction;
+
+    // 1. Verify parent product exists and is variable
+    const parentProduct = await Product.findByPk(parentProductId, { transaction });
+    if (!parentProduct) throw new Error('Parent product not found');
+    if (parentProduct.type !== 'variable') {
+        throw new Error('Parent product must be a variable product to propagate settings');
+    }
+
+    // 2. Find all variant child products
+    const variantLinks = await ProductVariant.findAll({
+        where: { parent_product_id: parentProductId },
+        transaction
+    });
+
+    if (variantLinks.length === 0) {
+        return []; // No variants to update
+    }
+
+    // 3. Get all child product IDs
+    const childProductIds = variantLinks.map(link => link.product_id);
+
+    // 4. Build update data - only include settings fields that are in the settings object
+    // Settings fields to propagate (excluding structural fields like SKU, name, type)
+    const settingsFields = [
+        'base_unit',
+        'unit_id',
+        'sale_price',
+        'cost_price',
+        'cost_price_inc_tax',
+        'tax_rate',
+        'tax_rate_id',
+        'is_taxable',
+        'selling_price_tax_type',
+        'profit_margin',
+        'brand',
+        'brand_id',
+        'category',
+        'category_id',
+        'sub_category_id',
+        'weight',
+        'manage_stock',
+        'not_for_selling',
+        'alert_quantity',
+        'reorder_quantity',
+        'barcode_type',
+        'woocommerce_enabled',
+        'is_active',
+        'attribute_default_values'
+    ];
+
+    const updateData = {};
+    settingsFields.forEach(field => {
+        if (settings[field] !== undefined) {
+            updateData[field] = settings[field];
+        }
+    });
+
+    // If no fields to update, return early
+    if (Object.keys(updateData).length === 0) {
+        return [];
+    }
+
+    // 5. Update all variant child products
+    await Product.update(updateData, {
+        where: { id: childProductIds },
+        transaction
+    });
+
+    // 6. Fetch updated products for return
+    const updatedProducts = await Product.findAll({
+        where: { id: childProductIds },
+        transaction
+    });
+
+    return updatedProducts;
 };

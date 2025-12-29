@@ -1,6 +1,12 @@
 # AifyMS ERP - Remaining Build Plan
 
-**Status**: Generated
+> [!CAUTION]
+> **DEPRECATED DOCUMENT**
+> This build plan is outdated as of Dec 2025. Many features listed here (e.g., Payroll, Agents, Reports) have been fully implemented.
+> Please refer to `PROJECT_SUMMARY.md` and the actual codebase for the current project status.
+> This file is kept for historical reference only.
+
+**Status**: Generated (Legacy)
 **Date**: 2025-11-25
 **Source**: FeaturesStatus.md (Truth Source) & init.sql (Schema)
 

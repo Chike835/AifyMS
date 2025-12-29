@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
-import { Check, Clock, Plus, DollarSign, Search, X } from 'lucide-react';
+import { Check, Clock, Plus, DollarSign, Search, X, Trash2, MoreVertical } from 'lucide-react';
 
 const Payments = () => {
   const { hasPermission, user } = useAuth();
@@ -152,6 +152,30 @@ const Payments = () => {
     },
   });
 
+  // Delete payment mutation
+  const deletePaymentMutation = useMutation({
+    mutationFn: async (paymentId) => {
+      const response = await api.delete(`/payments/${paymentId}`);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pendingPayments'] });
+      queryClient.invalidateQueries({ queryKey: ['recentPayments'] });
+      queryClient.invalidateQueries({ queryKey: ['customerLedger'] });
+      queryClient.invalidateQueries({ queryKey: ['customerLedgerSummary'] });
+      alert('Payment deleted successfully!');
+    },
+    onError: (error) => {
+      alert(error.response?.data?.error || 'Failed to delete payment');
+    },
+  });
+
+  const handleDeletePayment = (paymentId) => {
+    if (window.confirm('Are you sure you want to delete this payment? This action cannot be undone and will refresh sales order payment statuses.')) {
+      deletePaymentMutation.mutate(paymentId);
+    }
+  };
+
   const isCreateDisabled = createPaymentMutation.isPending || noAccountsAvailable;
   const recentPayments = recentPaymentsData || [];
   const pendingPayments = pendingPaymentsData || [];
@@ -164,6 +188,44 @@ const Payments = () => {
       setActiveTab('pending');
     }
   }, [location.search, hasPermission]);
+
+  // Pre-fill customer when navigating from a sale
+  useEffect(() => {
+    if (location.state?.customerId) {
+      const customerId = location.state.customerId;
+      
+      // Set payment type to customer
+      setPaymentType('customer');
+      
+      // Fetch customer details to get the name
+      api.get(`/customers/${customerId}`)
+        .then((response) => {
+          const customer = response.data.customer;
+          if (customer) {
+            setFormData((prev) => ({
+              ...prev,
+              customer_id: customerId,
+              supplier_id: '' // Clear supplier if set
+            }));
+            setCustomerSearch(customer.name || '');
+          }
+        })
+        .catch((error) => {
+          console.error('Failed to fetch customer:', error);
+          // Still set the customer_id even if fetch fails
+          setFormData((prev) => ({
+            ...prev,
+            customer_id: customerId,
+            supplier_id: ''
+          }));
+        });
+      
+      // Switch to form tab if not already there
+      if (hasPermission('payment_receive')) {
+        setActiveTab('form');
+      }
+    }
+  }, [location.state, hasPermission]);
 
   useEffect(() => {
     if (paymentAccounts.length === 0) {
@@ -615,6 +677,11 @@ const Payments = () => {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Date
                     </th>
+                    {hasPermission('payment_delete') && (
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Actions
+                      </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -663,6 +730,18 @@ const Payments = () => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {formatDate(payment.created_at)}
                       </td>
+                      {hasPermission('payment_delete') && (
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <button
+                            onClick={() => handleDeletePayment(payment.id)}
+                            disabled={deletePaymentMutation.isPending}
+                            className="p-1.5 hover:bg-red-50 rounded-full text-red-600 hover:text-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Delete Payment"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -776,22 +855,34 @@ const Payments = () => {
                           {payment.reference_note || '—'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <button
-                            onClick={() => handleConfirm(payment)}
-                            disabled={confirmDisabled}
-                            className="inline-flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                          >
-                            <Check className="h-4 w-4" />
-                            <span>Confirm</span>
-                          </button>
-                          <button
-                            onClick={() => handleDecline(payment)}
-                            disabled={declineDisabled}
-                            className="inline-flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                          >
-                            <X className="h-4 w-4" />
-                            <span>Decline</span>
-                          </button>
+                          <div className="flex items-center justify-end space-x-2">
+                            <button
+                              onClick={() => handleConfirm(payment)}
+                              disabled={confirmDisabled}
+                              className="inline-flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                              <Check className="h-4 w-4" />
+                              <span>Confirm</span>
+                            </button>
+                            <button
+                              onClick={() => handleDecline(payment)}
+                              disabled={declineDisabled}
+                              className="inline-flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                              <X className="h-4 w-4" />
+                              <span>Decline</span>
+                            </button>
+                            {hasPermission('payment_delete') && (
+                              <button
+                                onClick={() => handleDeletePayment(payment.id)}
+                                disabled={deletePaymentMutation.isPending}
+                                className="p-2 hover:bg-red-50 rounded-lg text-red-600 hover:text-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Delete Payment"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );

@@ -145,9 +145,11 @@ const AddSale = () => {
     return knownRecipes.get(productId);
   };
 
-  // Check if product has a recipe
+  // Check if product is manufactured - check product type directly, not recipe existence
   const isManufactured = (productId) => {
-    return !!getRecipe(productId);
+    const product = getProduct(productId);
+    if (!product) return false;
+    return product.type === 'manufactured' || product.type === 'manufactured_virtual';
   };
 
   // Calculate required raw material for a manufactured product

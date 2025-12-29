@@ -45,7 +45,7 @@ const SalesOrder = sequelize.define('SalesOrder', {
     defaultValue: 'unpaid'
   },
   production_status: {
-    type: DataTypes.ENUM('queue', 'processing', 'produced', 'delivered', 'na'),
+    type: DataTypes.ENUM('queue', 'produced', 'delivered', 'na'),
     defaultValue: 'na'
   },
   is_legacy: {
@@ -118,11 +118,17 @@ const SalesOrder = sequelize.define('SalesOrder', {
   discount_declined_reason: {
     type: DataTypes.TEXT,
     allowNull: true
+  },
+  total_discount: {
+    type: DataTypes.DECIMAL(15, 2),
+    allowNull: true,
+    defaultValue: 0
   }
 }, {
   tableName: 'sales_orders',
   timestamps: false,
-  underscored: true
+  underscored: true,
+  paranoid: true // Enable soft deletes
 });
 
 export default SalesOrder;

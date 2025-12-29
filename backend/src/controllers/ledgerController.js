@@ -19,7 +19,6 @@ export const getCustomerLedger = async (req, res, next) => {
     }
 
     // Get ledger entries
-    // Get ledger entries
     const entries = await getLedger(
       id,
       'customer',
@@ -27,59 +26,6 @@ export const getCustomerLedger = async (req, res, next) => {
       end_date || null,
       branch_id || null
     );
-
-    // Fetch pending discount sales for this customer
-    // Apply same filters as ledger entries (date range and branch)
-    const pendingSalesWhere = {
-      customer_id: id,
-      discount_status: 'pending',
-      order_type: 'invoice' // Ensure we only get invoices, not drafts
-    };
-
-    // Apply branch filter if provided
-    if (branch_id) {
-      pendingSalesWhere.branch_id = branch_id;
-    }
-
-    // Apply date filters if provided
-    if (start_date || end_date) {
-      pendingSalesWhere.created_at = {};
-      if (start_date) {
-        pendingSalesWhere.created_at[Op.gte] = new Date(start_date);
-      }
-      if (end_date) {
-        pendingSalesWhere.created_at[Op.lte] = new Date(end_date);
-      }
-    }
-
-    const pendingSales = await SalesOrder.findAll({
-      where: pendingSalesWhere,
-      include: [
-        { model: Branch, as: 'branch' },
-        { model: User, as: 'creator' }
-      ],
-      order: [['created_at', 'DESC']]
-    });
-
-    // Convert pending sales to ledger entry format
-    const pendingEntries = pendingSales.map(sale => ({
-      id: `pending_${sale.id}`,
-      transaction_date: sale.created_at,
-      transaction_type: 'PENDING_APPROVAL',
-      transaction_id: sale.id,
-      description: `Pending Discount Approval - Invoice ${sale.invoice_number}`,
-      debit_amount: parseFloat(sale.total_amount),
-      credit_amount: 0,
-      running_balance: 0, // No balance impact yet
-      branch: sale.branch,
-      creator: sale.creator,
-      is_pending: true // Flag for frontend styling
-    }));
-
-    // Merge and sort entries (assuming standard ledger entries are sorted desc by date usually? getLedger service does that)
-    // We'll put pending entries at the TOP if they are recent, or mix them in.
-    // Since getLedger returns sorted entries, we can concat and resort.
-    const allEntries = [...pendingEntries, ...entries].sort((a, b) => new Date(b.transaction_date) - new Date(a.transaction_date));
 
     res.json({
       customer: {
@@ -90,27 +36,43 @@ export const getCustomerLedger = async (req, res, next) => {
         address: customer.address,
         ledger_balance: customer.ledger_balance
       },
-      entries: allEntries.map(entry => ({
-        id: entry.id,
-        transaction_date: entry.transaction_date,
-        transaction_type: entry.transaction_type,
-        transaction_id: entry.transaction_id,
-        description: entry.description,
-        debit_amount: parseFloat(entry.debit_amount || 0),
-        credit_amount: parseFloat(entry.credit_amount || 0),
-        running_balance: parseFloat(entry.running_balance || 0),
-        is_pending: entry.is_pending || false,
-        branch: entry.branch ? {
-          id: entry.branch.id,
-          name: entry.branch.name,
-          code: entry.branch.code
-        } : null,
-        created_by: entry.creator ? {
-          id: entry.creator.id,
-          full_name: entry.creator.full_name
-        } : null
-      })),
-      total_entries: allEntries.length
+      entries: entries.map(entry => {
+        // Determine if entry is pending based on payment status
+        // For PAYMENT entries, check if payment status is not 'confirmed'
+        const isPending = entry.transaction_type === 'PAYMENT' && 
+                         entry.payment && 
+                         entry.payment.status !== 'confirmed';
+        
+        const entryData = {
+          id: entry.id,
+          transaction_date: entry.transaction_date,
+          transaction_type: entry.transaction_type,
+          transaction_id: entry.transaction_id,
+          description: entry.description,
+          debit_amount: parseFloat(entry.debit_amount || 0),
+          credit_amount: parseFloat(entry.credit_amount || 0),
+          running_balance: parseFloat(entry.running_balance || 0),
+          is_pending: isPending,
+          branch: entry.branch ? {
+            id: entry.branch.id,
+            name: entry.branch.name,
+            code: entry.branch.code
+          } : null,
+          created_by: entry.creator ? {
+            id: entry.creator.id,
+            full_name: entry.creator.full_name
+          } : null
+        };
+
+        // Add payment_status and production_status for INVOICE entries
+        if (entry.transaction_type === 'INVOICE' && entry.sales_order) {
+          entryData.payment_status = entry.sales_order.payment_status;
+          entryData.production_status = entry.sales_order.production_status;
+        }
+
+        return entryData;
+      }),
+      total_entries: entries.length
     });
   } catch (error) {
     next(error);

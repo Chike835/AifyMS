@@ -501,6 +501,7 @@ const Drafts = () => {
       <ManufacturedItemSelector
         isOpen={showCoilSelector}
         items={draftToConvert?.items || []}
+        branchId={draftToConvert?.branch_id}
         onConfirm={handleCoilSelectionConfirm}
         onCancel={handleCoilSelectionCancel}
       />

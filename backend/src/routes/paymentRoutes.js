@@ -8,7 +8,8 @@ import {
   addAdvance,
   confirmAdvancePayment,
   processRefund,
-  declinePayment
+  declinePayment,
+  deletePayment
 } from '../controllers/paymentController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { requirePermission } from '../middleware/permissionMiddleware.js';
@@ -36,11 +37,15 @@ router.put('/:id/confirm', requirePermission('payment_confirm'), confirmPayment)
 // PUT /api/payments/:id/decline - Decline payment (requires payment_confirm)
 router.put('/:id/decline', requirePermission('payment_confirm'), declinePayment);
 
-// POST /api/payments/advance - Create advance payment (requires payment_receive)
-router.post('/advance', requirePermission('payment_receive'), addAdvance);
-
 // PUT /api/payments/:id/confirm-advance - Confirm advance payment (requires payment_confirm)
 router.put('/:id/confirm-advance', requirePermission('payment_confirm'), confirmAdvancePayment);
+
+// DELETE /api/payments/:id - Delete payment (requires payment_delete)
+// Note: This must come after more specific :id routes to avoid route conflicts
+router.delete('/:id', requirePermission('payment_delete'), deletePayment);
+
+// POST /api/payments/advance - Create advance payment (requires payment_receive)
+router.post('/advance', requirePermission('payment_receive'), addAdvance);
 
 // POST /api/payments/refund - Process refund (requires payment_confirm)
 router.post('/refund', requirePermission('payment_confirm'), processRefund);

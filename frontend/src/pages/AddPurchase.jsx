@@ -262,6 +262,7 @@ const AddPurchase = () => {
         child: variant.child,
         quantity: '',
         unit_cost: variant.child?.cost_price || newItems[index].unit_cost || '',
+        instance_code: '', // Initialize instance_code field
         batched_quantity: 0 // Initialize batched quantity for tracking
       });
     }
@@ -392,7 +393,7 @@ const AddPurchase = () => {
               product_id: variant.child.id, // Use variant child ID
               quantity: conversion.baseQuantity,
               unit_cost: parseFloat(variant.unit_cost),
-              instance_code: null, // Variants usually don't have instance codes in this context? Or maybe they do if tracked? Assuming null for now as not requested.
+              instance_code: variant.instance_code?.trim() || null, // Allow instance codes for variants
               purchase_unit_id: item.purchase_unit_id || null,
               purchased_quantity: item.purchase_unit_id ? parseFloat(variant.quantity) : null
             });
@@ -608,7 +609,7 @@ const AddPurchase = () => {
 
                                       {/* Inputs (Only if selected) */}
                                       {isSelected && (
-                                        <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3">
+                                        <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-3">
                                           <div>
                                             <label className="block text-xs font-medium text-gray-500 mb-1">
                                               Qty ({item.purchase_unit_id ? units.find(u => u.id == item.purchase_unit_id)?.abbreviation : product.base_unit})
@@ -640,6 +641,18 @@ const AddPurchase = () => {
                                               className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
                                               placeholder="Cost"
                                               required
+                                            />
+                                          </div>
+                                          <div>
+                                            <label className="block text-xs font-medium text-gray-500 mb-1">
+                                              Instance Code
+                                            </label>
+                                            <input
+                                              type="text"
+                                              value={selectedData.instance_code || ''}
+                                              onChange={(e) => updateVariant(index, variant.variant_id, 'instance_code', e.target.value)}
+                                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                                              placeholder="Optional"
                                             />
                                           </div>
 

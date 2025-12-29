@@ -328,6 +328,11 @@ graph TB
 - `product_variants`: Links parent variable product to child variant products
 - `variation_combination`: JSONB field storing combination mapping (e.g., `{"Size": "Large", "Color": "Red"}`)
 
+**Stock Calculation (Updated):**
+- Parent variable product `current_stock` now sums remaining quantities from all child variant inventory batches (branch filter respected).
+- Totals on `/products` footer rely on this aggregated variant stock map.
+- Variant ledger pulls purchases/sales/batches using both child product_id and parent_product_id to surface legacy data saved on the parent.
+
 ---
 
 ### 9. Batch Settings & Category-Batch Type Assignments Flow
@@ -474,6 +479,32 @@ graph TB
 
 ---
 
+### 15. Slitting / Coil Conversion Flow
+
+**Feature:** Convert "Loose" material batches into individual "Coil" instances (InventoryInstance)
+
+**Data Flow:**
+1. **Initiate Slitting:** User selects a "Loose" batch in Inventory and clicks "Slit/Convert".
+2. **Input Details:** User provides:
+   - `new_instance_code`: Unique identifier for the new coil (e.g., "COIL-005")
+   - `weight`: Quantity to deduct from the loose batch (must be <= available)
+   - `attribute_data`: Attributes for the new coil (inherited or modified)
+3. **API Call:** `POST /api/inventory/convert-batch`
+4. **Backend Processing:**
+   - Validates source batch is "Loose" type
+   - Deducts `weight` from source batch `remaining_quantity`
+   - Creates new `InventoryInstance` (Coil) linked to the product and branch
+   - Sets `quantity` and `original_quantity` of new instance to `weight`
+   - Updates batch history/logs
+5. **Result:** New coil appears in inventory as a tracked instance; Loose batch quantity decreases.
+
+**Key Tables:**
+- `inventory_batches`: Source of loose material
+- `inventory_instances`: Destination for new coils
+- `activity_logs`: Records the conversion event
+
+---
+
 ## Technology Stack
 
 ### Frontend
@@ -546,6 +577,11 @@ graph TB
 - **LedgerEntry** → belongsTo Customer/Supplier (contact_id with contact_type), User (creator), Payment (transaction_id)
 - **ActivityLog** → belongsTo User, Branch
 - **Notification** → belongsTo User (recipient)
+- **Agent** → belongsTo Branch; hasMany SalesOrder, AgentCommission
+- **AgentCommission** → belongsTo Agent, SalesOrder
+- **DeliveryNoteTemplate** → belongsTo Branch
+- **ReceiptPrinter** → belongsTo Branch
+
 
 ### Product Types (Enum)
 - `standard`: Regular products
@@ -627,6 +663,9 @@ Request → authenticate → requirePermission → Controller
 **Inventory:**
 - `GET /api/inventory/instances` - List inventory instances
 - `POST /api/inventory/instances` - Register new coil/pallet
+- `POST /api/inventory/convert-batch` - Convert Loose batch to Coil (Slitting)
+- `GET /api/inventory/batches/suggest-code` - Suggest next instance code
+- `POST /api/inventory/batches/labels` - Generate inventory labels
 - `POST /api/inventory/transfer` - Transfer stock between branches
 - `POST /api/inventory/adjust` - Adjust stock with reason
 
@@ -744,6 +783,7 @@ Request → authenticate → requirePermission → Controller
 - `POST /api/ledger/backfill` - Trigger historical ledger backfill (requires `settings_manage`)
 
 **Production:**
+- `POST /api/production/assign-material/proposal` - Build FIFO proposal for recipe raw material (no deduction) (requires `production_update_status`)
 - `POST /api/production/assign-material` - Assign material to sales item (requires `production_update_status`)
 - `GET /api/production/assignments/:sales_item_id` - Get material assignments for sales item (requires `production_view_queue`)
 
@@ -1119,12 +1159,18 @@ const menuItems = [
 1. Customer orders manufactured product (e.g., "Longspan 0.55" - 100 Meters)
 2. System finds Recipe: 1 Meter = 0.8 KG Coil
 3. Calculates required raw material: 100 × 0.8 = 80 KG
-4. User selects specific coil (InventoryInstance) with sufficient quantity
-5. Creates SalesOrder with `production_status = 'queue'`
-6. Production worker updates status to `processing` when materials are assigned
-7. Production worker updates status to `produced` when complete (requires worker_name)
-8. Dispatcher updates status to `delivered` when shipped
-9. State machine enforces valid transitions with transactional safety and prevents backwards/illegal transitions
+4. Auto-proposal: `POST /api/production/assign-material/proposal` builds FIFO batch suggestions (recipe raw product, branch-scoped) without deducting stock; POS coil modal and draft/quotation converter let users confirm/adjust.
+5. User confirms proposal and selects specific coil (InventoryInstance) with sufficient quantity
+6. Creates SalesOrder with `production_status = 'queue'`
+7. Production worker updates status to `processing` when materials are assigned
+8. Production worker updates status to `produced` when complete (requires worker_name)
+9. Dispatcher updates status to `delivered` when shipped
+10. State machine enforces valid transitions with transactional safety and prevents backwards/illegal transitions
+
+**POS Visibility for Manufactured Virtual Products**
+- `/api/products` computes virtual stock per recipe using the selected branch’s raw batches; when multiple recipes exist for a virtual product, it uses the recipe that yields the highest virtual stock (max raw_stock / conversion_factor). `current_stock` returned reflects that max value so POS can display availability even before batch assignment.
+- POS product query now runs even before branch selection; it still passes `branch_id` when chosen. For accurate stock, select a branch; otherwise results may be broader or limited by backend rules.
+- Recipe material selection UI is shared via `MaterialSelectorModal` (renamed from CoilSelectorModal) and used in POS and draft/quotation flows.
 
 ### Payment Confirmation Workflow
 1. Cashier logs payment → `Payment.status = 'pending_confirmation'`

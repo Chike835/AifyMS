@@ -34,7 +34,6 @@ import warrantyRoutes from './warrantyRoutes.js';
 import batchSettingsRoutes from './batchSettingsRoutes.js';
 import ledgerRoutes from './ledgerRoutes.js';
 import productionRoutes from './productionRoutes.js';
-import discountApprovalRoutes from './discountApprovalRoutes.js';
 import notificationRoutes from './notificationRoutes.js';
 
 const router = express.Router();
@@ -74,7 +73,6 @@ router.use('/warranties', warrantyRoutes);
 router.use('/settings/batches', batchSettingsRoutes);
 router.use('/ledger', ledgerRoutes);
 router.use('/production', productionRoutes);
-router.use('/discount-approvals', discountApprovalRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/', importExportRoutes);
 

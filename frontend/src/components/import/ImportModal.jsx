@@ -8,7 +8,8 @@ const entityLabels = {
   products: 'Products',
   inventory: 'Inventory Instances',
   customers: 'Customers',
-  payment_accounts: 'Payment Accounts'
+  payment_accounts: 'Payment Accounts',
+  recipes: 'Recipes'
 };
 
 const ImportModal = ({ isOpen, onClose, entity, title = 'Import Data', onSuccess, targetEndpoint }) => {

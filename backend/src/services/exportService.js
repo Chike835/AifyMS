@@ -1,4 +1,4 @@
-import { Product, InventoryBatch, SalesOrder, Customer, Branch, Purchase, PurchaseItem, Supplier, PaymentAccount } from '../models/index.js';
+import { Product, InventoryBatch, SalesOrder, Customer, Branch, Purchase, PurchaseItem, Supplier, PaymentAccount, Recipe } from '../models/index.js';
 import { Op } from 'sequelize';
 
 /**
@@ -300,6 +300,40 @@ export const exportPaymentAccounts = async (filters = {}) => {
   }));
 
   const headers = ['name', 'account_type', 'account_number', 'bank_name', 'opening_balance', 'current_balance', 'branch_name', 'is_active', 'created_at'];
+  return arrayToCSV(csvData, headers);
+};
+
+/**
+ * Export recipes to CSV
+ */
+export const exportRecipes = async () => {
+  const recipes = await Recipe.findAll({
+    include: [
+      { 
+        model: Product, 
+        as: 'virtual_product',
+        attributes: ['id', 'sku', 'name']
+      },
+      { 
+        model: Product, 
+        as: 'raw_product',
+        attributes: ['id', 'sku', 'name']
+      }
+    ],
+    order: [['name', 'ASC']]
+  });
+
+  const csvData = recipes.map(recipe => ({
+    name: recipe.name,
+    virtual_product_sku: recipe.virtual_product?.sku || '',
+    virtual_product_name: recipe.virtual_product?.name || '',
+    raw_product_sku: recipe.raw_product?.sku || '',
+    raw_product_name: recipe.raw_product?.name || '',
+    conversion_factor: recipe.conversion_factor,
+    wastage_margin: recipe.wastage_margin || 0
+  }));
+
+  const headers = ['name', 'virtual_product_sku', 'virtual_product_name', 'raw_product_sku', 'raw_product_name', 'conversion_factor', 'wastage_margin'];
   return arrayToCSV(csvData, headers);
 };
 

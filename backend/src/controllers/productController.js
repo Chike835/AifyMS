@@ -1,4 +1,4 @@
-import { Product, PriceHistory, User, InventoryBatch, Branch, Category, Unit, TaxRate, ProductBrand, ProductBusinessLocation, BatchType, CategoryBatchType, ProductVariationAssignment, ProductVariant, ProductVariation, ProductVariationValue, PurchaseItem, Purchase, SalesItem, SalesOrder } from '../models/index.js';
+import { Product, PriceHistory, User, InventoryBatch, Branch, Category, Unit, TaxRate, ProductBrand, ProductBusinessLocation, BatchType, CategoryBatchType, ProductVariationAssignment, ProductVariant, ProductVariation, ProductVariationValue, PurchaseItem, Purchase, SalesItem, SalesOrder, Recipe } from '../models/index.js';
 import * as variantService from '../services/variantService.js';
 import { Op } from 'sequelize';
 import sequelize from '../config/db.js';
@@ -251,6 +251,31 @@ export const getProducts = async (req, res, next) => {
         { is_variant_child: true },
         { type: { [Op.ne]: 'variable' } }
       ];
+
+      // Exclude raw products (products used as raw_product_id in recipes)
+      // These are raw materials and should not appear in POS
+      const allRecipes = await Recipe.findAll({
+        attributes: ['raw_product_id'],
+        raw: true
+      });
+
+      if (allRecipes.length > 0) {
+        const rawProductIds = [...new Set(allRecipes.map(r => r.raw_product_id).filter(id => id !== null))];
+
+        if (rawProductIds.length > 0) {
+          // Combine with existing where conditions
+          if (where[Op.or]) {
+            // We already have Op.or, so we need to combine with Op.and
+            where[Op.and] = [
+              { [Op.or]: where[Op.or] },
+              { id: { [Op.notIn]: rawProductIds } }
+            ];
+            delete where[Op.or];
+          } else {
+            where.id = { [Op.notIn]: rawProductIds };
+          }
+        }
+      }
     }
 
     // Search filter (applied after variant filtering)
@@ -393,11 +418,143 @@ export const getProducts = async (req, res, next) => {
       raw: true
     });
 
-    // Create a map of product_id -> stock
+    // Create a map of product_id -> stock (physical)
     const stockMap = {};
     stockData.forEach(s => {
       stockMap[s.product_id] = parseFloat(s.total_stock) || 0;
     });
+
+    // For variable products, aggregate stock from their variant children
+    const variableParents = products.filter(p => p.type === 'variable');
+    const variableParentIds = variableParents.map(p => p.id);
+
+    if (variableParentIds.length > 0) {
+      // Get child product IDs for all variable parents
+      const variantAssignments = await ProductVariant.findAll({
+        attributes: ['parent_product_id', 'product_id'],
+        where: { parent_product_id: { [Op.in]: variableParentIds } },
+        raw: true
+      });
+
+      const childProductIds = [...new Set(variantAssignments.map(v => v.product_id).filter(Boolean))];
+
+      if (childProductIds.length > 0) {
+        const childStockWhere = {
+          product_id: { [Op.in]: childProductIds },
+          status: 'in_stock'
+        };
+
+        if (branchFilter) {
+          childStockWhere.branch_id = branchFilter.where.id;
+        }
+
+        const childStockData = await InventoryBatch.findAll({
+          where: childStockWhere,
+          attributes: [
+            'product_id',
+            [sequelize.fn('SUM', sequelize.col('remaining_quantity')), 'total_stock']
+          ],
+          group: ['product_id'],
+          raw: true
+        });
+
+        const childStockMap = {};
+        childStockData.forEach(s => {
+          childStockMap[s.product_id] = parseFloat(s.total_stock) || 0;
+        });
+
+        const parentAggregatedStock = {};
+        variantAssignments.forEach(assignment => {
+          const childStock = childStockMap[assignment.product_id] || 0;
+          parentAggregatedStock[assignment.parent_product_id] = (parentAggregatedStock[assignment.parent_product_id] || 0) + childStock;
+        });
+
+        variableParentIds.forEach(parentId => {
+          stockMap[parentId] = parentAggregatedStock[parentId] || stockMap[parentId] || 0;
+        });
+      } else {
+        // Ensure variable parents still have a key in stockMap
+        variableParentIds.forEach(parentId => {
+          if (stockMap[parentId] === undefined) {
+            stockMap[parentId] = 0;
+          }
+        });
+      }
+    }
+
+    // Calculate recipe-based stock for manufactured_virtual products
+    // OPTIMIZATION: Check if virtual stock calculation is requested (default: true for small pages, can be disabled for performance)
+    const calculateVirtualStock = req.query.calculate_virtual_stock !== 'false';
+    const manufacturedVirtualProducts = products.filter(p => p.type === 'manufactured_virtual');
+
+    if (calculateVirtualStock && manufacturedVirtualProducts.length > 0) {
+      const virtualProductIds = manufacturedVirtualProducts.map(p => p.id);
+
+      // Fetch recipes for these products
+      const recipes = await Recipe.findAll({
+        where: {
+          virtual_product_id: { [Op.in]: virtualProductIds }
+        },
+        raw: true
+      });
+
+      if (recipes.length > 0) {
+        // Group recipes per virtual product to support multiple recipes
+        const recipesByVirtual = recipes.reduce((acc, recipe) => {
+          if (!acc[recipe.virtual_product_id]) acc[recipe.virtual_product_id] = [];
+          acc[recipe.virtual_product_id].push(recipe);
+          return acc;
+        }, {});
+
+        // Get all raw product IDs from recipes
+        const rawProductIds = [...new Set(recipes.map(r => r.raw_product_id))];
+
+        // Calculate raw material stock with branch filter if applicable
+        const rawStockWhere = {
+          product_id: { [Op.in]: rawProductIds },
+          status: 'in_stock'
+        };
+
+        if (branchFilter) {
+          rawStockWhere.branch_id = branchFilter.where.id;
+        }
+
+        const rawStockData = await InventoryBatch.findAll({
+          where: rawStockWhere,
+          attributes: [
+            'product_id',
+            [sequelize.fn('SUM', sequelize.col('remaining_quantity')), 'total_stock']
+          ],
+          group: ['product_id'],
+          raw: true
+        });
+
+        // Create a map of raw_product_id -> stock
+        const rawStockMap = {};
+        rawStockData.forEach(s => {
+          rawStockMap[s.product_id] = parseFloat(s.total_stock) || 0;
+        });
+
+        // Calculate virtual stock per recipe and pick the recipe that yields max stock
+        manufacturedVirtualProducts.forEach(product => {
+          const productRecipes = recipesByVirtual[product.id] || [];
+          let bestVirtualStock = 0;
+
+          productRecipes.forEach(recipe => {
+            const rawStock = rawStockMap[recipe.raw_product_id] || 0;
+            const conversionFactor = parseFloat(recipe.conversion_factor) || 0;
+            if (conversionFactor > 0) {
+              const virtualStock = rawStock / conversionFactor;
+              if (virtualStock > bestVirtualStock) {
+                bestVirtualStock = virtualStock;
+              }
+            }
+          });
+
+          stockMap[product.id] = bestVirtualStock;
+        });
+      }
+    }
 
     // Filter cost_price based on permission and add stock
     const canViewCost = req.user?.permissions?.includes('product_view_cost');
@@ -605,7 +762,8 @@ export const updateProduct = async (req, res, next) => {
       woocommerce_enabled,
       is_active,
       business_location_ids,
-      variation_ids
+      variation_ids,
+      propagate_settings_to_variants
     } = req.body;
 
     const product = await Product.findByPk(id, { transaction });
@@ -736,6 +894,60 @@ export const updateProduct = async (req, res, next) => {
           variation_id: varId
         }));
         await ProductVariationAssignment.bulkCreate(assignmentRecords, { transaction });
+      }
+    }
+
+    // Propagate settings to variants if requested
+    if (propagate_settings_to_variants === true) {
+      // Only propagate if product is variable (check original type, not updated type)
+      // This prevents propagation if user is changing type away from 'variable'
+      if (product.type === 'variable') {
+        try {
+          // Build settings object - only include settings fields (exclude structural fields)
+          const settingsToPropagate = {};
+          const settingsFields = [
+            'base_unit',
+            'unit_id',
+            'sale_price',
+            'cost_price',
+            'cost_price_inc_tax',
+            'tax_rate',
+            'tax_rate_id',
+            'is_taxable',
+            'selling_price_tax_type',
+            'profit_margin',
+            'brand',
+            'brand_id',
+            'category',
+            'category_id',
+            'sub_category_id',
+            'weight',
+            'manage_stock',
+            'not_for_selling',
+            'alert_quantity',
+            'reorder_quantity',
+            'barcode_type',
+            'woocommerce_enabled',
+            'is_active',
+            'attribute_default_values'
+          ];
+
+          settingsFields.forEach(field => {
+            if (updateData[field] !== undefined) {
+              settingsToPropagate[field] = updateData[field];
+            }
+          });
+
+          // Only propagate if there are settings to propagate
+          if (Object.keys(settingsToPropagate).length > 0) {
+            await variantService.propagateSettingsToVariants(id, settingsToPropagate, { transaction });
+          }
+        } catch (propagationError) {
+          await safeRollback(transaction);
+          return res.status(500).json({
+            error: `Failed to propagate settings to variants: ${propagationError.message}`
+          });
+        }
       }
     }
 
@@ -1666,9 +1878,18 @@ export const getVariantLedger = async (req, res, next) => {
       return res.status(404).json({ error: 'Product not found' });
     }
 
+    // Also consider parent product ID to include historical data stored on parent
+    const variantLink = await ProductVariant.findOne({
+      attributes: ['parent_product_id'],
+      where: { product_id: id },
+      raw: true
+    });
+
+    const productIds = [...new Set([id, variantLink?.parent_product_id].filter(Boolean))];
+
     // 1. Fetch Purchases
     const purchases = await PurchaseItem.findAll({
-      where: { product_id: id },
+      where: productIds.length > 1 ? { product_id: { [Op.in]: productIds } } : { product_id: id },
       include: [
         {
           model: Purchase,
@@ -1687,7 +1908,7 @@ export const getVariantLedger = async (req, res, next) => {
 
     // 2. Fetch Sales
     const sales = await SalesItem.findAll({
-      where: { product_id: id },
+      where: productIds.length > 1 ? { product_id: { [Op.in]: productIds } } : { product_id: id },
       include: [
         {
           model: SalesOrder,
@@ -1700,7 +1921,7 @@ export const getVariantLedger = async (req, res, next) => {
 
     // 3. Fetch Batches (Inventory)
     const batches = await InventoryBatch.findAll({
-      where: { product_id: id },
+      where: productIds.length > 1 ? { product_id: { [Op.in]: productIds } } : { product_id: id },
       include: [
         { model: Branch, as: 'branch', attributes: ['id', 'name'] }
       ],

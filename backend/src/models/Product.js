@@ -17,7 +17,7 @@ const Product = sequelize.define('Product', {
     allowNull: false
   },
   type: {
-    type: DataTypes.ENUM('standard', 'compound', 'variable'),
+    type: DataTypes.ENUM('standard', 'compound', 'raw_tracked', 'manufactured_virtual', 'variable'),
     allowNull: false
   },
   base_unit: {
@@ -144,6 +144,14 @@ const Product = sequelize.define('Product', {
   is_variant_child: {
     type: DataTypes.BOOLEAN,
     defaultValue: false
+  },
+  warranty_id: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    references: {
+      model: 'warranties',
+      key: 'id'
+    }
   },
   created_at: {
     type: DataTypes.DATE,

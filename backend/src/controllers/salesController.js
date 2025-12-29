@@ -1,9 +1,9 @@
 import sequelize from '../config/db.js';
-import { SalesOrder, SalesItem, ItemAssignment, Product, InventoryBatch, Recipe, Customer, Branch, User, Agent, AgentCommission, ProductBusinessLocation, Notification, Role, Permission } from '../models/index.js';
+import { SalesOrder, SalesItem, ItemAssignment, Product, InventoryBatch, Recipe, Customer, Branch, User, Agent, AgentCommission, ProductBusinessLocation, Notification, Role, Permission, LedgerEntry } from '../models/index.js';
 import { Op } from 'sequelize';
 import { multiply, add, subtract, sum, equals, lessThan, lessThanOrEqual, greaterThan, percentage } from '../utils/mathUtils.js';
 import { processManufacturedVirtualItem, processManufacturedVirtualItemForConversion, processRegularItem, processRegularItemWithBatches } from '../services/inventoryService.js';
-import { createLedgerEntry } from '../services/ledgerService.js';
+import { createLedgerEntry, recalculateSubsequentBalances } from '../services/ledgerService.js';
 import { hasGlobalBranchAccess, validateBranchAccess } from '../utils/authHelpers.js';
 import { safeRollback } from '../utils/transactionUtils.js';
 
@@ -51,6 +51,8 @@ const generateInvoiceNumber = async (transaction) => {
 /**
  * POST /api/sales
  * Create a new sale/invoice with transaction support
+ * All invoices start with production_status 'na' and require manufacturing approval
+ * Manufacturing approval replaces sales approval - handles ALL sales regardless of product type
  * CRITICAL: Handles manufactured_virtual products with coil assignment
  */
 export const createSale = async (req, res, next) => {
@@ -94,6 +96,9 @@ export const createSale = async (req, res, next) => {
       return res.status(403).json({ error: branchAccess.error });
     }
 
+    // Create mutable payment status variable (can be updated based on customer balance)
+    let finalPaymentStatus = payment_status;
+
     // Generate invoice number
     const invoiceNumber = await generateInvoiceNumber(transaction);
 
@@ -132,42 +137,76 @@ export const createSale = async (req, res, next) => {
     const missingProductIds = productIds.filter(id => !foundProductIds.has(id));
     if (missingProductIds.length > 0) {
       await safeRollback(transaction);
-      // Logic to handle missing products - failing fast
       return res.status(404).json({ error: `Products not found: ${missingProductIds.join(', ')}` });
     }
 
     // Calculate total amount & Check for Discounts
+    // Discounts are automatically approved - no approval workflow needed
     let totalDiscount = 0;
-    let hasDiscount = false;
-    let discountStatus = 'approved';
+    const canEditPrice = req.user?.permissions?.includes('sale_edit_price');
 
-    // First pass calculation to check discounts
+    // Prepare Sales Items Data
+    const salesItemsData = [];
+
+    // First pass loop: Validation and Data Preparation (No DB Writes)
     for (const item of items) {
       const product = productMap.get(item.product_id);
-      // Product existence checked above, safe to assume existence or handle gracefully
-      if (product) {
-        const standardPrice = parseFloat(product.sale_price || 0);
-        const sellingPrice = parseFloat(item.unit_price || 0);
 
-        if (sellingPrice < standardPrice) {
-          hasDiscount = true;
-          totalDiscount += multiply(item.quantity, standardPrice - sellingPrice);
+      // Branch check
+      if (!hasGlobalBranchAccess(req.user)) {
+        if (!availableProductIds.has(item.product_id)) {
+          await safeRollback(transaction);
+          return res.status(400).json({ error: `Product "${product.name}" is not available at this branch.` });
+        }
+      }
+
+      // Not for selling check
+      if (product.not_for_selling) {
+        await safeRollback(transaction);
+        return res.status(400).json({ error: `Product "${product.name}" is marked as "Not for selling" and cannot be sold.` });
+      }
+
+      // Permission check logic
+      const validPrice = parseFloat(item.unit_price || 0);
+      const standardPrice = parseFloat(product.sale_price || 0);
+
+      if (!equals(validPrice, standardPrice)) {
+        if (!canEditPrice) {
+          await safeRollback(transaction);
+          return res.status(403).json({ error: `Price override not allowed for "${product.name}". Permission 'sale_edit_price' required.` });
+        }
+      }
+
+      if (validPrice < standardPrice) {
+        totalDiscount += multiply(item.quantity, standardPrice - validPrice);
+      }
+
+      const subtotal = multiply(item.quantity, validPrice);
+
+      salesItemsData.push({
+        product_id: item.product_id,
+        quantity: item.quantity,
+        unit_price: validPrice,
+        subtotal: subtotal
+        // order_id will be added after order creation
+      });
+    }
+
+    const itemSubtotals = salesItemsData.map(item => item.subtotal);
+    const totalAmount = sum(itemSubtotals);
+
+    // Check payment status based on customer balance (before creating order)
+    if (customer_id && order_type === 'invoice' && finalPaymentStatus === 'unpaid') {
+      const customer = await Customer.findByPk(customer_id, { transaction });
+      if (customer) {
+        if (parseFloat(customer.ledger_balance) <= -totalAmount) {
+          finalPaymentStatus = 'paid';
         }
       }
     }
 
-    if (hasDiscount && order_type === 'invoice') {
-      discountStatus = 'pending';
-    }
-
-    const itemSubtotals = items.map(item =>
-      multiply(item.quantity, item.unit_price)
-    );
-    const totalAmount = sum(itemSubtotals);
-
-    // Determine if inventory should be deducted (only for actual invoices AND approved/no discount)
-    // If discount is pending, we DO NOT deduct inventory yet, nor create ledger, nor production queue.
-    const shouldDeductInventory = order_type === 'invoice' && discountStatus !== 'pending';
+    // Determine if inventory should be deducted (only for actual invoices)
+    const shouldDeductInventory = order_type === 'invoice';
 
     // Validate agent
     let agent = null;
@@ -195,146 +234,105 @@ export const createSale = async (req, res, next) => {
       user_id: req.user.id,
       agent_id: agent_id || null,
       total_amount: totalAmount,
-      payment_status,
-      production_status: 'na',
+      payment_status: finalPaymentStatus,
+      production_status: 'na', // All invoices require manufacturing approval
       is_legacy: false,
       order_type,
       valid_until: order_type === 'quotation' ? valid_until : null,
       quotation_notes: order_type === 'quotation' ? quotation_notes : null,
-      // Discount Fields
-      discount_status: discountStatus,
+      discount_status: 'approved',
       total_discount: totalDiscount
     }, { transaction });
 
-    let hasManufacturedItems = false;
-    let hasAssignments = false;
+    // Assign order_id to items and Bulk Create
+    salesItemsData.forEach(item => item.order_id = salesOrder.id);
+    const createdSalesItems = await SalesItem.bulkCreate(salesItemsData, { transaction, validate: true });
 
-    // Check payment status based on customer balance
-    if (customer_id && order_type === 'invoice' && payment_status === 'unpaid') {
-      const customer = await Customer.findByPk(customer_id, { transaction });
-      if (customer) {
-        // Check if customer has enough credit (negative balance) to cover the total
-        // Using loose comparison for now, precision math would be better but this is a quick check
-        // ledger_balance is (Debits - Credits). So negative means Credit.
-        // If balance is -5000 and total is 2000. -5000 <= -2000 is true.
-        if (parseFloat(customer.ledger_balance) <= -totalAmount) {
-          payment_status = 'paid';
-          // Note: We don't create a PAYMENT record because the balance is already on the ledger
-          // The subsequent INVOICE ledger entry will simply offset the existing Credit balance
-        }
+    // Process items for inventory (Second pass logic)
+    // We strictly assume order matches because logic is synchronous and data is prepared above
+    for (let i = 0; i < items.length; i++) {
+      const itemPayload = items[i];
+      const salesItem = createdSalesItems[i]; // Corresponding DB record
+      const product = productMap.get(itemPayload.product_id);
+
+      // Validation: Ensure IDs match (Paranoia check)
+      if (salesItem.product_id !== itemPayload.product_id) {
+        throw new Error('Fatal: Mismatched product ID during bulk creation mapping');
       }
-    }
-
-    // Process items
-    for (const item of items) {
-      const { product_id, quantity, unit_price, item_assignments } = item;
-
-      if (!product_id || quantity === undefined || unit_price === undefined) {
-        await safeRollback(transaction);
-        return res.status(400).json({ error: 'Each item must have product_id, quantity, and unit_price' });
-      }
-
-      const product = productMap.get(product_id);
-      // Existence check already done
-
-      // Branch check
-      if (!hasGlobalBranchAccess(req.user)) {
-        if (!availableProductIds.has(product_id)) {
-          await safeRollback(transaction);
-          return res.status(400).json({ error: `Product "${product.name}" is not available at this branch.` });
-        }
-      }
-
-      // Permission check logic
-      const priceMatches = equals(unit_price, product.sale_price);
-      if (!priceMatches) {
-        const canEditPrice = req.user?.permissions?.includes('sale_edit_price');
-        if (!canEditPrice) {
-          await safeRollback(transaction);
-          return res.status(403).json({ error: `Price override not allowed for "${product.name}". Permission 'sale_edit_price' required.` });
-        }
-      }
-
-      const subtotal = multiply(quantity, unit_price);
-
-      // Create sales item
-      const salesItem = await SalesItem.create({
-        order_id: salesOrder.id,
-        product_id,
-        quantity,
-        unit_price,
-        subtotal
-      }, { transaction });
 
       const isManufactured = product.type === 'manufactured' || product.type === 'manufactured_virtual';
-      if (isManufactured) {
-        hasManufacturedItems = true;
-      }
 
       // Inventory Deduction Logic
       if (shouldDeductInventory && product.manage_stock) {
+        let result;
         if (isManufactured) {
-          // Manufactured items logic (coil management)
-          if (item_assignments && Array.isArray(item_assignments) && item_assignments.length > 0) {
-            hasAssignments = true;
-            const result = await processManufacturedVirtualItem({
+          // Manufactured items logic
+          if (itemPayload.item_assignments && Array.isArray(itemPayload.item_assignments) && itemPayload.item_assignments.length > 0) {
+            result = await processManufacturedVirtualItem({
               product,
-              quantity,
-              itemAssignments: item_assignments,
+              quantity: itemPayload.quantity,
+              itemAssignments: itemPayload.item_assignments,
               salesItem,
-              transaction
+              transaction,
+              recipe_id: itemPayload.recipe_id || null // Pass recipe_id to ensure same recipe is used
             });
-
-            if (!result.success) {
-              await safeRollback(transaction);
-              return res.status(400).json({ error: result.error });
-            }
+          } else {
+            // CRITICAL FIX: Prevent sale of manufactured items without raw material assignments
+            const errorMessage = `Missing raw material assignments for manufactured item: ${product.name} (ID: ${product.id}). Please re-select the item.`;
+            console.error('Sale creation failed - missing assignments:', {
+              productId: product.id,
+              productName: product.name,
+              productType: product.type,
+              quantity: itemPayload.quantity,
+              invoiceNumber: invoiceNumber,
+              userId: req.user.id
+            });
+            await safeRollback(transaction);
+            return res.status(400).json({
+              error: errorMessage
+            });
           }
         } else {
           // Regular items logic
-          if (item_assignments && Array.isArray(item_assignments) && item_assignments.length > 0) {
-            // Manual batch assignment for regular item
-            const result = await processRegularItemWithBatches({
+          if (itemPayload.item_assignments && Array.isArray(itemPayload.item_assignments) && itemPayload.item_assignments.length > 0) {
+            // Manual batch assignment
+            result = await processRegularItemWithBatches({
               product,
-              quantity,
-              itemAssignments: item_assignments,
+              quantity: itemPayload.quantity,
+              itemAssignments: itemPayload.item_assignments,
               salesItem,
               transaction
             });
-
-            if (!result.success) {
-              await safeRollback(transaction);
-              return res.status(400).json({ error: result.error });
-            }
           } else {
             // FIFO (Automatic) deduction
-            const result = await processRegularItem({
+            result = await processRegularItem({
               product,
-              quantity,
+              quantity: itemPayload.quantity,
               branchId: finalBranchId,
               salesItem,
               transaction
             });
-
-            if (!result.success) {
-              await safeRollback(transaction);
-              return res.status(400).json({ error: result.error });
-            }
           }
+        }
+
+        if (result && !result.success) {
+          console.error('Sale creation failed - inventory processing error:', {
+            productId: product.id,
+            productName: product.name,
+            productType: product.type,
+            quantity: itemPayload.quantity,
+            error: result.error,
+            invoiceNumber: invoiceNumber,
+            userId: req.user.id,
+            isManufactured: isManufactured
+          });
+          await safeRollback(transaction);
+          return res.status(400).json({ error: result.error });
         }
       }
     }
 
-    // Update production status
-    // If pending discount, stay 'na'. If approved/standard, follow logic.
-    // For manufactured items, ALWAYS mark as 'na' first to go through manufacturing approval
-    // regardless of discount status (unless it's already 'queue' which shouldn't happen here)
-    if (order_type === 'invoice' && hasManufacturedItems) {
-      salesOrder.production_status = 'na';
-      await salesOrder.save({ transaction });
-    }
-
-    // Agent Commission (Only if NOT pending)
+    // Agent Commission
     if (agent && shouldDeductInventory && agent.commission_rate > 0) {
       const commissionAmount = percentage(totalAmount, agent.commission_rate);
       await AgentCommission.create({
@@ -347,70 +345,8 @@ export const createSale = async (req, res, next) => {
       }, { transaction });
     }
 
-    // Notification for Pending Discount
-    if (discountStatus === 'pending') {
-      // Find all users with sale_discount_approve permission
-      // Query through role_permissions to find users with the permission
-      const discountApprovalPermission = await Permission.findOne({
-        where: { slug: 'sale_discount_approve' },
-        transaction
-      });
-
-      if (discountApprovalPermission) {
-        // Find all roles that have this permission
-        const rolesWithPermission = await Role.findAll({
-          include: [
-            {
-              model: Permission,
-              as: 'permissions',
-              where: { id: discountApprovalPermission.id },
-              attributes: []
-            }
-          ],
-          transaction
-        });
-
-        const roleIds = rolesWithPermission.map(r => r.id);
-
-        // Find all active users with these roles
-        // Also include Super Admin users (they have all permissions)
-        const approvers = await User.findAll({
-          where: {
-            is_active: true,
-            [Op.or]: [
-              { role_id: { [Op.in]: roleIds } },
-              { '$role.name$': 'Super Admin' }
-            ]
-          },
-          include: [
-            {
-              model: Role,
-              as: 'role',
-              attributes: ['id', 'name']
-            }
-          ],
-          attributes: ['id'],
-          transaction
-        });
-
-        // Create notifications for all approvers
-        const notificationPromises = approvers.map(approver =>
-          Notification.create({
-            user_id: approver.id,
-            type: 'discount_approval',
-            title: 'Discount Approval Required',
-            message: `Sale ${invoiceNumber} has discounted items requiring approval.`,
-            reference_type: 'sale',
-            reference_id: salesOrder.id
-          }, { transaction })
-        );
-
-        await Promise.all(notificationPromises);
-      }
-    }
-
-    // Create Ledger Entry (Only if NOT pending)
-    if (shouldDeductInventory && customer_id && totalAmount > 0) {
+    // Create Ledger Entry - CRITICAL FIX: No try-catch blocks. Fail transaction if ledger fails.
+    if (order_type === 'invoice' && customer_id && totalAmount > 0) {
       await createLedgerEntry(
         customer_id,
         'customer',
@@ -426,10 +362,18 @@ export const createSale = async (req, res, next) => {
         },
         transaction
       );
+    } else if (order_type === 'invoice' && customer_id && totalAmount <= 0) {
+      console.warn('Invoice created with zero or negative amount - no ledger entry created:', {
+        saleId: salesOrder.id,
+        invoiceNumber: invoiceNumber,
+        customerId: customer_id,
+        totalAmount: totalAmount
+      });
     }
 
     await transaction.commit();
 
+    // Fetch complete order
     const completeOrder = await SalesOrder.findByPk(salesOrder.id, {
       include: [
         { model: Customer, as: 'customer' },
@@ -440,11 +384,13 @@ export const createSale = async (req, res, next) => {
     });
 
     res.status(201).json({
-      message: discountStatus === 'pending' ? 'Sale created and pending discount approval' : 'Sale created successfully',
-      sale: completeOrder // Use 'sale' to match frontend expectation or 'order'
+      message: 'Sale created successfully',
+      sale: completeOrder
     });
   } catch (error) {
-    try { await safeRollback(transaction); } catch (e) { }
+    // If ANY error occurs (Ledger, DB, Logic), Rollback everything
+    await safeRollback(transaction);
+    console.error('Create Sale Transaction Failed:', error);
     next(error);
   }
 };
@@ -534,7 +480,11 @@ export const getSales = async (req, res, next) => {
     const { count, rows: orders } = await SalesOrder.findAndCountAll({
       where,
       include: [
-        { model: Customer, as: 'customer' },
+        {
+          model: Customer,
+          as: 'customer',
+          attributes: ['id', 'name', 'phone', 'email', 'address', 'ledger_balance'] // Explicitly include ledger_balance
+        },
         { model: Branch, as: 'branch' },
         { model: User, as: 'creator', attributes: ['id', 'full_name', 'email'] },
         {
@@ -573,7 +523,11 @@ export const getSaleById = async (req, res, next) => {
 
     const order = await SalesOrder.findByPk(id, {
       include: [
-        { model: Customer, as: 'customer' },
+        {
+          model: Customer,
+          as: 'customer',
+          attributes: ['id', 'name', 'phone', 'email', 'address', 'ledger_balance'] // Explicitly include ledger_balance
+        },
         { model: Branch, as: 'branch' },
         {
           model: SalesItem,
@@ -608,14 +562,13 @@ export const getSaleById = async (req, res, next) => {
 
 /**
  * Define valid production status transitions
- * State machine: na -> queue -> processing -> produced -> delivered
+ * State machine: na -> queue -> produced -> delivered
  */
 const PRODUCTION_STATUS_TRANSITIONS = {
   'na': ['queue', 'pending_approval'],
   'pending_approval': ['queue', 'rejected'], // Approval/Rejection
   'rejected': ['pending_approval'], // Retry
-  'queue': ['processing'],
-  'processing': ['produced'],
+  'queue': ['produced'],
   'produced': ['delivered'],
   'delivered': [] // Terminal state - no transitions allowed
 };
@@ -770,7 +723,7 @@ export const updateProductionStatus = async (req, res, next) => {
 export const getProductionQueue = async (req, res, next) => {
   try {
     const where = {
-      production_status: 'queue'
+      production_status: { [Op.in]: ['queue'] }
     };
 
     // Branch filtering
@@ -1497,8 +1450,26 @@ export const cancelSale = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    // Get order with row-level lock to prevent race conditions
+    // First, lock the SalesOrder row without includes to avoid PostgreSQL FOR UPDATE error
+    // PostgreSQL doesn't allow FOR UPDATE on queries with LEFT OUTER JOINs
     const order = await SalesOrder.findByPk(id, {
+      lock: transaction.LOCK.UPDATE,
+      transaction
+    });
+
+    if (!order) {
+      await safeRollback(transaction);
+      return res.status(404).json({ error: 'Sales order not found' });
+    }
+
+    // Block cancellation of produced or delivered orders
+    if (order.production_status === 'produced' || order.production_status === 'delivered') {
+      await safeRollback(transaction);
+      return res.status(400).json({ error: 'Cannot cancel an order that has been produced or delivered' });
+    }
+
+    // Now fetch the related data separately (without lock, since order is already locked)
+    const orderWithRelations = await SalesOrder.findByPk(id, {
       include: [
         { model: Customer, as: 'customer' },
         {
@@ -1519,22 +1490,10 @@ export const cancelSale = async (req, res, next) => {
           ]
         }
       ],
-      lock: transaction.LOCK.UPDATE,
       transaction
     });
 
-    if (!order) {
-      await safeRollback(transaction);
-      return res.status(404).json({ error: 'Sales order not found' });
-    }
-
-    // Only allow cancellation of unpaid orders
-    if (order.payment_status === 'paid') {
-      await safeRollback(transaction);
-      return res.status(400).json({ error: 'Cannot cancel a paid order' });
-    }
-
-    // Reverse ledger entry if this was an invoice with a customer
+    // Delete ledger entry if this was an invoice with a customer
     if (order.order_type === 'invoice' && order.customer_id) {
       // Get customer with lock to ensure balance consistency
       const customer = await Customer.findByPk(order.customer_id, {
@@ -1543,28 +1502,43 @@ export const cancelSale = async (req, res, next) => {
       });
 
       if (customer) {
-        // Create reversing ledger entry for audit trail (handles balance update automatically)
-        await createLedgerEntry(
-          order.customer_id,
-          'customer',
-          {
-            transaction_date: new Date(),
-            transaction_type: 'ADJUSTMENT',
-            transaction_id: order.id,
-            description: `Cancelled Invoice ${order.invoice_number}`,
-            debit_amount: 0,
-            credit_amount: parseFloat(order.total_amount),
-            branch_id: order.branch_id,
-            created_by: req.user.id
+        // Find and delete the INVOICE ledger entry instead of creating an ADJUSTMENT
+        const invoiceEntry = await LedgerEntry.findOne({
+          where: {
+            contact_id: order.customer_id,
+            contact_type: 'customer',
+            transaction_type: 'INVOICE',
+            transaction_id: order.id
           },
           transaction
-        );
+        });
+
+        if (invoiceEntry) {
+          // Store the transaction date and branch_id before deletion for recalculation
+          const entryDate = invoiceEntry.transaction_date;
+          const entryBranchId = invoiceEntry.branch_id;
+
+          // Delete the ledger entry
+          await invoiceEntry.destroy({ transaction });
+
+          // Recalculate all subsequent balances after deletion
+          await recalculateSubsequentBalances(
+            order.customer_id,
+            'customer',
+            entryDate,
+            entryBranchId,
+            transaction
+          );
+        } else {
+          // Log warning if entry not found, but continue with cancellation
+          console.warn(`Invoice ledger entry not found for cancelled sale ${order.id} (${order.invoice_number})`);
+        }
       }
     }
 
     // Reverse ItemAssignments and restore inventory for invoices with assignments
-    if (order.order_type === 'invoice' && order.items) {
-      for (const item of order.items) {
+    if (orderWithRelations.order_type === 'invoice' && orderWithRelations.items) {
+      for (const item of orderWithRelations.items) {
         if (item.assignments && item.assignments.length > 0) {
           for (const assignment of item.assignments) {
             // Get inventory batch with row-level lock
@@ -1618,19 +1592,16 @@ export const cancelSale = async (req, res, next) => {
 
 /**
  * GET /api/sales/manufacturing-approvals
- * Get sales pending manufacturing approval
- * NOTE: Includes sales with pending discounts - they need manufacturing approval after discount is approved
+ * Get all sales pending manufacturing approval (replaces sales approval)
+ * All invoices start with production_status 'na' and require approval before moving to queue
  */
 export const getManufacturingApprovals = async (req, res, next) => {
   try {
-    // Get all sales with manufactured items that are in 'na' status (pending manufacturing approval)
-    // Include sales regardless of discount_status (pending discounts still need manufacturing approval)
-    // Include branch filtering
+    // Get all sales in 'na' status (pending manufacturing approval)
+    // Manufacturing approval now handles ALL sales, not just those with manufactured items
     const where = {
       production_status: 'na',
       order_type: 'invoice'
-      // Note: We don't filter by discount_status - sales with pending discounts should also appear
-      // as they will need manufacturing approval once the discount is approved
     };
 
     // Branch filtering
@@ -1660,15 +1631,7 @@ export const getManufacturingApprovals = async (req, res, next) => {
       order: [['created_at', 'ASC']]
     });
 
-    // Filter to only include orders that have at least one manufactured item
-    const filteredApprovals = approvals.filter(order => {
-      return order.items?.some(item => {
-        const product = item.product;
-        return product && (product.type === 'manufactured' || product.type === 'manufactured_virtual' || product.is_manufactured_virtual);
-      });
-    });
-
-    res.json({ orders: filteredApprovals });
+    res.json({ orders: approvals });
   } catch (error) {
     next(error);
   }
@@ -1677,6 +1640,8 @@ export const getManufacturingApprovals = async (req, res, next) => {
 /**
  * PUT /api/sales/:id/approve-manufacturing
  * Approve sale for production -> moves to queue
+ * Manufacturing approval replaces sales approval - handles ALL sales regardless of product type
+ * Also checks customer ledger balance for auto-payment (sale marked as paid if customer has sufficient balance)
  */
 export const approveManufacturing = async (req, res, next) => {
   const transaction = await sequelize.transaction();
@@ -1696,29 +1661,68 @@ export const approveManufacturing = async (req, res, next) => {
 
     if (order.production_status !== 'na') {
       await safeRollback(transaction);
-      return res.status(400).json({ error: 'Order is not pending manufacturing approval' });
+      // If already queue, allow idempotent success (optional, but requested logic implies just moving it forward)
+      if (order.production_status === 'queue') {
+        return res.json({ message: 'Sale already approved for production', order });
+      }
+      return res.status(400).json({ error: 'Order is not pending approval' });
     }
 
-    // Verify order has manufactured items
-    const items = await SalesItem.findAll({
-      where: { order_id: order.id },
-      include: [{ model: Product, as: 'product' }],
-      transaction
-    });
-
-    const hasManufacturedItems = items.some(item => {
-      const product = item.product;
-      return product && (product.type === 'manufactured' || product.type === 'manufactured_virtual' || product.is_manufactured_virtual);
-    });
-
-    if (!hasManufacturedItems) {
-      await safeRollback(transaction);
-      return res.status(400).json({ error: 'Order does not contain manufactured items' });
+    // Ledger Balance Check for Auto-Payment
+    if (order.customer_id && order.payment_status === 'unpaid') {
+      const customer = await Customer.findByPk(order.customer_id, { transaction });
+      if (customer) {
+        const totalAmount = parseFloat(order.total_amount);
+        // ledger_balance is (Debits - Credits). Negative means Credit.
+        if (parseFloat(customer.ledger_balance) <= -totalAmount) {
+          order.payment_status = 'paid';
+        }
+      }
     }
 
     // Approve -> Queue
     order.production_status = 'queue';
     await order.save({ transaction });
+
+    // Ensure ledger entry exists for invoices with customers
+    // This is a fallback in case ledger entry creation failed during sale creation
+    if (order.order_type === 'invoice' && order.customer_id && parseFloat(order.total_amount) > 0) {
+      try {
+        // Check if ledger entry already exists
+        const existingEntry = await LedgerEntry.findOne({
+          where: {
+            transaction_id: order.id,
+            transaction_type: 'INVOICE',
+            contact_id: order.customer_id,
+            contact_type: 'customer'
+          },
+          transaction
+        });
+
+        // Create ledger entry if it doesn't exist
+        if (!existingEntry) {
+          await createLedgerEntry(
+            order.customer_id,
+            'customer',
+            {
+              transaction_date: order.created_at || new Date(),
+              transaction_type: 'INVOICE',
+              transaction_id: order.id,
+              description: `Invoice ${order.invoice_number}`,
+              debit_amount: parseFloat(order.total_amount),
+              credit_amount: 0,
+              branch_id: order.branch_id,
+              created_by: req.user.id
+            },
+            transaction
+          );
+        }
+      } catch (ledgerError) {
+        // Log error but don't fail the approval
+        // The sale should still be approved even if ledger entry creation fails
+        console.error('Error creating ledger entry during approval for sale:', order.id, ledgerError);
+      }
+    }
 
     await transaction.commit();
 
@@ -1779,4 +1783,5 @@ export const rejectManufacturing = async (req, res, next) => {
     next(error);
   }
 };
+
 

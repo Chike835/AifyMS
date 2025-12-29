@@ -38,7 +38,6 @@ export const VALID_PAYMENT_STATUSES = Object.values(PAYMENT_STATUS);
  */
 export const PRODUCTION_STATUS = {
     QUEUE: 'queue',
-    PROCESSING: 'processing',
     PRODUCED: 'produced',
     DELIVERED: 'delivered',
     NA: 'na'

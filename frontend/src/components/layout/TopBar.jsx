@@ -33,15 +33,12 @@ const TopBar = ({ toggleSidebar }) => {
             markAsRead(notif.id);
         }
         // Navigate based on type
-        if (notif.type === 'discount_request' && user.permissions?.includes('sale_discount_approve')) {
-            navigate('/discount-approvals');
-            setShowNotifications(false);
-        }
+        // Add other notification type handlers here as needed
     };
 
     return (
         <header className="fixed top-0 left-0 right-0 h-16 bg-white z-30 px-4 flex items-center justify-between shadow-sm">
-            {/* Left: Mobile Menu & POS */}
+            {/* Left: Mobile Menu */}
             <div className="flex items-center gap-4">
                 <button
                     onClick={toggleSidebar}
@@ -50,18 +47,19 @@ const TopBar = ({ toggleSidebar }) => {
                 >
                     <Menu className="h-6 w-6" />
                 </button>
+            </div>
 
-                <Link
-                    to="/pos"
+            {/* Right: POS, Notifications & Account */}
+            <div className="flex items-center gap-4">
+                {/* POS Button */}
+                <button
+                    onClick={() => window.open('/pos', '_blank')}
                     className="flex items-center gap-2 px-4 py-2 bg-blue-900 text-white rounded-lg hover:bg-blue-800 transition-colors shadow-sm"
                 >
                     <Store className="h-5 w-5" />
                     <span className="font-medium">POS</span>
-                </Link>
-            </div>
+                </button>
 
-            {/* Right: Notifications & Account */}
-            <div className="flex items-center gap-4">
                 {/* Notifications */}
                 <div className="relative" ref={notifRef}>
                     <button

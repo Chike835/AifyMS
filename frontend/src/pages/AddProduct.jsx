@@ -153,7 +153,8 @@ const MultiSelectTags = ({ label, options, selectedIds, onChange }) => {
 const productTypes = [
   { value: 'standard', label: 'Single' },
   { value: 'compound', label: 'Combo' },
-  { value: 'variable', label: 'Variable' }
+  { value: 'variable', label: 'Variable' },
+  { value: 'manufactured_virtual', label: 'Manufactured (Virtual)' }
 ];
 
 const sellingPriceTaxTypes = [
@@ -345,8 +346,9 @@ const AddProduct = () => {
   };
 
   // Page-level toggles
-  const [manageStock, setManageStock] = useState(false);
+  const [manageStock, setManageStock] = useState(true);
   const [notForSelling, setNotForSelling] = useState(false);
+  const [propagateSettingsToVariants, setPropagateSettingsToVariants] = useState(false);
 
   // Product Information
   const [productName, setProductName] = useState('');
@@ -793,6 +795,11 @@ const AddProduct = () => {
         variation_ids: productType === 'variable' ? selectedVariations : []
       };
 
+      // Include propagate flag only in edit mode
+      if (isEditMode) {
+        payload.propagate_settings_to_variants = propagateSettingsToVariants;
+      }
+
       let response;
       let finalProductId = id;
 
@@ -880,9 +887,16 @@ const AddProduct = () => {
           <h1 className="text-2xl font-bold text-gray-900">{isEditMode ? 'Edit Product' : 'Add new product'}</h1>
           <p className="text-sm text-primary-600">Manage your products</p>
         </div>
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-6 flex-wrap">
           <Toggle checked={manageStock} onChange={setManageStock} label="Manage Stock?" />
           <Toggle checked={notForSelling} onChange={setNotForSelling} label="Not for selling" />
+          {isEditMode && productType === 'variable' && product?.variants?.length > 0 && (
+            <Toggle 
+              checked={propagateSettingsToVariants} 
+              onChange={setPropagateSettingsToVariants} 
+              label="Propagate settings to all variants"
+            />
+          )}
         </div>
       </div>
 

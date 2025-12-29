@@ -626,6 +626,7 @@ const Quotations = () => {
       <ManufacturedItemSelector
         isOpen={showCoilSelector}
         items={quotationToConvert?.items || []}
+        branchId={quotationToConvert?.branch_id}
         onConfirm={handleCoilSelectionConfirm}
         onCancel={handleCoilSelectionCancel}
       />

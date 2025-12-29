@@ -390,6 +390,23 @@ const Sidebar = ({ isCollapsed, onToggle }) => {
     // Generate unique key: path + name + action (if present) + icon name as fallback
     const uniqueKey = `${item.path || ''}-${item.name || ''}-${item.action || ''}-${Icon.name || 'icon'}`;
 
+    // Special handling for POS - open in new tab
+    if (item.path === '/pos') {
+      return (
+        <button
+          key={uniqueKey}
+          onClick={() => window.open('/pos', '_blank')}
+          className={`flex items-center space-x-3 px-4 py-2 rounded-lg transition-colors text-sm w-full text-left ${isActive
+            ? 'bg-primary-600 text-white'
+            : 'text-gray-300 hover:bg-gray-800'
+            }`}
+        >
+          <Icon className="h-4 w-4" />
+          <span>{item.name}</span>
+        </button>
+      );
+    }
+
     return (
       <Link
         key={uniqueKey}

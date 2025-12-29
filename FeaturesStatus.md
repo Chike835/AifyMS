@@ -55,6 +55,7 @@
 | **Inventory** | Stock transfer page (/inventory/stock-transfer) | [x] | [ ] |
 | **Inventory** | Stock adjustment page (/inventory/stock-adjustment) | [x] | [ ] |
 | **Inventory** | Inventory settings page (/inventory/settings) | [x] | [ ] |
+| **Inventory** | Slitting / Coil Conversion (Loose to Coil) | [x] | [ ] |
 
 ---
 
@@ -69,6 +70,8 @@
 | **Manufacturing** | Production status page (/manufacturing/status) | [x] | [ ] |
 | **Manufacturing** | Recipes management page (/manufacturing/recipes) | [x] | [ ] |
 | **Manufacturing** | Production list page (/manufacturing/production) | [x] | [ ] |
+| **Manufacturing** | Recipe-based raw material auto-proposal (POS & draft/quotation), user-confirmed before deduction | [x] | [ ] |
+| **Manufacturing** | Universal recipe material selector UI (MaterialSelectorModal shared in POS/draft flows) | [x] | [ ] |
 
 ---
 
@@ -238,15 +241,6 @@
 
 ---
 
-## Discount Approvals
-
-| Feature Category | Sub-Feature | Built (AI) | Working (User) |
-|-----------------|-------------|------------|----------------|
-| **Discount Approvals** | Discount approval workflow (maker-checker) | [x] | [ ] |
-| **Discount Approvals** | Discount approval API (approve/decline/restore) | [x] | [ ] |
-| **Discount Approvals** | Discount approvals page (/discount-approvals) | [x] | [ ] |
-| **Discount Approvals** | Notification integration for approval requests | [x] | [ ] |
-
 ---
 
 ## Product Attributes
@@ -274,8 +268,8 @@
 
 ## Summary Statistics
 
-**Total Features:** 101 (3 removed)  
-**Built (AI):** 101  
+**Total Features:** 102 (3 removed)  
+**Built (AI):** 102  
 **Removed:** 3 (Color management, Gauge category toggles, Gauge/Color/Design dropdowns)  
 **Not Built:** 0  
 **Working (User):** 0 (pending user confirmation)
@@ -295,6 +289,7 @@
 
 ## Recent Additions (v1.0.1)
 
-- **Notifications System:** In-app notification system with read/unread tracking, integrated with discount approvals
-- **Discount Approvals:** Maker-checker workflow for sales discounts requiring approval, with notification integration
+- **Slitting / Coil Conversion:** Feature to convert "Loose" batch quantity into individual "Coil" instances.
+- **Notifications System:** In-app notification system with read/unread tracking
+- **Manufacturing Auto-Proposal:** FIFO batch proposal endpoint + POS/draft UI auto-select with user confirmation (no auto deduction)
 

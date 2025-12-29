@@ -52,6 +52,7 @@ const SalesItem = sequelize.define('SalesItem', {
   tableName: 'sales_items',
   timestamps: false,
   underscored: true,
+  paranoid: true, // Enable soft deletes
   validate: {
     quantityCheck() {
       if (this.quantity <= 0) {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Check, ChevronLeft, ChevronRight, Package, AlertCircle } from 'lucide-react';
+import { X, Check, ChevronLeft, ChevronRight, Package, AlertCircle, Wand2 } from 'lucide-react';
 import api from '../../utils/api';
 
 /**
@@ -12,7 +12,7 @@ import api from '../../utils/api';
  * - onConfirm: function(itemAssignments) - called with the collected assignments
  * - onCancel: function - called when user cancels
  */
-const ManufacturedItemSelector = ({ isOpen, items, onConfirm, onCancel }) => {
+const ManufacturedItemSelector = ({ isOpen, items, onConfirm, onCancel, branchId }) => {
   // Filter items to only those that need coil selection
   const [manufacturedItems, setManufacturedItems] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -23,12 +23,12 @@ const ManufacturedItemSelector = ({ isOpen, items, onConfirm, onCancel }) => {
   const [availableCoils, setAvailableCoils] = useState([]);
   const [selectedCoils, setSelectedCoils] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [autoLoading, setAutoLoading] = useState(false);
   const [error, setError] = useState('');
 
   // Initialize items with recipes when modal opens
   useEffect(() => {
     if (isOpen && items) {
-      // Filter items that have recipes (check via API)
       const checkRecipes = async () => {
         const itemsWithRecipes = [];
         for (const item of items) {
@@ -44,16 +44,14 @@ const ManufacturedItemSelector = ({ isOpen, items, onConfirm, onCancel }) => {
           }
         }
         setManufacturedItems(itemsWithRecipes);
+        if (itemsWithRecipes.length === 0) {
+          onConfirm({});
+        }
       };
       checkRecipes();
       setCurrentIndex(0);
       setAssignments({});
       setSelectedCoils([]);
-      
-      if (manuItems.length === 0) {
-        // No manufactured items, just confirm with empty assignments
-        onConfirm({});
-      }
     }
   }, [isOpen, items]);
 
@@ -84,7 +82,9 @@ const ManufacturedItemSelector = ({ isOpen, items, onConfirm, onCancel }) => {
       setRecipe(recipeData);
 
       // Fetch available coils for the raw product
-      const batchesResponse = await api.get(`/inventory/batches/available/${recipeData.raw_product_id}`);
+      const batchesResponse = await api.get(`/inventory/batches/available/${recipeData.raw_product_id}`, {
+        params: branchId ? { branch_id: branchId } : undefined
+      });
       setAvailableCoils(batchesResponse.data.batches || []);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to load recipe or available coils');
@@ -94,11 +94,12 @@ const ManufacturedItemSelector = ({ isOpen, items, onConfirm, onCancel }) => {
   };
 
   const currentItem = manufacturedItems[currentIndex];
-  const requiredKg = recipe && currentItem 
+  const requiredQuantity = recipe && currentItem 
     ? parseFloat(currentItem.quantity) * parseFloat(recipe.conversion_factor) 
     : 0;
   const selectedTotal = selectedCoils.reduce((sum, coil) => sum + parseFloat(coil.quantity_deducted || 0), 0);
-  const isCurrentValid = selectedTotal >= requiredKg - 0.001;
+  const isCurrentValid = selectedTotal >= requiredQuantity - 0.001;
+  const rawProductUnit = recipe?.raw_product?.base_unit || 'KG';
 
   const toggleCoilSelection = (coil) => {
     setSelectedCoils((prev) => {
@@ -131,7 +132,8 @@ const ManufacturedItemSelector = ({ isOpen, items, onConfirm, onCancel }) => {
 
   const handleNext = () => {
     if (!isCurrentValid) {
-      setError(`Selected quantity (${selectedTotal.toFixed(3)} KG) is less than required (${requiredKg.toFixed(3)} KG)`);
+      const unit = recipe?.raw_product?.base_unit || 'KG';
+      setError(`Selected quantity (${selectedTotal.toFixed(3)} ${unit}) is less than required (${requiredQuantity.toFixed(3)} ${unit})`);
       return;
     }
     
@@ -163,6 +165,52 @@ const ManufacturedItemSelector = ({ isOpen, items, onConfirm, onCancel }) => {
     }
   };
 
+  const handleAutoSelect = async () => {
+    if (!currentItem) return;
+    setAutoLoading(true);
+    setError('');
+    try {
+      const response = await api.post('/production/assign-material/proposal', {
+        product_id: currentItem.product.id,
+        quantity: currentItem.quantity,
+        branch_id: branchId || currentItem.branch_id || currentItem.order?.branch_id || null
+      });
+
+      const proposal = response.data?.proposal;
+      if (!proposal?.suggestions?.length) {
+        setError('No automatic proposal available for this item');
+        return;
+      }
+
+      // Ensure recipe is available for calculations
+      if (!recipe && proposal.recipe) {
+        setRecipe({
+          id: proposal.recipe.id,
+          conversion_factor: proposal.recipe.conversion_factor,
+          raw_product_id: proposal.recipe.raw_product_id,
+          raw_product: { 
+            name: proposal.recipe.raw_product_name,
+            base_unit: proposal.recipe.raw_product_base_unit
+          }
+        });
+      }
+
+      setSelectedCoils(
+        proposal.suggestions.map((s) => ({
+          inventory_batch_id: s.inventory_batch_id,
+          instance_code: s.instance_code,
+          available_quantity: parseFloat(s.available_quantity || s.remaining_quantity || 0),
+          quantity_deducted: parseFloat(s.quantity_deducted || 0),
+          batch_identifier: s.batch_identifier || null
+        }))
+      );
+    } catch (err) {
+      setError(err?.response?.data?.error || err?.message || 'Failed to auto-select materials');
+    } finally {
+      setAutoLoading(false);
+    }
+  };
+
   if (!isOpen || manufacturedItems.length === 0) return null;
 
   return (
@@ -180,16 +228,27 @@ const ManufacturedItemSelector = ({ isOpen, items, onConfirm, onCancel }) => {
             </p>
             {recipe && (
               <p className="text-sm font-medium text-primary-600 mt-2">
-                Required: {requiredKg.toFixed(3)} KG of {recipe.raw_product?.name || 'raw material'}
+                Required: {requiredQuantity.toFixed(3)} {rawProductUnit} of {recipe.raw_product?.name || 'raw material'}
               </p>
             )}
           </div>
-          <button
-            onClick={onCancel}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <X className="h-6 w-6" />
-          </button>
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={handleAutoSelect}
+              disabled={autoLoading}
+              className="px-3 py-2 border border-primary-200 text-primary-700 bg-primary-50 rounded-lg hover:bg-primary-100 disabled:opacity-50 flex items-center space-x-2 transition-colors"
+              title="Auto-select batches based on recipe (no stock deducted until you confirm)"
+            >
+              <Wand2 className="h-4 w-4" />
+              <span>{autoLoading ? 'Proposing...' : 'Auto-select from recipe'}</span>
+            </button>
+            <button
+              onClick={onCancel}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <X className="h-6 w-6" />
+            </button>
+          </div>
         </div>
 
         {/* Progress Bar */}
@@ -287,18 +346,18 @@ const ManufacturedItemSelector = ({ isOpen, items, onConfirm, onCancel }) => {
                   <div className="flex justify-between items-center">
                     <span className="font-medium text-gray-700">Selected Total:</span>
                     <span className={`text-lg font-bold ${isCurrentValid ? 'text-green-600' : 'text-red-600'}`}>
-                      {selectedTotal.toFixed(3)} KG
+                      {selectedTotal.toFixed(3)} {rawProductUnit}
                     </span>
                   </div>
                   <div className="flex justify-between items-center mt-2">
                     <span className="text-sm text-gray-600">Required:</span>
                     <span className="text-sm font-medium text-gray-900">
-                      {requiredKg.toFixed(3)} KG
+                      {requiredQuantity.toFixed(3)} {rawProductUnit}
                     </span>
                   </div>
                   {!isCurrentValid && (
                     <p className="text-sm text-red-600 mt-2">
-                      Need {(requiredKg - selectedTotal).toFixed(3)} KG more
+                      Need {(requiredQuantity - selectedTotal).toFixed(3)} {rawProductUnit} more
                     </p>
                   )}
                 </div>

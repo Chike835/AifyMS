@@ -303,8 +303,7 @@ export const confirmPayment = async (req, res, next) => {
         where: {
           customer_id: customer.id,
           payment_status: { [Op.in]: ['unpaid', 'partial'] },
-          order_type: 'invoice',
-          discount_status: { [Op.ne]: 'pending' } // Only check invoices that are not pending discount approval
+          order_type: 'invoice'
         },
         order: [['created_at', 'ASC']],
         transaction
@@ -579,6 +578,229 @@ export const declinePayment = async (req, res, next) => {
     await transaction.commit();
 
     res.json({ message: 'Payment declined successfully', payment });
+
+  } catch (error) {
+    await transaction.rollback();
+    next(error);
+  }
+};
+
+/**
+ * DELETE /api/payments/:id
+ * Delete a payment from the ledger
+ * Permission: payment_delete
+ * 
+ * Rules:
+ * - Cannot delete if payment is linked to sales orders that are marked as paid AND still exist in ledger
+ * - Deletes payment, ledger entry, recalculates balances, and refreshes sales order payment statuses
+ */
+export const deletePayment = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+
+    const payment = await Payment.findByPk(id, {
+      lock: transaction.LOCK.UPDATE,
+      transaction,
+      include: [
+        { model: Customer, as: 'customer' },
+        { model: Supplier, as: 'supplier' }
+      ]
+    });
+
+    if (!payment) {
+      await safeRollback(transaction);
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+
+    // Get contact with lock
+    let customer = null;
+    let supplier = null;
+    const contactType = payment.customer_id ? 'customer' : 'supplier';
+    const contactId = payment.customer_id || payment.supplier_id;
+
+    if (payment.customer_id) {
+      customer = await Customer.findByPk(payment.customer_id, {
+        lock: transaction.LOCK.UPDATE,
+        transaction
+      });
+      if (!customer) {
+        await safeRollback(transaction);
+        return res.status(404).json({ error: 'Customer not found' });
+      }
+    } else if (payment.supplier_id) {
+      supplier = await Supplier.findByPk(payment.supplier_id, {
+        lock: transaction.LOCK.UPDATE,
+        transaction
+      });
+      if (!supplier) {
+        await safeRollback(transaction);
+        return res.status(404).json({ error: 'Supplier not found' });
+      }
+    }
+
+    // For customer payments, check if deletion would break sales order production status
+    if (customer) {
+      // Find all sales orders for this customer that are marked as produced or delivered
+      const producedSalesOrders = await SalesOrder.findAll({
+        where: {
+          customer_id: customer.id,
+          production_status: { [Op.in]: ['produced', 'delivered'] },
+          order_type: 'invoice'
+        },
+        transaction
+      });
+
+      // If there are sales orders with production_status of 'produced' or 'delivered', block deletion
+      if (producedSalesOrders.length > 0) {
+        await safeRollback(transaction);
+        const invoiceNumbers = producedSalesOrders
+          .map(so => so.invoice_number || so.id)
+          .join(', ');
+        return res.status(400).json({
+          error: `Cannot delete payment. The following invoices have production status of 'produced' or 'delivered': ${invoiceNumbers}. Please cancel those invoices first if you need to delete the payment.`
+        });
+      }
+    }
+
+    // Find the ledger entry for this payment
+    const ledgerEntry = await LedgerEntry.findOne({
+      where: {
+        contact_id: contactId,
+        contact_type: contactType,
+        transaction_type: 'PAYMENT',
+        transaction_id: payment.id
+      },
+      transaction
+    });
+
+    // Store entry details for recalculation before deletion
+    let entryDate = null;
+    let entryBranchId = null;
+    if (ledgerEntry) {
+      entryDate = ledgerEntry.transaction_date;
+      entryBranchId = ledgerEntry.branch_id;
+    }
+
+    // Delete account transaction if payment was confirmed
+    if (payment.status === 'confirmed' && payment.payment_account_id) {
+      await AccountTransaction.destroy({
+        where: {
+          payment_id: payment.id
+        },
+        transaction
+      });
+    }
+
+    // Delete ledger entry if it exists
+    if (ledgerEntry) {
+      await ledgerEntry.destroy({ transaction });
+    }
+
+    // Delete the payment
+    await payment.destroy({ transaction });
+
+    // Recalculate balances if we deleted a ledger entry
+    if (ledgerEntry && entryDate) {
+      await recalculateSubsequentBalances(
+        contactId,
+        contactType,
+        entryDate,
+        entryBranchId,
+        transaction
+      );
+    }
+
+    // Refresh sales order payment statuses for customer payments
+    if (customer) {
+      const updatedBalance = parseFloat(customer.ledger_balance);
+      
+      // Get all unpaid invoices for this customer, ordered by date (oldest first)
+      const unpaidInvoices = await SalesOrder.findAll({
+        where: {
+          customer_id: customer.id,
+          payment_status: { [Op.in]: ['unpaid', 'partial'] },
+          order_type: 'invoice'
+        },
+        order: [['created_at', 'ASC']],
+        transaction
+      });
+
+      // Process invoices in order, marking as paid if balance covers them
+      let remainingCredit = -updatedBalance; // Negative balance = credit available
+      for (const invoice of unpaidInvoices) {
+        const invoiceAmount = parseFloat(invoice.total_amount);
+        
+        // Check if we have enough credit to cover this invoice
+        if (remainingCredit >= invoiceAmount) {
+          invoice.payment_status = 'paid';
+          await invoice.save({ transaction });
+          remainingCredit -= invoiceAmount;
+        } else if (remainingCredit > 0) {
+          // Partial payment
+          invoice.payment_status = 'partial';
+          await invoice.save({ transaction });
+          remainingCredit = 0; // No more credit left
+          break;
+        } else {
+          // No more credit, mark as unpaid
+          if (invoice.payment_status !== 'unpaid') {
+            invoice.payment_status = 'unpaid';
+            await invoice.save({ transaction });
+          }
+          break;
+        }
+      }
+
+      // Also check if any previously paid invoices should now be unpaid
+      const paidInvoices = await SalesOrder.findAll({
+        where: {
+          customer_id: customer.id,
+          payment_status: 'paid',
+          order_type: 'invoice'
+        },
+        order: [['created_at', 'ASC']],
+        transaction
+      });
+
+      // Check if we still have enough credit for all paid invoices
+      let totalPaidAmount = 0;
+      for (const invoice of paidInvoices) {
+        totalPaidAmount += parseFloat(invoice.total_amount);
+      }
+
+      // If customer balance (negative = credit) is less than total paid amount, mark some as unpaid
+      if (-updatedBalance < totalPaidAmount) {
+        // Mark invoices as unpaid starting from the newest
+        const sortedPaidInvoices = [...paidInvoices].reverse();
+        let creditNeeded = totalPaidAmount + updatedBalance; // How much credit we're short
+
+        for (const invoice of sortedPaidInvoices) {
+          if (creditNeeded > 0) {
+            const invoiceAmount = parseFloat(invoice.total_amount);
+            invoice.payment_status = 'unpaid';
+            await invoice.save({ transaction });
+            creditNeeded -= invoiceAmount;
+          } else {
+            break;
+          }
+        }
+      }
+    }
+
+    await logActivitySync(
+      'DELETE',
+      'payments',
+      `Deleted payment of ${formatCurrency(payment.amount)}`,
+      req,
+      'payment',
+      payment.id
+    );
+
+    await transaction.commit();
+
+    res.json({ message: 'Payment deleted successfully' });
 
   } catch (error) {
     await transaction.rollback();
@@ -923,8 +1145,7 @@ export const confirmAdvancePayment = async (req, res, next) => {
       where: {
         customer_id: customer.id,
         payment_status: { [Op.in]: ['unpaid', 'partial'] },
-        order_type: 'invoice',
-        discount_status: { [Op.ne]: 'pending' } // Only check invoices that are not pending discount approval
+        order_type: 'invoice'
       },
       order: [['created_at', 'ASC']],
       transaction

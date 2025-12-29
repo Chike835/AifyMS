@@ -71,11 +71,20 @@ const Inventory = () => {
   });
 
   // Fetch all products - include variant children, exclude parent variable products
+  // Only include products that manage stock (manage_stock = true)
+  // Include both selling and NOT SELLING products as long as they manage stock
   const { data: products } = useQuery({
     queryKey: ['products', 'all_inventory', 'with_variants'],
     queryFn: async () => {
       // Get all products including variant children (backend filters to exclude parent variable products)
-      const response = await api.get('/products', { params: { include_variants: 'true' } });
+      // Filter by manage_stock: 'true' to only include products that track inventory
+      // Do NOT filter by not_for_selling - include all (both selling and not-for-selling)
+      const response = await api.get('/products', { 
+        params: { 
+          include_variants: 'true',
+          manage_stock: 'true'  // Only include products that manage stock
+        } 
+      });
       return response.data.products || [];
     },
   });

@@ -66,7 +66,7 @@ export const transferBatch = async (req, res, next) => {
         product_id: batch.product_id,
         branch_id: to_branch_id,
         category_id: batch.category_id,
-        instance_code: batch.grouped ? null : null, // New batch gets new code if needed
+        instance_code: batch.grouped ? `${(batch.instance_code || 'BATCH').substring(0, 85)}-T${Date.now().toString().slice(-6)}` : null,
         batch_type_id: batch.batch_type_id,
         grouped: batch.grouped,
         batch_identifier: batch.batch_identifier,

@@ -1,4 +1,4 @@
-import { Product, InventoryBatch, Branch, Customer, Supplier, Category, Unit, Purchase, PurchaseItem, PaymentAccount, AccountTransaction } from '../models/index.js';
+import { Product, InventoryBatch, Branch, Customer, Supplier, Category, Unit, Purchase, PurchaseItem, PaymentAccount, AccountTransaction, Recipe } from '../models/index.js';
 import { Op } from 'sequelize';
 import XLSX from 'xlsx';
 import sequelize from '../config/db.js';
@@ -1294,6 +1294,148 @@ export const importPaymentAccounts = async (data, user, errors = []) => {
           });
         }
 
+        results.created++;
+      }
+    } catch (error) {
+      results.errors.push({
+        row: rowNum,
+        error: error.message || 'Unknown error'
+      });
+      results.skipped++;
+    }
+  }
+
+  return results;
+};
+
+/**
+ * Import recipes from CSV/JSON data
+ * Expected columns: name, virtual_product_sku, raw_product_sku, conversion_factor, wastage_margin
+ */
+export const importRecipes = async (data, user, errors = []) => {
+  const results = {
+    created: 0,
+    updated: 0,
+    skipped: 0,
+    errors: []
+  };
+
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    const rowNum = i + 2;
+
+    try {
+      // Validate required fields
+      if (!row.name || (typeof row.name === 'string' && row.name.trim() === '')) {
+        results.errors.push({
+          row: rowNum,
+          error: 'Missing required field: name'
+        });
+        results.skipped++;
+        continue;
+      }
+
+      if (!row.virtual_product_sku || (typeof row.virtual_product_sku === 'string' && row.virtual_product_sku.trim() === '')) {
+        results.errors.push({
+          row: rowNum,
+          error: 'Missing required field: virtual_product_sku'
+        });
+        results.skipped++;
+        continue;
+      }
+
+      if (!row.raw_product_sku || (typeof row.raw_product_sku === 'string' && row.raw_product_sku.trim() === '')) {
+        results.errors.push({
+          row: rowNum,
+          error: 'Missing required field: raw_product_sku'
+        });
+        results.skipped++;
+        continue;
+      }
+
+      if (row.conversion_factor === undefined || row.conversion_factor === null || row.conversion_factor === '') {
+        results.errors.push({
+          row: rowNum,
+          error: 'Missing required field: conversion_factor'
+        });
+        results.skipped++;
+        continue;
+      }
+
+      // Find virtual product by SKU
+      const virtualProduct = await Product.findOne({ 
+        where: { sku: row.virtual_product_sku.trim() } 
+      });
+      if (!virtualProduct) {
+        results.errors.push({
+          row: rowNum,
+          error: `Virtual product with SKU "${row.virtual_product_sku}" not found`
+        });
+        results.skipped++;
+        continue;
+      }
+
+      // Find raw product by SKU
+      const rawProduct = await Product.findOne({ 
+        where: { sku: row.raw_product_sku.trim() } 
+      });
+      if (!rawProduct) {
+        results.errors.push({
+          row: rowNum,
+          error: `Raw product with SKU "${row.raw_product_sku}" not found`
+        });
+        results.skipped++;
+        continue;
+      }
+
+      // Parse and validate conversion_factor
+      const conversionFactor = parseFloat(row.conversion_factor);
+      if (isNaN(conversionFactor) || conversionFactor <= 0) {
+        results.errors.push({
+          row: rowNum,
+          error: 'Invalid conversion_factor. Must be a positive number greater than 0'
+        });
+        results.skipped++;
+        continue;
+      }
+
+      // Parse and validate wastage_margin (optional, defaults to 0)
+      let wastageMargin = 0;
+      if (row.wastage_margin !== undefined && row.wastage_margin !== null && row.wastage_margin !== '') {
+        wastageMargin = parseFloat(row.wastage_margin);
+        if (isNaN(wastageMargin) || wastageMargin < 0 || wastageMargin > 100) {
+          results.errors.push({
+            row: rowNum,
+            error: 'Invalid wastage_margin. Must be a number between 0 and 100'
+          });
+          results.skipped++;
+          continue;
+        }
+      }
+
+      // Check if recipe already exists for this combination
+      const existingRecipe = await Recipe.findOne({
+        where: {
+          virtual_product_id: virtualProduct.id,
+          raw_product_id: rawProduct.id
+        }
+      });
+
+      const recipeData = {
+        name: row.name.trim(),
+        virtual_product_id: virtualProduct.id,
+        raw_product_id: rawProduct.id,
+        conversion_factor: conversionFactor,
+        wastage_margin: wastageMargin
+      };
+
+      if (existingRecipe) {
+        // Update existing recipe
+        await existingRecipe.update(recipeData);
+        results.updated++;
+      } else {
+        // Create new recipe
+        await Recipe.create(recipeData);
         results.created++;
       }
     } catch (error) {

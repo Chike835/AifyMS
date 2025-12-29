@@ -28,10 +28,13 @@ const ProductionQueue = () => {
   // Update production status mutation
   const updateStatusMutation = useMutation({
     mutationFn: async ({ orderId, status, workerName }) => {
-      const response = await api.put(`/sales/${orderId}/production-status`, {
+      const payload = {
         production_status: status,
-        worker_name: workerName,
-      });
+      };
+      if (workerName !== undefined && workerName !== null) {
+        payload.worker_name = workerName;
+      }
+      const response = await api.put(`/sales/${orderId}/production-status`, payload);
       return response.data;
     },
     onSuccess: () => {
@@ -75,6 +78,7 @@ const ProductionQueue = () => {
   }
 
   const orders = data || [];
+  const queueOrders = orders.filter(order => order.production_status === 'queue');
 
   return (
     <div>
@@ -112,60 +116,69 @@ const ProductionQueue = () => {
           <p className="text-gray-500 text-lg">No orders in production queue</p>
         </div>
       ) : (
-        <div className="space-y-4">
-          {orders.map((order) => (
-            <div key={order.id} className="bg-white rounded-lg shadow border border-gray-200 p-6">
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center space-x-4 mb-4">
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      {order.invoice_number}
-                    </h3>
-                    <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">
-                      In Queue
-                    </span>
+        <div className="space-y-6">
+          {/* In Queue Section */}
+          {queueOrders.length > 0 && (
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">In Queue ({queueOrders.length})</h2>
+              <div className="space-y-4">
+                {queueOrders.map((order) => (
+                  <div key={order.id} className="bg-white rounded-lg shadow border border-gray-200 p-6">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-4 mb-4">
+                          <h3 className="text-lg font-semibold text-gray-900">
+                            {order.invoice_number}
+                          </h3>
+                          <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                            In Queue
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 text-sm text-gray-600 mb-4">
+                          <div>
+                            <span className="font-medium">Customer:</span>{' '}
+                            {order.customer?.name || 'Walk-in'}
+                          </div>
+                          <div>
+                            <span className="font-medium">Branch:</span> {order.branch?.name}
+                          </div>
+                          <div>
+                            <span className="font-medium">Total:</span> ₦
+                            {parseFloat(order.total_amount).toLocaleString()}
+                          </div>
+                          <div>
+                            <span className="font-medium">Date:</span>{' '}
+                            {new Date(order.created_at).toLocaleDateString()}
+                          </div>
+                        </div>
+                        <div className="mt-4">
+                          <h4 className="text-sm font-medium text-gray-700 mb-2">Items:</h4>
+                          <ul className="space-y-1">
+                            {order.items?.map((item) => (
+                              <li key={item.id} className="text-sm text-gray-600">
+                                {item.product?.name} - {parseFloat(item.quantity).toFixed(2)}{' '}
+                                {item.product?.base_unit}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                      {hasPermission('production_update_status') && (
+                        <button
+                          onClick={() => handleMarkProduced(order)}
+                          className="ml-4 flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                        >
+                          <CheckCircle className="h-5 w-5" />
+                          <span>Mark as Produced</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4 text-sm text-gray-600 mb-4">
-                    <div>
-                      <span className="font-medium">Customer:</span>{' '}
-                      {order.customer?.name || 'Walk-in'}
-                    </div>
-                    <div>
-                      <span className="font-medium">Branch:</span> {order.branch?.name}
-                    </div>
-                    <div>
-                      <span className="font-medium">Total:</span> ₦
-                      {parseFloat(order.total_amount).toLocaleString()}
-                    </div>
-                    <div>
-                      <span className="font-medium">Date:</span>{' '}
-                      {new Date(order.created_at).toLocaleDateString()}
-                    </div>
-                  </div>
-                  <div className="mt-4">
-                    <h4 className="text-sm font-medium text-gray-700 mb-2">Items:</h4>
-                    <ul className="space-y-1">
-                      {order.items?.map((item) => (
-                        <li key={item.id} className="text-sm text-gray-600">
-                          {item.product?.name} - {parseFloat(item.quantity).toFixed(2)}{' '}
-                          {item.product?.base_unit}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-                {hasPermission('production_update_status') && (
-                  <button
-                    onClick={() => handleMarkProduced(order)}
-                    className="ml-4 flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                  >
-                    <CheckCircle className="h-5 w-5" />
-                    <span>Mark as Produced</span>
-                  </button>
-                )}
+                ))}
               </div>
             </div>
-          ))}
+          )}
+
         </div>
       )}
 

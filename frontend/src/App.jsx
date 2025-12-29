@@ -64,7 +64,6 @@ import PaymentAccountReport from './pages/PaymentAccountReport';
 import StockTransfer from './pages/StockTransfer';
 import StockAdjustment from './pages/StockAdjustment';
 import BatchSettings from './pages/inventory/settings/BatchSettings';
-import DiscountApprovals from './pages/DiscountApprovals';
 
 // GaugesColorsSettings removed - feature deprecated in favor of variations
 
@@ -106,9 +105,7 @@ function App() {
                     path="/pos"
                     element={
                       <ProtectedRoute>
-                        <Layout>
-                          <POS />
-                        </Layout>
+                        <POS />
                       </ProtectedRoute>
                     }
                   />
@@ -548,16 +545,6 @@ function App() {
                       <ProtectedRoute>
                         <Layout>
                           <Discounts />
-                        </Layout>
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/discount-approvals"
-                    element={
-                      <ProtectedRoute>
-                        <Layout>
-                          <DiscountApprovals />
                         </Layout>
                       </ProtectedRoute>
                     }
